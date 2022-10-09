@@ -9,4 +9,4 @@ edition = "2021"
 
 
 [workspace]
-members = ["example/numpy_dlpack", "example/from_numpy"]
+members = ["example/from_numpy"]
