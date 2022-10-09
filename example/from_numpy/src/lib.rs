@@ -21,7 +21,7 @@ fn display(managed_tensor: &dlpack::ManagedTensor) {
 
 #[no_mangle]
 unsafe extern "C" fn finalize() {
-    println!("call drop");
+    println!("Rust: call drop");
     if let Some(deleter) = (*GIVEN).deleter {
         deleter(GIVEN);
     }
