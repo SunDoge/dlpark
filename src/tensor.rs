@@ -8,7 +8,7 @@ use std::{
     slice,
 };
 
-use crate::dlpack::{DLManagedTensor, DLTensor, Device};
+use crate::dlpack::{DLManagedTensor, DLTensor, DataType, DataTypeCode, Device, DeviceType};
 
 #[derive(Debug)]
 pub struct Tensor<'a> {
@@ -73,12 +73,48 @@ impl<'a> Tensor<'a> {
     }
 }
 
-// pub struct TensorMaker {
+pub struct TensorBuilder<'a> {
+    data: *mut c_void,
+    shape: &'a [i64],
+    strides: Option<&'a [i64]>,
+    dtype: DataType,
+    device: Device,
+    byte_offset: u64,
+}
 
-//     shape: Vec<i64>,
-//     strides: Option<Vec<i64>>,
-//     dtype: DataType,
-// }
+impl<'a> TensorBuilder<'a> {
+    pub fn new(data: *mut c_void, shape: &'a [i64]) -> Self {
+        Self {
+            data,
+            shape,
+            strides: None,
+            dtype: DataType::default(),
+            device: Device::default(),
+            byte_offset: 0,
+        }
+    }
+
+    pub fn build(mut self) -> Tensor<'a> {
+        let strides = match self.strides {
+            Some(s) => s.as_ptr() as *mut _,
+            None => std::ptr::null_mut(),
+        };
+        let inner = DLTensor {
+            data: self.data,
+            device: self.device,
+            ndim: self.shape.len() as i32,
+            dtype: self.dtype,
+            shape: self.shape.as_ptr() as *mut _,
+            strides: strides,
+            byte_offset: self.byte_offset,
+        };
+
+        Tensor {
+            inner,
+            _marker: PhantomData,
+        }
+    }
+}
 
 // impl TensorMaker {
 //     pub fn new(data: *mut c_void, shape: &[i64]) -> Self {
@@ -90,6 +126,42 @@ impl<'a> Tensor<'a> {
 //     }
 
 //     pub fn shape(&mut self) -> &mut Self {}
+// }
+
+// impl<'a> From<&[f32]> for Tensor<'a> {
+//     fn from(value: &[f32]) -> Self {
+//         let mut shape = [value.len() as i64];
+//         let mut strides = [1];
+//         let inner = DLTensor {
+//             data: value.as_ptr() as *mut _,
+//             device: (DeviceType::Cpu, 0).into(),
+//             ndim: 1,
+//             dtype: (DataTypeCode::Float, 32, 1).into(),
+//             shape: shape.as_mut_ptr(),
+//             strides: strides.as_mut_ptr(),
+//             byte_offset: 0,
+//         };
+//         dbg!(shape);
+//         std::mem::forget(shape);
+//         std::mem::forget(strides);
+
+//         Self {
+//             inner,
+//             _marker: PhantomData,
+//         }
+//     }
+// }
+
+// impl<'a> From<&Tensor<'a>> for Vec<f32> {
+//     fn from(value: &Tensor<'a>) -> Self {
+//         unsafe {
+//             Vec::from_raw_parts(
+//                 value.data() as *mut _,
+//                 value.shape()[0] as _,
+//                 value.shape()[0] as _,
+//             )
+//         }
+//     }
 // }
 
 pub struct ManagerContext<T> {
@@ -227,5 +299,21 @@ impl<'a, T: 'a> ManagedTensor<'a, T> {
             proxy,
             _marker: PhantomData,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn from_vec_f32() {
+        let mut v: Vec<f32> = (0..10).map(|x| x as f32).collect();
+        let shape = vec![v.len() as i64];
+        let tensor = TensorBuilder::new(v.as_mut_ptr() as *mut _, &shape).build();
+        dbg!(&tensor);
+        let v2: &[f32] =
+            unsafe { slice::from_raw_parts(tensor.data() as *const _, tensor.shape()[0] as usize) };
+        dbg!(v2);
     }
 }

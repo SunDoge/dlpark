@@ -9,3 +9,19 @@ impl From<(DataTypeCode, u8, u16)> for DataType {
         }
     }
 }
+
+impl Default for DataTypeCode {
+    fn default() -> Self {
+        DataTypeCode::Float
+    }
+}
+
+impl Default for DataType {
+    fn default() -> Self {
+        Self {
+            code: DataTypeCode::default(),
+            bits: 32,
+            lanes: 1,
+        }
+    }
+}

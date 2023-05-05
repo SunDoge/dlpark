@@ -8,3 +8,18 @@ impl From<(DeviceType, i32)> for Device {
         }
     }
 }
+
+impl Default for DeviceType {
+    fn default() -> Self {
+        Self::Cpu
+    }
+}
+
+impl Default for Device {
+    fn default() -> Self {
+        Self {
+            device_type: Default::default(),
+            device_id: 0,
+        }
+    }
+}
