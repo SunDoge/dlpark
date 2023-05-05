@@ -19,9 +19,17 @@ impl Default for DataTypeCode {
 impl Default for DataType {
     fn default() -> Self {
         Self {
-            code: DataTypeCode::default(),
+            code: DataTypeCode::Float,
             bits: 32,
             lanes: 1,
         }
     }
+}
+
+impl DataType {
+    const F32: Self = Self {
+        code: DataTypeCode::Float,
+        bits: 32,
+        lanes: 1,
+    };
 }

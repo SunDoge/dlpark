@@ -18,7 +18,7 @@ impl Default for DeviceType {
 impl Default for Device {
     fn default() -> Self {
         Self {
-            device_type: Default::default(),
+            device_type: DeviceType::Cpu,
             device_id: 0,
         }
     }

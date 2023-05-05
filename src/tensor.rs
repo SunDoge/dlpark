@@ -116,54 +116,6 @@ impl<'a> TensorBuilder<'a> {
     }
 }
 
-// impl TensorMaker {
-//     pub fn new(data: *mut c_void, shape: &[i64]) -> Self {
-//         Self {
-//             shape: shape.to_vec(),
-//             strides: None,
-//             dtype: DataType::F32,
-//         }
-//     }
-
-//     pub fn shape(&mut self) -> &mut Self {}
-// }
-
-// impl<'a> From<&[f32]> for Tensor<'a> {
-//     fn from(value: &[f32]) -> Self {
-//         let mut shape = [value.len() as i64];
-//         let mut strides = [1];
-//         let inner = DLTensor {
-//             data: value.as_ptr() as *mut _,
-//             device: (DeviceType::Cpu, 0).into(),
-//             ndim: 1,
-//             dtype: (DataTypeCode::Float, 32, 1).into(),
-//             shape: shape.as_mut_ptr(),
-//             strides: strides.as_mut_ptr(),
-//             byte_offset: 0,
-//         };
-//         dbg!(shape);
-//         std::mem::forget(shape);
-//         std::mem::forget(strides);
-
-//         Self {
-//             inner,
-//             _marker: PhantomData,
-//         }
-//     }
-// }
-
-// impl<'a> From<&Tensor<'a>> for Vec<f32> {
-//     fn from(value: &Tensor<'a>) -> Self {
-//         unsafe {
-//             Vec::from_raw_parts(
-//                 value.data() as *mut _,
-//                 value.shape()[0] as _,
-//                 value.shape()[0] as _,
-//             )
-//         }
-//     }
-// }
-
 pub struct ManagerContext<T> {
     pub ptr: Option<NonNull<*mut c_void>>,
     _type: PhantomData<T>,
