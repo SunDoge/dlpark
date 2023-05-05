@@ -1,6 +1,6 @@
 /// This is raw unsafe dlpack code.
 /// Please use the safe wrapper provided by dlpark.
-use std::os::raw::c_void;
+use std::ffi::c_void;
 
 #[repr(C)]
 #[derive(Debug)]
@@ -132,7 +132,7 @@ pub struct DLTensor {
 pub struct DLManagedTensor {
     pub dl_tensor: DLTensor,
     pub manager_ctx: *mut c_void,
-    pub deleter: Option<extern "C" fn(*mut Self)>,
+    pub deleter: Option<unsafe extern "C" fn(*mut Self)>,
 }
 
 #[allow(dead_code)]
