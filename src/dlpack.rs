@@ -1,81 +1,81 @@
+/// This is raw unsafe dlpack code.
+/// Please use the safe wrapper provided by dlpark.
 use std::os::raw::c_void;
 
 #[repr(C)]
 #[derive(Debug)]
-pub struct DLPackVersion {
+pub struct PackVersion {
     pub major: u32,
     pub minor: u32,
 }
 
 #[repr(C)]
-#[derive(Debug)]
-#[allow(non_camel_case_types)]
-pub enum DLDeviceType {
+#[derive(Debug, Copy, Clone)]
+pub enum DeviceType {
     /// CPU device
-    kDLCPU = 1,
+    Cpu = 1,
     /// CUDA GPU device
-    kDLCUDA = 2,
+    Cuda = 2,
     /// Pinned CUDA CPU memory by cudaMallocHost
-    kDLCUDAHost = 3,
+    CudaHost = 3,
     /// OpenCL devices.
-    kDLOpenCL = 4,
+    OpenCl = 4,
     /// Vulkan buffer for next generation graphics.
-    kDLVulkan = 7,
+    Vulkan = 7,
     /// Metal for Apple GPU.
-    kDLMetal = 8,
+    Metal = 8,
     /// Verilog simulator buffer
-    kDLVPI = 9,
+    Vpi = 9,
     /// ROCm GPUs for AMD GPUs
-    kDLROCM = 10,
+    Rocm = 10,
     /// Pinned ROCm CPU memory allocated by hipMallocHost
-    kDLROCMHost = 11,
+    RocmHost = 11,
     /// Reserved extension device type,
     /// used for quickly test extension device
     /// The semantics can differ depending on the implementation.
-    kDLExtDev = 12,
+    ExtDev = 12,
     /// CUDA managed/unified memory allocated by cudaMallocManaged
-    kDLCUDAManaged = 13,
+    CudaManaged = 13,
     /// Unified shared memory allocated on a oneAPI non-partititioned
     /// device. Call to oneAPI runtime is required to determine the device
     /// type, the USM allocation type and the sycl context it is bound to.
-    kDLOneAPI = 14,
+    OneApi = 14,
     /// GPU support for next generation WebGPU standard.
-    kDLWebGPU = 15,
+    WebGpu = 15,
     /// Qualcomm Hexagon DSP
-    kDLHexagon = 16,
+    Hexagon = 16,
 }
 
 /// A Device for Tensor and operator.
 #[repr(C)]
-#[derive(Debug)]
-pub struct DLDevice {
+#[derive(Debug, Copy, Clone)]
+pub struct Device {
     /// The device type used in the device.
-    pub device_type: DLDeviceType,
+    pub device_type: DeviceType,
     /// The device index.
     /// For vanilla CPU memory, pinned memory, or managed memory, this is set to 0.
     pub device_id: i32,
 }
 
 #[repr(u8)]
-#[derive(Debug)]
-#[allow(non_camel_case_types)]
-pub enum DLDataTypeCode {
+#[derive(Debug, Copy, Clone)]
+pub enum DataTypeCode {
     /// signed integer
-    kDLInt = 0,
+    Int = 0,
     /// unsigned integer
-    kDLUInt = 1,
+    UInt = 1,
     /// IEEE floating point
-    kDLFloat = 2,
+    Float = 2,
     /// Opaque handle type, reserved for testing purposes.
     /// Frameworks need to agree on the handle data type for the exchange to be well-defined.
-    kDLOpaqueHandle = 3,
+    OpaqueHandle = 3,
     /// bfloat16
-    kDLBfloat = 4,
+    Bfloat = 4,
     /// complex number
     /// (C/C++/Python layout: compact struct per complex number)
-    kDLComplex = 5,
+    Complex = 5,
     /// boolean
-    kDLBool = 6,
+    Bool = 6,
 }
 
 /// The data type the tensor can hold. The data type is assumed to follow the
@@ -87,10 +87,10 @@ pub enum DLDataTypeCode {
 /// - int8: type_code = 0, bits = 8, lanes=1
 /// - std::complex<float>: type_code = 5, bits = 64, lanes = 1
 #[repr(C)]
-#[derive(Debug)]
-pub struct DLDataType {
+#[derive(Debug, Copy, Clone)]
+pub struct DataType {
     /// Type code of base types.
-    pub code: DLDataTypeCode,
+    pub code: DataTypeCode,
     /// Number of bits, common choices are 8, 16, 32.
     pub bits: u8,
     /// Number of lanes in the type, used for vector types.
@@ -99,7 +99,7 @@ pub struct DLDataType {
 
 /// Plain C Tensor object, does not manage memory.
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct DLTensor {
     /// The data pointer points to the allocated data. This will be CUDA
     /// device pointer or cl_mem handle in OpenCL. It may be opaque on some device
@@ -119,9 +119,9 @@ pub struct DLTensor {
     /// ```
     ///
     pub data: *mut c_void,
-    pub device: DLDevice,
+    pub device: Device,
     pub ndim: i32,
-    pub dtype: DLDataType,
+    pub dtype: DataType,
     pub shape: *mut i64,
     pub strides: *mut i64,
     pub byte_offset: u64,
@@ -141,7 +141,7 @@ const DLPACK_FLAG_BITMASK_READ_ONLY: u64 = 1 << 0;
 #[repr(C)]
 #[derive(Debug)]
 pub struct DLManagedTensorVersioned {
-    pub version: DLPackVersion,
+    pub version: PackVersion,
     pub manager_ctx: *mut c_void,
     pub deleter: Option<extern "C" fn(*mut Self)>,
     pub flags: u64,
