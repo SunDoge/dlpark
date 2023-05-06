@@ -47,10 +47,10 @@ unsafe extern "C" fn dlpack_capsule_deleter(capsule: *mut pyo3::ffi::PyObject) {
         return;
     }
 
-    (*managed).deleter.map(|del_fn| {
+    if let Some(del_fn) = (*managed).deleter {
         del_fn(managed);
         assert!(PyErr_Occurred().is_null());
-    });
+    }
 
     PyErr_Restore(exc_type, exc_value, exc_trace);
 }
