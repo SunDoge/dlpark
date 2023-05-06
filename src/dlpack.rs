@@ -114,8 +114,15 @@ pub struct DLTensor {
     ///
     /// For given DLTensor, the size of memory required to store the contents of
     /// data is calculated as follows:
-    /// ```rust
-    /// fn get_data_size(tensor: Tensor) {}
+    /// ```c
+    /// static inline size_t GetDataSize(const DLTensor* t) {
+    ///   size_t size = 1;
+    ///   for (tvm_index_t i = 0; i < t->ndim; ++i) {
+    ///     size *= t->shape[i];
+    ///   }
+    ///   size *= (t->dtype.bits * t->dtype.lanes + 7) / 8;
+    ///   return size;
+    /// }
     /// ```
     ///
     pub data: *mut c_void,

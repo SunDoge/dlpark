@@ -183,11 +183,9 @@ mod tests {
 
     #[test]
     fn from_vec_f32() {
-        let mut v: Vec<f32> = (0..10).map(|x| x as f32).collect();
+        let v: Vec<f32> = (0..10).map(|x| x as f32).collect();
         let tensor = TensorWrapper::from(v);
-        // dbg!(&tensor);
+        dbg!(&tensor.shape, &tensor.strides);
+        assert_eq!(tensor.shape.len(), 1);
     }
-
-    #[test]
-    fn from_vec_f32_managed() {}
 }
