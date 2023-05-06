@@ -151,7 +151,7 @@ pub trait AsDLTensor {
     fn as_dl_tensor(&self) -> DLTensor;
 }
 
-pub enum IntArrayRef {
+pub enum Shape {
     Borrowed(*mut i64, usize),
     Owned(Vec<i64>),
 }
@@ -165,7 +165,7 @@ pub enum IntArrayRef {
 //     }
 // }
 
-impl IntArrayRef {
+impl Shape {
     pub fn as_ptr(&self) -> *mut i64 {
         match self {
             Self::Borrowed(ref ptr, _) => *ptr,
@@ -185,24 +185,24 @@ impl IntArrayRef {
     }
 }
 
-pub struct TensorWrapper<T> {
-    inner: T,
-    shape: IntArrayRef,
-    strides: Option<IntArrayRef>,
+pub enum Strides {
+    Borrowed(*mut i64),
+    Owned(Vec<i64>),
 }
 
-pub trait ToTensor {
-    fn data(&self) -> *mut c_void;
-    fn shape(&self) -> IntArrayRef;
-    fn device(&self) -> Device;
-    fn dtype(&self) -> DataType;
+impl Strides {
+    pub fn as_ptr(&self) -> *mut i64 {
+        match self {
+            Self::Borrowed(ref ptr) => *ptr,
+            Self::Owned(ref v) => v.as_ptr() as *mut i64,
+        }
+    }
+}
 
-    fn strides(&self) -> Option<IntArrayRef> {
-        None
-    }
-    fn byte_offset(&self) -> u64 {
-        0
-    }
+pub struct TensorWrapper<T> {
+    inner: T,
+    shape: Shape,
+    strides: Option<Strides>,
 }
 
 pub trait HasData {
@@ -210,23 +210,17 @@ pub trait HasData {
 }
 
 pub trait HasShape {
-    fn shape(&self) -> IntArrayRef;
+    fn shape(&self) -> Shape;
 }
 
 pub trait HasStrides {
-    fn strides(&self) -> Option<IntArrayRef> {
+    fn strides(&self) -> Option<Strides> {
         None
     }
 }
 
-pub trait HasNdim {
-    fn ndim(&self) -> i32;
-}
-
 pub trait HasByteOffset {
-    fn byte_offset(&self) -> u64 {
-        0
-    }
+    fn byte_offset(&self) -> u64;
 }
 
 pub trait HasDevice {
@@ -237,10 +231,8 @@ pub trait HasDtype {
     fn dtype(&self) -> DataType;
 }
 
-impl<T> HasNdim for Vec<T> {
-    fn ndim(&self) -> i32 {
-        1
-    }
+pub trait InferDtype {
+    fn infer_dtype() -> DataType;
 }
 
 impl<T> HasDevice for Vec<T> {
@@ -250,38 +242,38 @@ impl<T> HasDevice for Vec<T> {
 }
 
 impl<T> HasShape for Vec<T> {
-    fn shape(&self) -> IntArrayRef {
-        IntArrayRef::Owned(vec![self.len() as i64])
+    fn shape(&self) -> Shape {
+        Shape::Owned(vec![self.len() as i64])
     }
 }
 
-impl<T> HasStrides for Vec<T> {}
 impl<T> HasData for Vec<T> {
     fn data(&self) -> *mut c_void {
         self.as_ptr() as *const c_void as *mut c_void
     }
 }
 
-impl ToTensor for Vec<f32> {
-    fn data(&self) -> *mut c_void {
-        self.as_ptr() as *mut _
-    }
-    fn shape(&self) -> IntArrayRef {
-        IntArrayRef::Owned(vec![self.len() as i64])
-    }
-    fn device(&self) -> Device {
-        Device::CPU
-    }
+impl HasDtype for Vec<f32> {
     fn dtype(&self) -> DataType {
         DataType::F32
     }
 }
 
-impl<T: ToTensor> From<T> for TensorWrapper<T> {
+impl<T> HasStrides for Vec<T> {}
+impl<T> HasByteOffset for Vec<T> {
+    fn byte_offset(&self) -> u64 {
+        0
+    }
+}
+
+impl<T> From<T> for TensorWrapper<T>
+where
+    T: HasShape + HasStrides,
+{
     fn from(value: T) -> Self {
         // let bv = Box::new(value);
         // let bv = value;
-        let shape: IntArrayRef = value.shape();
+        let shape: Shape = value.shape();
         let strides = value.strides();
 
         Self {
@@ -292,7 +284,10 @@ impl<T: ToTensor> From<T> for TensorWrapper<T> {
     }
 }
 
-impl<T: ToTensor> From<&Box<TensorWrapper<T>>> for DLTensor {
+impl<T> From<&Box<TensorWrapper<T>>> for DLTensor
+where
+    T: HasData + HasDevice + HasDtype + HasByteOffset,
+{
     fn from(value: &Box<TensorWrapper<T>>) -> Self {
         Self {
             data: value.inner.data(),
@@ -309,7 +304,10 @@ impl<T: ToTensor> From<&Box<TensorWrapper<T>>> for DLTensor {
     }
 }
 
-impl<T: ToTensor> From<TensorWrapper<T>> for DLManagedTensor {
+impl<T> From<TensorWrapper<T>> for DLManagedTensor
+where
+    T: HasData + HasDevice + HasDtype + HasByteOffset,
+{
     fn from(value: TensorWrapper<T>) -> Self {
         let bv = Box::new(value);
         let dl_tensor = DLTensor::from(&bv);

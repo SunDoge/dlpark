@@ -2,7 +2,7 @@ use std::ffi::{CStr, CString};
 
 use crate::{
     dlpack::DLManagedTensor,
-    tensor::{ManagedTensor, TensorWrapper, ToTensor},
+    tensor::{ManagedTensor, TensorWrapper, HasData, HasDevice, HasDtype, HasByteOffset},
 };
 use pyo3::{
     ffi::{PyCapsule_GetPointer, PyErr_Occurred, PyErr_Restore},
@@ -30,7 +30,10 @@ impl DLManagedTensor {
     }
 }
 
-impl<T: ToTensor> TensorWrapper<T> {
+impl<T> TensorWrapper<T>
+where
+    T: HasData + HasDevice + HasDtype + HasByteOffset,
+{
     pub fn to_capsule(self) -> *mut pyo3::ffi::PyObject {
         DLManagedTensor::from(self).to_capsule()
     }
