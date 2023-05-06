@@ -1,20 +1,10 @@
-use std::ffi::{CStr, CString};
-
 use crate::{
     dlpack::DLManagedTensor,
-    tensor::{ManagedTensor, TensorWrapper, HasData, HasDevice, HasDtype, HasByteOffset},
+    tensor::{HasByteOffset, HasData, HasDevice, HasDtype, TensorWrapper},
 };
 use pyo3::{
     ffi::{PyCapsule_GetPointer, PyErr_Occurred, PyErr_Restore},
-    prelude::*,
 };
-
-unsafe impl Send for DLManagedTensor {}
-
-pub struct CapsuleContent<T> {
-    pub value: T,
-    pub name: CString,
-}
 
 impl DLManagedTensor {
     pub fn to_capsule(self) -> *mut pyo3::ffi::PyObject {
@@ -65,22 +55,3 @@ unsafe extern "C" fn dlpack_capsule_deleter(capsule: *mut pyo3::ffi::PyObject) {
 
     PyErr_Restore(exc_type, exc_value, exc_trace);
 }
-
-#[pyclass]
-pub struct PyManagedTensor {
-    pub inner: Option<DLManagedTensor>,
-}
-
-impl From<DLManagedTensor> for PyManagedTensor {
-    fn from(value: DLManagedTensor) -> Self {
-        Self { inner: Some(value) }
-    }
-}
-
-// #[pymethods]
-// impl PyManagedTensor {
-//     pub fn __dlpack__<'a>(&mut self, py: Python<'a>) -> PyResult<&'a PyCapsule> {
-//         // self.inner.unwrap().map(|mt| mt.to_capsule(py)).transpose()
-//         self.inner.unwrap().to_capsule(py)
-//     }
-// }

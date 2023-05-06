@@ -1,11 +1,5 @@
-use std::ffi::CString;
-
-use dlpark::{
-    dlpack::DLManagedTensor,
-    python::PyManagedTensor,
-    tensor::{AsDLTensor, ManagedTensor, TensorBuilder, TensorWrapper},
-};
-use pyo3::{prelude::*, types::PyCapsule};
+use dlpark::tensor::TensorWrapper;
+use pyo3::prelude::*;
 
 #[pyfunction]
 pub fn add(left: usize, right: usize) -> usize {

@@ -1,13 +1,6 @@
-use std::{
-    ffi::c_void,
-    marker::{PhantomData, PhantomPinned},
-    mem::transmute,
-    pin::Pin,
-    ptr::{self, NonNull},
-    slice,
-};
+use std::{ffi::c_void, marker::PhantomData, slice};
 
-use crate::dlpack::{DLManagedTensor, DLTensor, DataType, DataTypeCode, Device, DeviceType};
+use crate::dlpack::{DLManagedTensor, DLTensor, DataType, Device};
 
 #[derive(Debug)]
 pub struct Tensor<'a> {
