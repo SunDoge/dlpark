@@ -1,7 +1,16 @@
-use std::os::raw::c_void;
+/// This is raw unsafe dlpack code.
+/// Please use the safe wrapper provided by dlpark.
+use std::ffi::c_void;
 
 #[repr(C)]
 #[derive(Debug)]
+pub struct PackVersion {
+    pub major: u32,
+    pub minor: u32,
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
 pub enum DeviceType {
     /// CPU device
     Cpu = 1,
@@ -45,7 +54,7 @@ impl From<i32> for DeviceType {
 
 /// A Device for Tensor and operator.
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct Device {
     /// The device type used in the device.
     pub device_type: DeviceType,
@@ -55,12 +64,12 @@ pub struct Device {
 }
 
 #[repr(u8)]
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum DataTypeCode {
     /// signed integer
     Int = 0,
     /// unsigned integer
-    Uint = 1,
+    UInt = 1,
     /// IEEE floating point
     Float = 2,
     /// Opaque handle type, reserved for testing purposes.
@@ -71,6 +80,8 @@ pub enum DataTypeCode {
     /// complex number
     /// (C/C++/Python layout: compact struct per complex number)
     Complex = 5,
+    /// boolean
+    Bool = 6,
 }
 
 /// The data type the tensor can hold. The data type is assumed to follow the
@@ -82,7 +93,7 @@ pub enum DataTypeCode {
 /// - int8: type_code = 0, bits = 8, lanes=1
 /// - std::complex<float>: type_code = 5, bits = 64, lanes = 1
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct DataType {
     /// Type code of base types.
     pub code: DataTypeCode,
@@ -94,8 +105,8 @@ pub struct DataType {
 
 /// Plain C Tensor object, does not manage memory.
 #[repr(C)]
-#[derive(Debug)]
-pub struct Tensor {
+#[derive(Debug, Clone, Copy)]
+pub struct DLTensor {
     /// The data pointer points to the allocated data. This will be CUDA
     /// device pointer or cl_mem handle in OpenCL. It may be opaque on some device
     /// types. This pointer is always aligned to 256 bytes as in CUDA. The
@@ -109,8 +120,15 @@ pub struct Tensor {
     ///
     /// For given DLTensor, the size of memory required to store the contents of
     /// data is calculated as follows:
-    /// ```rust
-    /// fn get_data_size(tensor: Tensor) {}
+    /// ```c
+    /// static inline size_t GetDataSize(const DLTensor* t) {
+    ///   size_t size = 1;
+    ///   for (tvm_index_t i = 0; i < t->ndim; ++i) {
+    ///     size *= t->shape[i];
+    ///   }
+    ///   size *= (t->dtype.bits * t->dtype.lanes + 7) / 8;
+    ///   return size;
+    /// }
     /// ```
     ///
     pub data: *mut c_void,
@@ -136,15 +154,21 @@ pub struct Tensor {
 /// is no longer needed.
 #[repr(C)]
 #[derive(Debug)]
-pub struct ManagedTensor {
-    /// DLTensor which is being memory managed
-    pub dl_tensor: Tensor,
-    /// the context of the original host framework of DLManagedTensor in
-    /// which DLManagedTensor is used in the framework. It can also be NULL.
-    pub managed_ctx: *mut c_void,
-    /// Destructor signature void (*)(void*) - this should be called
-    /// to destruct manager_ctx which holds the DLManagedTensor. It can be NULL
-    /// if there is no way for the caller to provide a reasonable destructor.
-    /// The destructors deletes the argument self as well.
-    pub deleter: Option<extern "C" fn(*mut ManagedTensor)>,
+pub struct DLManagedTensor {
+    pub dl_tensor: DLTensor,
+    pub manager_ctx: *mut c_void,
+    pub deleter: Option<unsafe extern "C" fn(*mut Self)>,
+}
+
+#[allow(dead_code)]
+const DLPACK_FLAG_BITMASK_READ_ONLY: u64 = 1 << 0;
+
+#[repr(C)]
+#[derive(Debug)]
+pub struct DLManagedTensorVersioned {
+    pub version: PackVersion,
+    pub manager_ctx: *mut c_void,
+    pub deleter: Option<extern "C" fn(*mut Self)>,
+    pub flags: u64,
+    pub dl_tensor: DLTensor,
 }

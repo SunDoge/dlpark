@@ -1,0 +1,15 @@
+[package]
+name = "with_pyo3"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+crate-type = ["cdylib"]
+name = "mylib"
+
+
+[dependencies]
+pyo3 = { version = "0.18.3", features = ["extension-module"] }
+dlpark = { path = "../../" }
+ndarray = "0.15.6"

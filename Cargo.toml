@@ -6,7 +6,13 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-
+pyo3 = { version = "0.18.3", features = ["extension-module"], optional = true }
 
 [workspace]
-members = ["example/from_numpy"]
+members = ["examples/from_numpy", "examples/with_pyo3"]
+
+[features]
+
+default = ["python"]
+
+python = ["dep:pyo3"]

@@ -1,6 +1,6 @@
-static mut GIVEN: *mut dlpark::ManagedTensor = std::ptr::null_mut();
+static mut GIVEN: *mut dlpark::dlpack::DLManagedTensor = std::ptr::null_mut();
 
-fn display(managed_tensor: &dlpark::ManagedTensor) {
+fn display(managed_tensor: &dlpark::dlpack::DLManagedTensor) {
     println!("On Rust side:");
 
     let ndim = managed_tensor.dl_tensor.ndim as usize;
@@ -26,7 +26,7 @@ unsafe extern "C" fn finalize() {
 }
 
 #[no_mangle]
-unsafe extern "C" fn give(managed_tensor: dlpark::ManagedTensor) {
+unsafe extern "C" fn give(managed_tensor: dlpark::dlpack::DLManagedTensor) {
     display(&managed_tensor);
     GIVEN = Box::into_raw(Box::new(managed_tensor));
 }

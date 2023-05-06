@@ -1,5 +1,9 @@
 /// DLPACK_VERSION 70
 /// DLPACK_ABI_VERSION 1
+pub mod data_type;
+pub mod device;
 pub mod dlpack;
+pub mod tensor;
 
-pub use dlpack::{DataType, DataTypeCode, Device, DeviceType, ManagedTensor, Tensor};
+#[cfg(feature = "python")]
+pub mod python;
