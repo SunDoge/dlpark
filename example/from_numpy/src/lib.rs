@@ -35,11 +35,3 @@ unsafe extern "C" fn give(managed_tensor: dlpark::ManagedTensor) {
 unsafe extern "C" fn free_handle() {
     GIVEN.drop_in_place();
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {}
-}

@@ -37,6 +37,12 @@ pub enum DeviceType {
     Hexagon = 16,
 }
 
+impl From<i32> for DeviceType {
+    fn from(code: i32) -> Self {
+        unsafe { std::mem::transmute(code) }
+    }
+}
+
 /// A Device for Tensor and operator.
 #[repr(C)]
 #[derive(Debug)]
@@ -106,20 +112,39 @@ pub struct Tensor {
     /// ```rust
     /// fn get_data_size(tensor: Tensor) {}
     /// ```
-    /// 
+    ///
     pub data: *mut c_void,
+    /// The device of the tensor
     pub device: Device,
+    /// Number of dimensions
     pub ndim: i32,
+    /// The data type of the pointer
     pub dtype: DataType,
+    /// The shape of the tensor
     pub shape: *mut i64,
+    /// strides of the tensor (in number of elements, not bytes)
+    /// can be NULL, indicating tensor is compact and row-majored.
     pub strides: *mut i64,
+    /// The offset in bytes to the beginning pointer to data
     pub byte_offset: u64,
 }
 
+/// C Tensor object, manage memory of DLTensor. This data structure is
+/// intended to facilitate the borrowing of DLTensor by another framework. It is
+/// not meant to transfer the tensor. When the borrowing framework doesn't need
+/// the tensor, it should call the deleter to notify the host that the resource
+/// is no longer needed.
 #[repr(C)]
 #[derive(Debug)]
 pub struct ManagedTensor {
+    /// DLTensor which is being memory managed
     pub dl_tensor: Tensor,
+    /// the context of the original host framework of DLManagedTensor in
+    /// which DLManagedTensor is used in the framework. It can also be NULL.
     pub managed_ctx: *mut c_void,
+    /// Destructor signature void (*)(void*) - this should be called
+    /// to destruct manager_ctx which holds the DLManagedTensor. It can be NULL
+    /// if there is no way for the caller to provide a reasonable destructor.
+    /// The destructors deletes the argument self as well.
     pub deleter: Option<extern "C" fn(*mut ManagedTensor)>,
 }
