@@ -19,9 +19,16 @@ pub struct PyManagedTensor {
     pub inner: Option<DLManagedTensor>,
 }
 
-#[pymethods]
-impl PyManagedTensor {
-    pub fn __dlpack__<'a>(&mut self, py: Python<'a>) -> PyResult<Option<&'a PyCapsule>> {
-        self.inner.take().map(|mt| mt.to_capsule(py)).transpose()
+impl From<DLManagedTensor> for PyManagedTensor {
+    fn from(value: DLManagedTensor) -> Self {
+        Self { inner: Some(value) }
     }
 }
+
+// #[pymethods]
+// impl PyManagedTensor {
+//     pub fn __dlpack__<'a>(&mut self, py: Python<'a>) -> PyResult<&'a PyCapsule> {
+//         // self.inner.unwrap().map(|mt| mt.to_capsule(py)).transpose()
+//         self.inner.unwrap().to_capsule(py)
+//     }
+// }

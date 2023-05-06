@@ -27,9 +27,14 @@ impl Default for DataType {
 }
 
 impl DataType {
-    const F32: Self = Self {
+    pub const F32: Self = Self {
         code: DataTypeCode::Float,
         bits: 32,
+        lanes: 1,
+    };
+    pub const U8: Self = Self {
+        code: DataTypeCode::UInt,
+        bits: 8,
         lanes: 1,
     };
 }

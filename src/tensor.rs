@@ -150,6 +150,95 @@ impl<C> ManagedTensor<C> {
     }
 }
 
+pub trait AsDLTensor {
+    fn as_dl_tensor(&self) -> DLTensor;
+}
+
+pub enum Shape {
+    Borrowed(*mut i64),
+    Owned(Vec<i64>),
+}
+
+pub enum Strides {
+    Borrowed(*mut i64),
+    Owned(Vec<i64>),
+}
+
+pub struct TensorWrapper<T> {
+    inner: Pin<Box<T>>,
+    data: *mut c_void,
+    shape: Shape,
+    strides: Option<Strides>,
+    ndim: i32,
+    byte_offset: u64,
+    device: Device,
+    dtype: DataType,
+}
+
+impl From<Vec<f32>> for TensorWrapper<Vec<f32>> {
+    fn from(value: Vec<f32>) -> Self {
+        let bv = Box::pin(value);
+        let ptr = bv.as_ptr();
+        let shape = Shape::Owned(vec![bv.len() as i64]);
+        Self {
+            inner: bv,
+            data: ptr as *const _ as *mut _,
+            shape,
+            ndim: 1,
+            byte_offset: 0,
+            strides: None,
+            device: Device::CPU,
+            dtype: DataType::F32,
+        }
+    }
+}
+
+impl From<Vec<u8>> for TensorWrapper<Vec<u8>> {
+    fn from(value: Vec<u8>) -> Self {
+        let bv = Box::pin(value);
+        let ptr = bv.as_ptr();
+        let shape = Shape::Owned(vec![bv.len() as i64]);
+        Self {
+            inner: bv,
+            data: ptr as *const _ as *mut _,
+            shape,
+            ndim: 1,
+            byte_offset: 0,
+            strides: None,
+            device: Device::CPU,
+            dtype: DataType::U8,
+        }
+    }
+}
+
+impl<T> AsDLTensor for TensorWrapper<T> {
+    fn as_dl_tensor(&self) -> DLTensor {
+        DLTensor {
+            data: self.data,
+            ndim: self.ndim,
+            shape: match self.shape {
+                Shape::Borrowed(ptr) => ptr,
+                Shape::Owned(ref v) => v.as_ptr() as *mut _,
+            },
+            strides: match self.strides {
+                Some(Strides::Borrowed(ptr)) => ptr,
+                Some(Strides::Owned(ref v)) => v.as_ptr() as *mut _,
+                None => std::ptr::null_mut(),
+            },
+            device: self.device,
+            dtype: self.dtype,
+            byte_offset: self.byte_offset,
+        }
+    }
+}
+
+impl<C: AsDLTensor> From<C> for ManagedTensor<C> {
+    fn from(value: C) -> Self {
+        let dl_tensor = value.as_dl_tensor();
+        ManagedTensor::new(value, dl_tensor)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

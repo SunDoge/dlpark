@@ -23,3 +23,10 @@ impl Default for Device {
         }
     }
 }
+
+impl Device {
+    pub const CPU: Self = Self {
+        device_type: DeviceType::Cpu,
+        device_id: 0,
+    };
+}
