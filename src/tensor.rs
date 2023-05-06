@@ -205,6 +205,63 @@ pub trait ToTensor {
     }
 }
 
+pub trait HasData {
+    fn data(&self) -> *mut c_void;
+}
+
+pub trait HasShape {
+    fn shape(&self) -> IntArrayRef;
+}
+
+pub trait HasStrides {
+    fn strides(&self) -> Option<IntArrayRef> {
+        None
+    }
+}
+
+pub trait HasNdim {
+    fn ndim(&self) -> i32;
+}
+
+pub trait HasByteOffset {
+    fn byte_offset(&self) -> u64 {
+        0
+    }
+}
+
+pub trait HasDevice {
+    fn device(&self) -> Device;
+}
+
+pub trait HasDtype {
+    fn dtype(&self) -> DataType;
+}
+
+impl<T> HasNdim for Vec<T> {
+    fn ndim(&self) -> i32 {
+        1
+    }
+}
+
+impl<T> HasDevice for Vec<T> {
+    fn device(&self) -> Device {
+        Device::CPU
+    }
+}
+
+impl<T> HasShape for Vec<T> {
+    fn shape(&self) -> IntArrayRef {
+        IntArrayRef::Owned(vec![self.len() as i64])
+    }
+}
+
+impl<T> HasStrides for Vec<T> {}
+impl<T> HasData for Vec<T> {
+    fn data(&self) -> *mut c_void {
+        self.as_ptr() as *const c_void as *mut c_void
+    }
+}
+
 impl ToTensor for Vec<f32> {
     fn data(&self) -> *mut c_void {
         self.as_ptr() as *mut _
