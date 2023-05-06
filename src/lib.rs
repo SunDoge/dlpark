@@ -3,5 +3,7 @@
 pub mod data_type;
 pub mod device;
 pub mod dlpack;
-pub mod python;
 pub mod tensor;
+
+#[cfg(feature = "python")]
+pub mod python;

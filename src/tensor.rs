@@ -1,4 +1,3 @@
-use pin_project::{pin_project, pinned_drop};
 use std::{
     ffi::c_void,
     marker::{PhantomData, PhantomPinned},
