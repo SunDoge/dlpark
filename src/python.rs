@@ -2,16 +2,14 @@ use crate::{
     dlpack::DLManagedTensor,
     tensor::{HasByteOffset, HasData, HasDevice, HasDtype, TensorWrapper},
 };
-use pyo3::{
-    ffi::{PyCapsule_GetPointer, PyErr_Occurred, PyErr_Restore},
-};
+use pyo3::ffi::{PyCapsule_GetPointer, PyCapsule_New, PyErr_Occurred, PyErr_Restore};
 
 impl DLManagedTensor {
     pub fn to_capsule(self) -> *mut pyo3::ffi::PyObject {
         let self_ptr = Box::into_raw(Box::new(self));
-        
+
         unsafe {
-            pyo3::ffi::PyCapsule_New(
+            PyCapsule_New(
                 self_ptr as *mut _,
                 b"dltensor\0".as_ptr() as *const _,
                 Some(dlpack_capsule_deleter),
@@ -29,6 +27,7 @@ where
     }
 }
 
+/// Refer to [dlpack python_spec](https://dmlc.github.io/dlpack/latest/python_spec.html#implementation)
 unsafe extern "C" fn dlpack_capsule_deleter(capsule: *mut pyo3::ffi::PyObject) {
     if pyo3::ffi::PyCapsule_IsValid(capsule, b"used_dltensor\0".as_ptr() as *const _) == 1 {
         return;

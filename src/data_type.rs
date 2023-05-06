@@ -32,8 +32,38 @@ impl DataType {
         bits: 32,
         lanes: 1,
     };
+    pub const F64: Self = Self {
+        code: DataTypeCode::Float,
+        bits: 64,
+        lanes: 1,
+    };
     pub const U8: Self = Self {
         code: DataTypeCode::UInt,
+        bits: 8,
+        lanes: 1,
+    };
+    pub const I8: Self = Self {
+        code: DataTypeCode::Int,
+        bits: 8,
+        lanes: 1,
+    };
+    pub const I16: Self = Self {
+        code: DataTypeCode::Int,
+        bits: 16,
+        lanes: 1,
+    };
+    pub const I32: Self = Self {
+        code: DataTypeCode::Int,
+        bits: 32,
+        lanes: 1,
+    };
+    pub const I64: Self = Self {
+        code: DataTypeCode::Int,
+        bits: 64,
+        lanes: 1,
+    };
+    pub const BOOL: Self = Self {
+        code: DataTypeCode::Bool,
         bits: 8,
         lanes: 1,
     };
