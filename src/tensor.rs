@@ -73,39 +73,42 @@ impl<'a> Tensor<'a> {
     }
 }
 
-pub struct TensorBuilder<'a> {
+pub struct TensorBuilder {
     data: *mut c_void,
-    shape: &'a [i64],
-    strides: Option<&'a [i64]>,
+    shape: *mut i64,
+    strides: *mut i64,
     dtype: DataType,
     device: Device,
     byte_offset: u64,
+    ndim: i32,
 }
 
-impl<'a> TensorBuilder<'a> {
-    pub fn new(data: *mut c_void, shape: &'a [i64]) -> Self {
+impl TensorBuilder {
+    pub fn new(data: *mut c_void, shape: *mut i64) -> Self {
         Self {
             data,
             shape,
-            strides: None,
+            strides: std::ptr::null_mut(),
             dtype: DataType::default(),
             device: Device::default(),
             byte_offset: 0,
+            ndim: 1,
         }
     }
 
-    pub fn build(mut self) -> Tensor<'a> {
-        let strides = match self.strides {
-            Some(s) => s.as_ptr() as *mut _,
-            None => std::ptr::null_mut(),
-        };
+    pub fn strides(&mut self, strides: *mut i64) -> &mut Self {
+        self.strides = strides;
+        self
+    }
+
+    pub fn build(self) -> Tensor<'static> {
         let inner = DLTensor {
             data: self.data,
             device: self.device,
-            ndim: self.shape.len() as i32,
+            ndim: self.ndim,
             dtype: self.dtype,
-            shape: self.shape.as_ptr() as *mut _,
-            strides: strides,
+            shape: self.shape,
+            strides: self.strides,
             byte_offset: self.byte_offset,
         };
 
@@ -124,6 +127,7 @@ pub struct ManagedTensor<C> {
 unsafe extern "C" fn deleter_fn<T>(dl_managed_tensor: *mut DLManagedTensor) {
     let ctx = (*dl_managed_tensor).manager_ctx as *mut T;
 
+    // drop(ctx);
     drop(unsafe { Box::from_raw(ctx) });
     // println!("drop ctx: {:?}", ctx);
 }
@@ -140,6 +144,10 @@ impl<C> ManagedTensor<C> {
             _marker: PhantomData,
         }
     }
+
+    pub fn into_inner(self) -> DLManagedTensor {
+        self.inner
+    }
 }
 
 #[cfg(test)]
@@ -149,8 +157,8 @@ mod tests {
     #[test]
     fn from_vec_f32() {
         let mut v: Vec<f32> = (0..10).map(|x| x as f32).collect();
-        let shape = vec![v.len() as i64];
-        let tensor = TensorBuilder::new(v.as_mut_ptr() as *mut _, &shape).build();
+        let mut shape = vec![v.len() as i64];
+        let tensor = TensorBuilder::new(v.as_mut_ptr() as *mut _, shape.as_mut_ptr()).build();
         dbg!(&tensor);
         let v2: &[f32] =
             unsafe { slice::from_raw_parts(tensor.data() as *const _, tensor.shape()[0] as usize) };
@@ -170,8 +178,8 @@ mod tests {
 
         let v: Vec<f32> = (0..10).map(|x| x as f32).collect();
         let mut v = V(v);
-        let shape = vec![v.0.len() as i64];
-        let tensor = TensorBuilder::new(v.0.as_mut_ptr() as *mut _, &shape).build();
+        let mut shape = vec![v.0.len() as i64];
+        let tensor = TensorBuilder::new(v.0.as_mut_ptr() as *mut _, shape.as_mut_ptr()).build();
         dbg!(&tensor);
         let managed_tensor = ManagedTensor::new(v, tensor.into());
         managed_tensor.inner.deleter.map(|del_fn| unsafe {

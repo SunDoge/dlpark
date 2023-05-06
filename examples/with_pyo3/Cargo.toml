@@ -1,13 +1,15 @@
 [package]
-name = "dlpark"
+name = "with_pyo3"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+crate-type = ["cdylib"]
+name = "mylib"
+
 
 [dependencies]
-pin-project = "1.0.12"
 pyo3 = { version = "0.18.3", features = ["extension-module"] }
-
-[workspace]
-members = ["examples/from_numpy", "examples/with_pyo3"]
+dlpark = { path = "../../" }
+ndarray = "0.15.6"
