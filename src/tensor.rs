@@ -187,7 +187,7 @@ impl IntArrayRef {
 }
 
 pub struct TensorWrapper<T> {
-    inner: Box<T>,
+    inner: T,
     shape: IntArrayRef,
     strides: Option<IntArrayRef>,
 }
@@ -223,13 +223,13 @@ impl ToTensor for Vec<f32> {
 
 impl<T: ToTensor> From<T> for TensorWrapper<T> {
     fn from(value: T) -> Self {
-        let bv = Box::new(value);
+        // let bv = Box::new(value);
         // let bv = value;
-        let shape: IntArrayRef = bv.shape();
-        let strides = bv.strides();
+        let shape: IntArrayRef = value.shape();
+        let strides = value.strides();
 
         Self {
-            inner: bv,
+            inner: value,
             shape: shape,
             strides: strides,
         }
