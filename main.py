@@ -11,17 +11,10 @@ class SimpleTensor:
 
 print(mylib.add(1, 2))
 
-x2 = mylib.arange(100)
-print(x2)
-y = np.from_dlpack(SimpleTensor(x2))
-print(y)
-print(y.shape)
+x1 = np.from_dlpack(SimpleTensor(mylib.arange(10000)))
+print(x1.shape, x1[:10], x1[-10:])
 
-x = mylib.arange(10)
-print(x)
-y = np.from_dlpack(SimpleTensor(x))
-print(y)
-print(y.shape)
-del x
+x2 = np.from_dlpack(SimpleTensor(mylib.arange(100)))
+print(x2.shape,x2[:10], x2[-10:])
 
 

@@ -126,10 +126,8 @@ pub struct ManagedTensor<C> {
 
 unsafe extern "C" fn deleter_fn<T>(dl_managed_tensor: *mut DLManagedTensor) {
     let ctx = (*dl_managed_tensor).manager_ctx as *mut T;
-
-    // drop(ctx);
+    // dbg!(ctx);
     drop(unsafe { Box::from_raw(ctx) });
-    // println!("drop ctx: {:?}", ctx);
 }
 
 impl<C> ManagedTensor<C> {
@@ -154,88 +152,118 @@ pub trait AsDLTensor {
     fn as_dl_tensor(&self) -> DLTensor;
 }
 
-pub enum Shape {
-    Borrowed(*mut i64),
+pub enum IntArrayRef {
+    Borrowed(*mut i64, usize),
     Owned(Vec<i64>),
 }
 
-pub enum Strides {
-    Borrowed(*mut i64),
-    Owned(Vec<i64>),
+// impl From<&IntArrayRef> for *mut i64 {
+//     fn from(value: &IntArrayRef) -> Self {
+//         match value {
+//             IntArrayRef::Borrowed(ptr) => ptr,
+//             IntArrayRef::Owned(ref v) => v.as_ptr() as *mut i64,
+//         }
+//     }
+// }
+
+impl IntArrayRef {
+    pub fn as_ptr(&self) -> *mut i64 {
+        match self {
+            Self::Borrowed(ref ptr, _) => *ptr,
+            Self::Owned(ref v) => v.as_ptr() as *mut i64,
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        match self {
+            Self::Borrowed(_, len) => *len,
+            Self::Owned(ref v) => v.len(),
+        }
+    }
+
+    pub fn ndim(&self) -> i32 {
+        self.len() as i32
+    }
 }
 
 pub struct TensorWrapper<T> {
-    inner: Pin<Box<T>>,
-    data: *mut c_void,
-    shape: Shape,
-    strides: Option<Strides>,
-    ndim: i32,
-    byte_offset: u64,
-    device: Device,
-    dtype: DataType,
+    inner: Box<T>,
+    shape: IntArrayRef,
+    strides: Option<IntArrayRef>,
 }
 
-impl From<Vec<f32>> for TensorWrapper<Vec<f32>> {
-    fn from(value: Vec<f32>) -> Self {
-        let bv = Box::pin(value);
-        let ptr = bv.as_ptr();
-        let shape = Shape::Owned(vec![bv.len() as i64]);
+pub trait ToTensor {
+    fn data(&self) -> *mut c_void;
+    fn shape(&self) -> IntArrayRef;
+    fn device(&self) -> Device;
+    fn dtype(&self) -> DataType;
+
+    fn strides(&self) -> Option<IntArrayRef> {
+        None
+    }
+    fn byte_offset(&self) -> u64 {
+        0
+    }
+}
+
+impl ToTensor for Vec<f32> {
+    fn data(&self) -> *mut c_void {
+        self.as_ptr() as *mut _
+    }
+    fn shape(&self) -> IntArrayRef {
+        IntArrayRef::Owned(vec![self.len() as i64])
+    }
+    fn device(&self) -> Device {
+        Device::CPU
+    }
+    fn dtype(&self) -> DataType {
+        DataType::F32
+    }
+}
+
+impl<T: ToTensor> From<T> for TensorWrapper<T> {
+    fn from(value: T) -> Self {
+        let bv = Box::new(value);
+        // let bv = value;
+        let shape: IntArrayRef = bv.shape();
+        let strides = bv.strides();
+
         Self {
             inner: bv,
-            data: ptr as *const _ as *mut _,
-            shape,
-            ndim: 1,
-            byte_offset: 0,
-            strides: None,
-            device: Device::CPU,
-            dtype: DataType::F32,
+            shape: shape,
+            strides: strides,
         }
     }
 }
 
-impl From<Vec<u8>> for TensorWrapper<Vec<u8>> {
-    fn from(value: Vec<u8>) -> Self {
-        let bv = Box::pin(value);
-        let ptr = bv.as_ptr();
-        let shape = Shape::Owned(vec![bv.len() as i64]);
+impl<T: ToTensor> From<&Box<TensorWrapper<T>>> for DLTensor {
+    fn from(value: &Box<TensorWrapper<T>>) -> Self {
         Self {
-            inner: bv,
-            data: ptr as *const _ as *mut _,
-            shape,
-            ndim: 1,
-            byte_offset: 0,
-            strides: None,
-            device: Device::CPU,
-            dtype: DataType::U8,
-        }
-    }
-}
-
-impl<T> AsDLTensor for TensorWrapper<T> {
-    fn as_dl_tensor(&self) -> DLTensor {
-        DLTensor {
-            data: self.data,
-            ndim: self.ndim,
-            shape: match self.shape {
-                Shape::Borrowed(ptr) => ptr,
-                Shape::Owned(ref v) => v.as_ptr() as *mut _,
-            },
-            strides: match self.strides {
-                Some(Strides::Borrowed(ptr)) => ptr,
-                Some(Strides::Owned(ref v)) => v.as_ptr() as *mut _,
+            data: value.inner.data(),
+            device: value.inner.device(),
+            ndim: value.shape.ndim(),
+            shape: value.shape.as_ptr(),
+            dtype: value.inner.dtype(),
+            strides: match value.strides {
+                Some(ref strides) => strides.as_ptr(),
                 None => std::ptr::null_mut(),
             },
-            device: self.device,
-            dtype: self.dtype,
-            byte_offset: self.byte_offset,
+            byte_offset: value.inner.byte_offset(),
         }
     }
 }
 
-impl<C: AsDLTensor> From<C> for ManagedTensor<C> {
-    fn from(value: C) -> Self {
-        let dl_tensor = value.as_dl_tensor();
-        ManagedTensor::new(value, dl_tensor)
+impl<T: ToTensor> From<TensorWrapper<T>> for DLManagedTensor {
+    fn from(value: TensorWrapper<T>) -> Self {
+        let bv = Box::new(value);
+        let dl_tensor = DLTensor::from(&bv);
+        let ctx = Box::into_raw(bv);
+        // dbg!(ctx);
+        Self {
+            dl_tensor,
+            manager_ctx: ctx as *mut _,
+            deleter: Some(deleter_fn::<TensorWrapper<T>>),
+        }
     }
 }
 

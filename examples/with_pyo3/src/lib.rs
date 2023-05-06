@@ -13,16 +13,15 @@ pub fn add(left: usize, right: usize) -> usize {
 }
 
 #[pyfunction]
-pub fn arange(n: usize, py: Python<'_>) -> PyResult<&PyCapsule> {
+pub fn arange(n: usize, py: Python<'_>) -> PyResult<&PyAny> {
     let v: Vec<f32> = (0..n).map(|x| x as f32).collect();
-    let tensor: TensorWrapper<_> = v.into();
-    let mt: ManagedTensor<_> = tensor.into();
-    let dlmt = mt.into_inner();
-    dlmt.to_capsule(py)
+    let tensor = TensorWrapper::from(v);
+    let ptr = tensor.to_capsule();
+    unsafe { py.from_owned_ptr_or_err(ptr) }
 }
 
 #[pymodule]
-fn mylib(py: Python<'_>, m: &PyModule) -> PyResult<()> {
+fn mylib(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(add, m)?)?;
     m.add_function(wrap_pyfunction!(arange, m)?)?;
     Ok(())
