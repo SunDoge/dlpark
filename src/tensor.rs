@@ -271,8 +271,8 @@ where
 
         Self {
             inner: value,
-            shape: shape,
-            strides: strides,
+            shape,
+            strides,
         }
     }
 }

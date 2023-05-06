@@ -9,14 +9,14 @@ use pyo3::{
 impl DLManagedTensor {
     pub fn to_capsule(self) -> *mut pyo3::ffi::PyObject {
         let self_ptr = Box::into_raw(Box::new(self));
-        let ptr = unsafe {
+        
+        unsafe {
             pyo3::ffi::PyCapsule_New(
                 self_ptr as *mut _,
                 b"dltensor\0".as_ptr() as *const _,
                 Some(dlpack_capsule_deleter),
             )
-        };
-        ptr
+        }
     }
 }
 
