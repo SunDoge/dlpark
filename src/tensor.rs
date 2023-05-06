@@ -1,4 +1,4 @@
-use std::{ffi::c_void, fmt::Debug, marker::PhantomData, slice};
+use std::ffi::c_void;
 
 use crate::dlpack::{DLManagedTensor, DLTensor, DataType, Device};
 
