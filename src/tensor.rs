@@ -4,7 +4,6 @@ use crate::dlpack::{DLManagedTensor, DLTensor, DataType, Device};
 
 unsafe extern "C" fn deleter_fn<T>(dl_managed_tensor: *mut DLManagedTensor) {
     let ctx = (*dl_managed_tensor).manager_ctx as *mut T;
-    // dbg!(ctx);
     drop(unsafe { Box::from_raw(ctx) });
 }
 
@@ -127,8 +126,6 @@ where
     T: HasShape + HasStrides,
 {
     fn from(value: T) -> Self {
-        // let bv = Box::new(value);
-        // let bv = value;
         let shape: Shape = value.shape();
         let strides = value.strides();
 

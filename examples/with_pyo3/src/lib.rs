@@ -1,5 +1,5 @@
 use dlpark::tensor::TensorWrapper;
-use pyo3::prelude::*;
+use pyo3::{prelude::*, types::PyDict};
 
 #[pyfunction]
 pub fn add(left: usize, right: usize) -> usize {
@@ -14,10 +14,21 @@ pub fn arange(n: usize, py: Python<'_>) -> PyResult<&PyAny> {
     unsafe { py.from_owned_ptr_or_err(ptr) }
 }
 
+#[pyfunction]
+pub fn tensordict(py: Python<'_>) -> PyResult<&PyDict> {
+    let dic = PyDict::new(py);
+    let v1: Vec<f32> = vec![1.0; 10];
+    let v2: Vec<u8> = vec![2; 10];
+    dic.set_item("v1", v1)?;
+    dic.set_item("v2", v2)?;
+    Ok(dic)
+}
+
 #[pymodule]
 fn mylib(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(add, m)?)?;
     m.add_function(wrap_pyfunction!(arange, m)?)?;
+    m.add_function(wrap_pyfunction!(tensordict, m)?)?;
     Ok(())
 }
 
