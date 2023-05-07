@@ -78,3 +78,10 @@ where
         unsafe { PyObject::from_owned_ptr(py, ptr) }
     }
 }
+
+// impl<T> ToPyObject for TensorWrapper<T>
+//  where T: HasData + HasDevice + HasDtype + HasByteOffset {
+//     fn to_object(&self, py: Python<'_>) -> PyObject {
+        
+//     }
+// }
