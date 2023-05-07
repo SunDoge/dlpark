@@ -1,8 +1,12 @@
-use std::ffi::c_void;
+pub mod impls;
+pub mod traits;
 
-use crate::dlpack::{DLManagedTensor, DLTensor, DataType, Device};
+use traits::{HasByteOffset, HasData, HasDevice, HasDtype, HasShape, HasStrides};
+
+use crate::dlpack::{DLManagedTensor, DLTensor};
 
 unsafe extern "C" fn deleter_fn<T>(dl_managed_tensor: *mut DLManagedTensor) {
+    // Reconstruct pointer and destroy it.
     let ctx = (*dl_managed_tensor).manager_ctx as *mut T;
     drop(unsafe { Box::from_raw(ctx) });
 }
@@ -31,6 +35,10 @@ impl Shape {
     pub fn ndim(&self) -> i32 {
         self.len() as i32
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 #[derive(Debug)]
@@ -52,73 +60,6 @@ pub struct TensorWrapper<T> {
     inner: T,
     shape: Shape,
     strides: Option<Strides>,
-}
-
-pub trait HasData {
-    fn data(&self) -> *mut c_void;
-}
-
-pub trait HasShape {
-    fn shape(&self) -> Shape;
-}
-
-pub trait HasStrides {
-    fn strides(&self) -> Option<Strides> {
-        None
-    }
-}
-
-pub trait HasByteOffset {
-    fn byte_offset(&self) -> u64;
-}
-
-pub trait HasDevice {
-    fn device(&self) -> Device;
-}
-
-pub trait HasDtype {
-    fn dtype(&self) -> DataType;
-}
-
-pub trait InferDtype {
-    fn infer_dtype() -> DataType;
-}
-
-impl<T> HasDevice for Vec<T> {
-    fn device(&self) -> Device {
-        Device::CPU
-    }
-}
-
-impl<T> HasShape for Vec<T> {
-    fn shape(&self) -> Shape {
-        Shape::Owned(vec![self.len() as i64])
-    }
-}
-
-impl<T> HasData for Vec<T> {
-    fn data(&self) -> *mut c_void {
-        self.as_ptr() as *const c_void as *mut c_void
-    }
-}
-
-impl HasDtype for Vec<f32> {
-    fn dtype(&self) -> DataType {
-        DataType::F32
-    }
-}
-
-impl HasDtype for Vec<u8> {
-    fn dtype(&self) -> DataType {
-        DataType::U8
-    }
-}
-
-impl<T> HasStrides for Vec<T> {}
-impl<T> HasByteOffset for Vec<T> {
-    fn byte_offset(&self) -> u64 {
-        0
-    }
 }
 
 impl<T> From<T> for TensorWrapper<T>

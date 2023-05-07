@@ -7,11 +7,10 @@ pub fn add(left: usize, right: usize) -> usize {
 }
 
 #[pyfunction]
-pub fn arange(n: usize, py: Python<'_>) -> PyResult<&PyAny> {
+pub fn arange(n: usize, py: Python<'_>) -> TensorWrapper<Vec<f32>> {
     let v: Vec<f32> = (0..n).map(|x| x as f32).collect();
     let tensor = TensorWrapper::from(v);
-    let ptr = tensor.to_capsule();
-    unsafe { py.from_owned_ptr_or_err(ptr) }
+    tensor
 }
 
 #[pyfunction]
