@@ -2,7 +2,7 @@ use super::{
     traits::{HasByteOffset, HasData, HasDevice, HasDtype, HasShape, HasStrides, InferDtype},
     Shape,
 };
-use crate::dlpack::{DataType, Device};
+use crate::ffi::{DataType, Device};
 use std::ffi::c_void;
 
 impl<T> HasDevice for Vec<T> {

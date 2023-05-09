@@ -1,6 +1,6 @@
 use std::ffi::c_void;
 
-use crate::dlpack::{DataType, Device};
+use crate::ffi::{DataType, Device};
 
 use super::{Shape, Strides};
 

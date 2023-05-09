@@ -1,5 +1,5 @@
 use crate::{
-    dlpack::DLManagedTensor,
+    ffi::DLManagedTensor,
     tensor::traits::{HasByteOffset, HasData, HasDevice, HasDtype},
     tensor::TensorWrapper,
 };

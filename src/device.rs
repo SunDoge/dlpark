@@ -1,4 +1,4 @@
-use crate::dlpack::{Device, DeviceType};
+use crate::ffi::{Device, DeviceType};
 
 impl From<(DeviceType, i32)> for Device {
     fn from(value: (DeviceType, i32)) -> Self {

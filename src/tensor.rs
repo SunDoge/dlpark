@@ -3,9 +3,9 @@ pub mod traits;
 
 use traits::{HasByteOffset, HasData, HasDevice, HasDtype, HasShape, HasStrides};
 
-use crate::dlpack::{DLManagedTensor, DLTensor};
+use crate::ffi;
 
-unsafe extern "C" fn deleter_fn<T>(dl_managed_tensor: *mut DLManagedTensor) {
+unsafe extern "C" fn deleter_fn<T>(dl_managed_tensor: *mut ffi::DLManagedTensor) {
     // Reconstruct pointer and destroy it.
     let ctx = (*dl_managed_tensor).manager_ctx as *mut T;
     drop(unsafe { Box::from_raw(ctx) });
@@ -78,7 +78,7 @@ where
     }
 }
 
-impl<T> From<&Box<TensorWrapper<T>>> for DLTensor
+impl<T> From<&Box<TensorWrapper<T>>> for ffi::DLTensor
 where
     T: HasData + HasDevice + HasDtype + HasByteOffset,
 {
@@ -98,13 +98,13 @@ where
     }
 }
 
-impl<T> From<TensorWrapper<T>> for DLManagedTensor
+impl<T> From<TensorWrapper<T>> for ffi::DLManagedTensor
 where
     T: HasData + HasDevice + HasDtype + HasByteOffset,
 {
     fn from(value: TensorWrapper<T>) -> Self {
         let bv = Box::new(value);
-        let dl_tensor = DLTensor::from(&bv);
+        let dl_tensor = ffi::DLTensor::from(&bv);
         let ctx = Box::into_raw(bv);
         // dbg!(ctx);
         Self {
