@@ -1,5 +1,5 @@
 use super::{
-    traits::{HasByteOffset, HasData, HasDevice, HasDtype, HasShape, HasStrides},
+    traits::{HasByteOffset, HasData, HasDevice, HasDtype, HasShape, HasStrides, InferDtype},
     Shape,
 };
 use crate::dlpack::{DataType, Device};
@@ -23,27 +23,53 @@ impl<T> HasData for Vec<T> {
     }
 }
 
-impl HasDtype for Vec<f32> {
+impl<T> HasDtype for Vec<T>
+where
+    T: InferDtype,
+{
     fn dtype(&self) -> DataType {
-        DataType::F32
+        T::infer_dtype()
     }
 }
-
-impl HasDtype for Vec<u8> {
-    fn dtype(&self) -> DataType {
-        DataType::U8
-    }
-}
-
-impl HasDtype for Vec<i64> {
-    fn dtype(&self) -> DataType {
-        DataType::I64
-    }
-}
-
 impl<T> HasStrides for Vec<T> {}
 impl<T> HasByteOffset for Vec<T> {
     fn byte_offset(&self) -> u64 {
         0
+    }
+}
+
+impl InferDtype for f32 {
+    fn infer_dtype() -> DataType {
+        DataType::F32
+    }
+}
+
+impl InferDtype for f64 {
+    fn infer_dtype() -> DataType {
+        DataType::F64
+    }
+}
+
+impl InferDtype for i64 {
+    fn infer_dtype() -> DataType {
+        DataType::I64
+    }
+}
+
+impl InferDtype for i32 {
+    fn infer_dtype() -> DataType {
+        DataType::I32
+    }
+}
+
+impl InferDtype for u8 {
+    fn infer_dtype() -> DataType {
+        DataType::U8
+    }
+}
+
+impl InferDtype for bool {
+    fn infer_dtype() -> DataType {
+        DataType::BOOL
     }
 }
