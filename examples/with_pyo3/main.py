@@ -1,6 +1,13 @@
-import mylib
-import numpy as np
+
 from torch.utils.dlpack import from_dlpack
+import numpy as np
+import sys
+import os
+
+if not os.path.exists('target/debug/mylib.so'):
+    os.link('target/debug/libmylib.so', 'target/debug/mylib.so')
+sys.path.append("target/debug")
+import mylib
 
 
 class SimpleTensor:
