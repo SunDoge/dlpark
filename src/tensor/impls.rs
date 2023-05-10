@@ -1,10 +1,10 @@
 use super::{
     traits::{
-        AsTensor, HasByteOffset, HasData, HasDevice, HasDtype, HasShape, HasStrides, InferDtype,
+        HasByteOffset, HasData, HasDevice, HasDtype, HasShape, HasStrides, InferDtype,
     },
     Shape,
 };
-use crate::ffi::{self, DataType, Device};
+use crate::ffi::{DataType, Device};
 use std::ffi::c_void;
 
 impl<T> HasDevice for Vec<T> {

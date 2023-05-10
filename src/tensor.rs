@@ -3,7 +3,6 @@ pub mod traits;
 
 use std::{
     ffi::c_void,
-    marker::{PhantomData, PhantomPinned},
 };
 
 use traits::{HasByteOffset, HasData, HasDevice, HasDtype, HasShape, HasStrides};
