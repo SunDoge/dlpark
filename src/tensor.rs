@@ -173,14 +173,21 @@ impl AsTensor for ffi::DLTensor {
 }
 
 pub struct ManagedTensor {
-    pub inner: Box<ffi::DLManagedTensor>,
-    pub deleter: Box<dyn Fn()>,
+    pub inner: *mut ffi::DLManagedTensor,
+    pub deleter: Option<Box<dyn Fn(*mut ffi::DLManagedTensor)>>,
 }
 
 impl Drop for ManagedTensor {
     fn drop(&mut self) {
-        (self.deleter)();
-        drop(self);
+        unsafe {
+            if let Some(ref del_fn) = self.deleter {
+                del_fn(self.inner);
+            } else {
+                if let Some(del_fn) = (*self.inner).deleter {
+                    del_fn(self.inner);
+                }
+            }
+        }
     }
 }
 
@@ -219,7 +226,7 @@ where
 
 impl HasTensor<ffi::DLTensor> for ManagedTensor {
     fn tensor(&self) -> &ffi::DLTensor {
-        &self.inner.dl_tensor
+        unsafe { &(*self.inner).dl_tensor }
     }
 }
 

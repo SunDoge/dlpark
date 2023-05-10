@@ -99,19 +99,20 @@ impl From<*mut pyo3::ffi::PyObject> for ManagedTensor {
                 PyCapsule_GetPointer(capsule, b"dltensor\0".as_ptr() as *const _)
                     as *mut DLManagedTensor;
 
-            let deleter_with_gil = move || {
-                if let Some(del_fn) = (*dl_managed_tensor).deleter {
-                    Python::with_gil(move |_py| {
-                        del_fn(dl_managed_tensor);
-                    });
-                }
-            };
+            // TODO: we should add a flag for buggy numpy dlpack deleter
+            // let deleter_with_gil = move |_| {
+            //     if let Some(del_fn) = (*dl_managed_tensor).deleter {
+            //         Python::with_gil(move |_py| {
+            //             del_fn(dl_managed_tensor);
+            //         });
+            //     }
+            // };
 
             PyCapsule_SetName(capsule, b"used_dltensor\0".as_ptr() as *const _);
 
             ManagedTensor {
-                inner: Box::from_raw(dl_managed_tensor),
-                deleter: Box::new(deleter_with_gil),
+                inner: dl_managed_tensor,
+                deleter: None,
             }
         }
     }
@@ -119,6 +120,6 @@ impl From<*mut pyo3::ffi::PyObject> for ManagedTensor {
 
 impl<'source> FromPyObject<'source> for ManagedTensor {
     fn extract(ob: &'source PyAny) -> PyResult<Self> {
-        Ok(ManagedTensor::from(ob.as_ptr()))
+        Ok(ManagedTensor::from(ob.into_ptr()))
     }
 }

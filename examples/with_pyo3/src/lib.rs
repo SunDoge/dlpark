@@ -33,6 +33,7 @@ fn mylib(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(add, m)?)?;
     m.add_function(wrap_pyfunction!(arange, m)?)?;
     m.add_function(wrap_pyfunction!(tensordict, m)?)?;
+    m.add_function(wrap_pyfunction!(print_tensor, m)?)?;
     Ok(())
 }
 
