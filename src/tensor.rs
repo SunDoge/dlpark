@@ -10,6 +10,8 @@ use traits::{HasByteOffset, HasData, HasDevice, HasDtype, HasShape, HasStrides};
 
 use crate::ffi::{self, DataType, Device};
 
+use self::traits::AsTensor;
+
 unsafe extern "C" fn deleter_fn<T>(dl_managed_tensor: *mut ffi::DLManagedTensor) {
     // Reconstruct pointer and destroy it.
     let ctx = (*dl_managed_tensor).manager_ctx as *mut T;
@@ -61,13 +63,13 @@ impl Strides {
     }
 }
 
-pub struct TensorWrapper<T> {
+pub struct ManagerCtx<T> {
     inner: T,
     shape: Shape,
     strides: Option<Strides>,
 }
 
-impl<T> From<T> for TensorWrapper<T>
+impl<T> From<T> for ManagerCtx<T>
 where
     T: HasShape + HasStrides,
 {
@@ -83,11 +85,11 @@ where
     }
 }
 
-impl<T> From<&Box<TensorWrapper<T>>> for ffi::DLTensor
+impl<T> From<&Box<ManagerCtx<T>>> for ffi::DLTensor
 where
     T: HasData + HasDevice + HasDtype + HasByteOffset,
 {
-    fn from(value: &Box<TensorWrapper<T>>) -> Self {
+    fn from(value: &Box<ManagerCtx<T>>) -> Self {
         Self {
             data: value.inner.data(),
             device: value.inner.device(),
@@ -103,11 +105,11 @@ where
     }
 }
 
-impl<T> From<TensorWrapper<T>> for ffi::DLManagedTensor
+impl<T> From<ManagerCtx<T>> for ffi::DLManagedTensor
 where
     T: HasData + HasDevice + HasDtype + HasByteOffset,
 {
-    fn from(value: TensorWrapper<T>) -> Self {
+    fn from(value: ManagerCtx<T>) -> Self {
         let bv = Box::new(value);
         let dl_tensor = ffi::DLTensor::from(&bv);
         let ctx = Box::into_raw(bv);
@@ -115,99 +117,9 @@ where
         Self {
             dl_tensor,
             manager_ctx: ctx as *mut _,
-            deleter: Some(deleter_fn::<TensorWrapper<T>>),
+            deleter: Some(deleter_fn::<ManagerCtx<T>>),
         }
     }
-}
-
-#[derive(Debug)]
-#[repr(transparent)]
-pub struct TensorRef<'a> {
-    pub inner: ffi::DLTensor,
-    _marker: PhantomData<fn(&'a ()) -> &'a ()>,
-}
-
-impl<'a> From<ffi::DLTensor> for TensorRef<'a> {
-    fn from(value: ffi::DLTensor) -> Self {
-        TensorRef {
-            inner: value,
-            _marker: PhantomData,
-        }
-    }
-}
-
-impl<'a> TensorRef<'a> {
-    pub fn new(
-        data: *mut c_void,
-        device: Device,
-        ndim: i32,
-        dtype: DataType,
-        shape: *mut i64,
-        strides: *mut i64,
-        byte_offset: u64,
-    ) -> Self {
-        let inner = ffi::DLTensor {
-            data,
-            device,
-            ndim,
-            dtype,
-            shape,
-            strides,
-            byte_offset,
-        };
-        Self {
-            inner,
-            _marker: PhantomData,
-        }
-    }
-
-    pub fn into_inner(self) -> ffi::DLTensor {
-        self.inner
-    }
-
-    pub fn data(&self) -> *mut c_void {
-        self.inner.data
-    }
-
-    pub fn device(&self) -> Device {
-        self.inner.device
-    }
-
-    pub fn ndim(&self) -> usize {
-        self.inner.ndim as usize
-    }
-
-    pub fn dtype(&self) -> DataType {
-        self.inner.dtype
-    }
-
-    pub fn shape(&self) -> &[i64] {
-        unsafe { std::slice::from_raw_parts(self.inner.shape, self.ndim()) }
-    }
-
-    pub fn strides(&self) -> Option<&[i64]> {
-        if self.inner.strides.is_null() {
-            None
-        } else {
-            Some(unsafe { std::slice::from_raw_parts(self.inner.strides, self.ndim()) })
-        }
-    }
-
-    pub fn byte_offset(&self) -> u64 {
-        self.inner.byte_offset
-    }
-}
-
-pub struct ManagerCtx<T> {
-    inner: T,
-    shape: Shape,
-    strides: Option<Strides>,
-}
-
-pub struct ManagedTensor<T> {
-    pub tensor: ffi::DLTensor,
-    pub manager_ctx: Box<T>,
-    pub deleter: Option<fn(&mut Self)>,
 }
 
 impl Drop for ffi::DLManagedTensor {
@@ -226,6 +138,39 @@ impl Drop for ffi::DLManagedTensorVersioned {
     }
 }
 
+impl AsTensor for ffi::DLTensor {
+    fn data<T>(&self) -> *const T {
+        self.data as *const c_void as *const T
+    }
+
+    fn shape(&self) -> &[i64] {
+        unsafe { std::slice::from_raw_parts(self.shape, self.ndim()) }
+    }
+
+    fn strides(&self) -> Option<&[i64]> {
+        if self.strides.is_null() {
+            None
+        } else {
+            Some(unsafe { std::slice::from_raw_parts(self.strides, self.ndim()) })
+        }
+    }
+
+    fn ndim(&self) -> usize {
+        self.ndim as usize
+    }
+
+    fn device(&self) -> Device {
+        self.device
+    }
+
+    fn dtype(&self) -> DataType {
+        self.dtype
+    }
+    fn byte_offset(&self) -> u64 {
+        self.byte_offset
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -233,7 +178,7 @@ mod tests {
     #[test]
     fn from_vec_f32() {
         let v: Vec<f32> = (0..10).map(|x| x as f32).collect();
-        let tensor = TensorWrapper::from(v);
+        let tensor = ManagerCtx::from(v);
         dbg!(&tensor.shape, &tensor.strides);
         assert_eq!(tensor.shape.len(), 1);
     }

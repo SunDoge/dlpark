@@ -33,3 +33,13 @@ pub trait HasDtype {
 pub trait InferDtype {
     fn infer_dtype() -> DataType;
 }
+
+pub trait AsTensor {
+    fn data<T>(&self) -> *const T;
+    fn shape(&self) -> &[i64];
+    fn strides(&self) -> Option<&[i64]>;
+    fn ndim(&self) -> usize;
+    fn device(&self) -> Device;
+    fn dtype(&self) -> DataType;
+    fn byte_offset(&self) -> u64;
+}

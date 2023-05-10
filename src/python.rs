@@ -1,7 +1,7 @@
 use crate::{
     ffi::DLManagedTensor,
     tensor::traits::{HasByteOffset, HasData, HasDevice, HasDtype},
-    tensor::TensorWrapper,
+    tensor::ManagerCtx,
 };
 use pyo3::{
     ffi::{PyCapsule_GetPointer, PyCapsule_New, PyErr_Occurred, PyErr_Restore},
@@ -28,7 +28,7 @@ impl DLManagedTensor {
     }
 }
 
-impl<T> TensorWrapper<T>
+impl<T> ManagerCtx<T>
 where
     T: HasData + HasDevice + HasDtype + HasByteOffset,
 {
@@ -69,7 +69,7 @@ unsafe extern "C" fn dlpack_capsule_deleter(capsule: *mut pyo3::ffi::PyObject) {
     PyErr_Restore(exc_type, exc_value, exc_trace);
 }
 
-impl<T> IntoPy<PyObject> for TensorWrapper<T>
+impl<T> IntoPy<PyObject> for ManagerCtx<T>
 where
     T: HasData + HasDevice + HasDtype + HasByteOffset,
 {
