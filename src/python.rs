@@ -1,10 +1,10 @@
 use crate::{
-    dlpack::DLManagedTensor,
+    ffi::DLManagedTensor,
     tensor::traits::{HasByteOffset, HasData, HasDevice, HasDtype},
-    tensor::TensorWrapper,
+    tensor::{ManagedTensor, ManagerCtx},
 };
 use pyo3::{
-    ffi::{PyCapsule_GetPointer, PyCapsule_New, PyErr_Occurred, PyErr_Restore},
+    ffi::{PyCapsule_GetPointer, PyCapsule_New, PyCapsule_SetName, PyErr_Occurred, PyErr_Restore},
     prelude::*,
     IntoPy, PyAny, PyResult, Python,
 };
@@ -28,7 +28,7 @@ impl DLManagedTensor {
     }
 }
 
-impl<T> TensorWrapper<T>
+impl<T> ManagerCtx<T>
 where
     T: HasData + HasDevice + HasDtype + HasByteOffset,
 {
@@ -69,7 +69,7 @@ unsafe extern "C" fn dlpack_capsule_deleter(capsule: *mut pyo3::ffi::PyObject) {
     PyErr_Restore(exc_type, exc_value, exc_trace);
 }
 
-impl<T> IntoPy<PyObject> for TensorWrapper<T>
+impl<T> IntoPy<PyObject> for ManagerCtx<T>
 where
     T: HasData + HasDevice + HasDtype + HasByteOffset,
 {
@@ -85,3 +85,40 @@ where
 
 //     }
 // }
+
+// impl<'source, T> FromPyObject<'source> for ManagerCtx<T> {
+//     fn extract(ob: &'source PyAny) -> PyResult<Self> {}
+// }
+
+/// Check this [pytorch src](https://github.com/pytorch/pytorch/blob/main/torch/csrc/utils/tensor_new.cpp#L1583)
+impl From<*mut pyo3::ffi::PyObject> for ManagedTensor {
+    fn from(capsule: *mut pyo3::ffi::PyObject) -> Self {
+        unsafe {
+            let dl_managed_tensor =
+                PyCapsule_GetPointer(capsule, b"dltensor\0".as_ptr() as *const _)
+                    as *mut DLManagedTensor;
+
+            // TODO: we should add a flag for buggy numpy dlpack deleter
+            // let deleter_with_gil = move |_| {
+            //     if let Some(del_fn) = (*dl_managed_tensor).deleter {
+            //         Python::with_gil(move |_py| {
+            //             del_fn(dl_managed_tensor);
+            //         });
+            //     }
+            // };
+
+            PyCapsule_SetName(capsule, b"used_dltensor\0".as_ptr() as *const _);
+
+            ManagedTensor {
+                inner: dl_managed_tensor,
+                deleter: None,
+            }
+        }
+    }
+}
+
+impl<'source> FromPyObject<'source> for ManagedTensor {
+    fn extract(ob: &'source PyAny) -> PyResult<Self> {
+        Ok(ManagedTensor::from(ob.into_ptr()))
+    }
+}

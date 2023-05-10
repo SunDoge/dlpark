@@ -1,11 +1,15 @@
 pub mod impls;
 pub mod traits;
 
+use std::ffi::c_void;
+
 use traits::{HasByteOffset, HasData, HasDevice, HasDtype, HasShape, HasStrides};
 
-use crate::dlpack::{DLManagedTensor, DLTensor};
+use crate::ffi::{self, DataType, Device};
 
-unsafe extern "C" fn deleter_fn<T>(dl_managed_tensor: *mut DLManagedTensor) {
+use self::traits::{AsTensor, HasTensor};
+
+unsafe extern "C" fn deleter_fn<T>(dl_managed_tensor: *mut ffi::DLManagedTensor) {
     // Reconstruct pointer and destroy it.
     let ctx = (*dl_managed_tensor).manager_ctx as *mut T;
     drop(unsafe { Box::from_raw(ctx) });
@@ -56,13 +60,13 @@ impl Strides {
     }
 }
 
-pub struct TensorWrapper<T> {
+pub struct ManagerCtx<T> {
     inner: T,
     shape: Shape,
     strides: Option<Strides>,
 }
 
-impl<T> From<T> for TensorWrapper<T>
+impl<T> From<T> for ManagerCtx<T>
 where
     T: HasShape + HasStrides,
 {
@@ -78,11 +82,11 @@ where
     }
 }
 
-impl<T> From<&Box<TensorWrapper<T>>> for DLTensor
+impl<T> From<&Box<ManagerCtx<T>>> for ffi::DLTensor
 where
     T: HasData + HasDevice + HasDtype + HasByteOffset,
 {
-    fn from(value: &Box<TensorWrapper<T>>) -> Self {
+    fn from(value: &Box<ManagerCtx<T>>) -> Self {
         Self {
             data: value.inner.data(),
             device: value.inner.device(),
@@ -98,20 +102,135 @@ where
     }
 }
 
-impl<T> From<TensorWrapper<T>> for DLManagedTensor
+impl<T> From<ManagerCtx<T>> for ffi::DLManagedTensor
 where
     T: HasData + HasDevice + HasDtype + HasByteOffset,
 {
-    fn from(value: TensorWrapper<T>) -> Self {
+    fn from(value: ManagerCtx<T>) -> Self {
         let bv = Box::new(value);
-        let dl_tensor = DLTensor::from(&bv);
+        let dl_tensor = ffi::DLTensor::from(&bv);
         let ctx = Box::into_raw(bv);
         // dbg!(ctx);
         Self {
             dl_tensor,
             manager_ctx: ctx as *mut _,
-            deleter: Some(deleter_fn::<TensorWrapper<T>>),
+            deleter: Some(deleter_fn::<ManagerCtx<T>>),
         }
+    }
+}
+
+// impl Drop for ffi::DLManagedTensor {
+//     fn drop(&mut self) {
+//         if let Some(del_fn) = self.deleter {
+//             unsafe {
+//                 del_fn(self as *mut ffi::DLManagedTensor);
+//             }
+//         }
+//     }
+// }
+
+// impl Drop for ffi::DLManagedTensorVersioned {
+//     fn drop(&mut self) {
+//         if let Some(del_fn) = self.deleter {
+//             unsafe {
+//                 del_fn(self as *mut ffi::DLManagedTensorVersioned);
+//             }
+//         }
+//     }
+// }
+
+impl AsTensor for ffi::DLTensor {
+    fn data<T>(&self) -> *const T {
+        self.data as *const c_void as *const T
+    }
+
+    fn shape(&self) -> &[i64] {
+        unsafe { std::slice::from_raw_parts(self.shape, self.ndim()) }
+    }
+
+    fn strides(&self) -> Option<&[i64]> {
+        if self.strides.is_null() {
+            None
+        } else {
+            Some(unsafe { std::slice::from_raw_parts(self.strides, self.ndim()) })
+        }
+    }
+
+    fn ndim(&self) -> usize {
+        self.ndim as usize
+    }
+
+    fn device(&self) -> Device {
+        self.device
+    }
+
+    fn dtype(&self) -> DataType {
+        self.dtype
+    }
+    fn byte_offset(&self) -> u64 {
+        self.byte_offset
+    }
+}
+
+pub struct ManagedTensor {
+    pub inner: *mut ffi::DLManagedTensor,
+    pub deleter: Option<Box<dyn Fn(*mut ffi::DLManagedTensor)>>,
+}
+
+impl Drop for ManagedTensor {
+    fn drop(&mut self) {
+        unsafe {
+            if let Some(ref del_fn) = self.deleter {
+                del_fn(self.inner);
+            } else if let Some(del_fn) = (*self.inner).deleter {
+                del_fn(self.inner);
+            }
+        }
+    }
+}
+
+impl<T> AsTensor for T
+where
+    T: HasTensor<ffi::DLTensor>,
+{
+    fn data<D>(&self) -> *const D {
+        self.tensor().data()
+    }
+
+    fn device(&self) -> Device {
+        self.tensor().device()
+    }
+
+    fn dtype(&self) -> DataType {
+        self.tensor().dtype()
+    }
+
+    fn ndim(&self) -> usize {
+        self.tensor().ndim()
+    }
+
+    fn byte_offset(&self) -> u64 {
+        self.tensor().byte_offset()
+    }
+
+    fn strides(&self) -> Option<&[i64]> {
+        self.tensor().strides()
+    }
+
+    fn shape(&self) -> &[i64] {
+        self.tensor().shape()
+    }
+}
+
+impl HasTensor<ffi::DLTensor> for ManagedTensor {
+    fn tensor(&self) -> &ffi::DLTensor {
+        unsafe { &(*self.inner).dl_tensor }
+    }
+}
+
+impl HasTensor<ffi::DLTensor> for ffi::DLManagedTensor {
+    fn tensor(&self) -> &ffi::DLTensor {
+        &self.dl_tensor
     }
 }
 
@@ -122,7 +241,7 @@ mod tests {
     #[test]
     fn from_vec_f32() {
         let v: Vec<f32> = (0..10).map(|x| x as f32).collect();
-        let tensor = TensorWrapper::from(v);
+        let tensor = ManagerCtx::from(v);
         dbg!(&tensor.shape, &tensor.strides);
         assert_eq!(tensor.shape.len(), 1);
     }

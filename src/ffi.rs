@@ -168,7 +168,7 @@ const DLPACK_FLAG_BITMASK_READ_ONLY: u64 = 1 << 0;
 pub struct DLManagedTensorVersioned {
     pub version: PackVersion,
     pub manager_ctx: *mut c_void,
-    pub deleter: Option<extern "C" fn(*mut Self)>,
+    pub deleter: Option<unsafe extern "C" fn(*mut Self)>,
     pub flags: u64,
     pub dl_tensor: DLTensor,
 }

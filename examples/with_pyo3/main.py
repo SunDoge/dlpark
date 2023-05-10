@@ -1,13 +1,16 @@
-
-from torch.utils.dlpack import from_dlpack
-import numpy as np
 import sys
 import os
 
-if not os.path.exists('target/debug/mylib.so'):
-    os.link('target/debug/libmylib.so', 'target/debug/mylib.so')
+if os.path.exists('target/debug/mylib.so'):
+    os.unlink('target/debug/mylib.so')
+
+os.link('target/debug/libmylib.so', 'target/debug/mylib.so')
 sys.path.append("target/debug")
+
 import mylib
+from torch.utils.dlpack import from_dlpack, to_dlpack
+import numpy as np
+import torch
 
 
 class SimpleTensor:
@@ -30,3 +33,11 @@ print(from_dlpack(mylib.arange(11)) + 1)
 
 dic = mylib.tensordict()
 print({k: from_dlpack(v) for k, v in dic.items()})
+
+mylib.print_tensor(to_dlpack(torch.rand(2, 3)))
+mylib.print_tensor(
+    to_dlpack(
+        torch.rand(21000, 3)
+        # torch.rand(21000, 3).cuda()
+    )
+)
