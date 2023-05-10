@@ -120,11 +120,6 @@ where
     }
 }
 
-pub enum IntArrayRef<'a> {
-    Owned(Vec<i64>),
-    Borrowed(&'a [i64]),
-}
-
 #[derive(Debug)]
 #[repr(transparent)]
 pub struct TensorRef<'a> {
@@ -203,31 +198,33 @@ impl<'a> TensorRef<'a> {
     }
 }
 
-#[derive(Debug)]
-#[repr(transparent)]
-pub struct ManagedTensor<T> {
-    pub inner: ffi::DLManagedTensor,
-    _type: PhantomData<T>,
-    _pinned: PhantomPinned,
+pub struct ManagerCtx<T> {
+    inner: T,
+    shape: Shape,
+    strides: Option<Strides>,
 }
 
-impl<T> From<ffi::DLManagedTensor> for ManagedTensor<T> {
-    fn from(value: ffi::DLManagedTensor) -> Self {
-        Self {
-            inner: value,
-            _type: PhantomData,
-            _pinned: PhantomPinned,
-        }
+pub struct ManagedTensor<T> {
+    pub tensor: ffi::DLTensor,
+    pub manager_ctx: Box<T>,
+    pub deleter: Option<fn(&mut Self)>,
+}
+
+impl Drop for ffi::DLManagedTensor {
+    fn drop(&mut self) {
+        self.deleter.map(|del_fn| unsafe {
+            del_fn(self as *mut ffi::DLManagedTensor);
+        });
     }
 }
 
-
-
-pub struct ManagerCtx<T> {
-    inner: T,
-    // shape: IntArrayRef<>
+impl Drop for ffi::DLManagedTensorVersioned {
+    fn drop(&mut self) {
+        self.deleter.map(|del_fn| unsafe {
+            del_fn(self as *mut ffi::DLManagedTensorVersioned);
+        });
+    }
 }
-
 
 #[cfg(test)]
 mod tests {
