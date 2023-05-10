@@ -1,12 +1,13 @@
 use crate::{
     ffi::DLManagedTensor,
     tensor::traits::{HasByteOffset, HasData, HasDevice, HasDtype},
-    tensor::ManagerCtx,
+    tensor::{ManagedTensor, ManagerCtx},
 };
 use pyo3::{
-    ffi::{PyCapsule_GetPointer, PyCapsule_New, PyErr_Occurred, PyErr_Restore},
+    ffi::{PyCapsule_GetPointer, PyCapsule_New, PyCapsule_SetName, PyErr_Occurred, PyErr_Restore},
     prelude::*,
-    IntoPy, PyAny, PyResult, Python,
+    types::PyCapsule,
+    AsPyPointer, IntoPy, PyAny, PyResult, Python,
 };
 
 impl DLManagedTensor {
@@ -85,3 +86,39 @@ where
 
 //     }
 // }
+
+// impl<'source, T> FromPyObject<'source> for ManagerCtx<T> {
+//     fn extract(ob: &'source PyAny) -> PyResult<Self> {}
+// }
+
+/// Check this [pytorch src](https://github.com/pytorch/pytorch/blob/main/torch/csrc/utils/tensor_new.cpp#L1583)
+impl From<*mut pyo3::ffi::PyObject> for ManagedTensor {
+    fn from(capsule: *mut pyo3::ffi::PyObject) -> Self {
+        unsafe {
+            let dl_managed_tensor =
+                PyCapsule_GetPointer(capsule, b"dltensor\0".as_ptr() as *const _)
+                    as *mut DLManagedTensor;
+
+            let deleter_with_gil = move || {
+                if let Some(del_fn) = (*dl_managed_tensor).deleter {
+                    Python::with_gil(move |_py| {
+                        del_fn(dl_managed_tensor);
+                    });
+                }
+            };
+
+            PyCapsule_SetName(capsule, b"used_dltensor\0".as_ptr() as *const _);
+
+            ManagedTensor {
+                inner: Box::from_raw(dl_managed_tensor),
+                deleter: Box::new(deleter_with_gil),
+            }
+        }
+    }
+}
+
+impl<'source> FromPyObject<'source> for ManagedTensor {
+    fn extract(ob: &'source PyAny) -> PyResult<Self> {
+        Ok(ManagedTensor::from(ob.as_ptr()))
+    }
+}

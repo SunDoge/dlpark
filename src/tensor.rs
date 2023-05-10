@@ -1,15 +1,13 @@
 pub mod impls;
 pub mod traits;
 
-use std::{
-    ffi::c_void,
-};
+use std::ffi::c_void;
 
 use traits::{HasByteOffset, HasData, HasDevice, HasDtype, HasShape, HasStrides};
 
 use crate::ffi::{self, DataType, Device};
 
-use self::traits::AsTensor;
+use self::traits::{AsTensor, HasTensor};
 
 unsafe extern "C" fn deleter_fn<T>(dl_managed_tensor: *mut ffi::DLManagedTensor) {
     // Reconstruct pointer and destroy it.
@@ -121,25 +119,25 @@ where
     }
 }
 
-impl Drop for ffi::DLManagedTensor {
-    fn drop(&mut self) {
-        if let Some(del_fn) = self.deleter {
-            unsafe {
-                del_fn(self as *mut ffi::DLManagedTensor);
-            }
-        }
-    }
-}
+// impl Drop for ffi::DLManagedTensor {
+//     fn drop(&mut self) {
+//         if let Some(del_fn) = self.deleter {
+//             unsafe {
+//                 del_fn(self as *mut ffi::DLManagedTensor);
+//             }
+//         }
+//     }
+// }
 
-impl Drop for ffi::DLManagedTensorVersioned {
-    fn drop(&mut self) {
-        if let Some(del_fn) = self.deleter {
-            unsafe {
-                del_fn(self as *mut ffi::DLManagedTensorVersioned);
-            }
-        }
-    }
-}
+// impl Drop for ffi::DLManagedTensorVersioned {
+//     fn drop(&mut self) {
+//         if let Some(del_fn) = self.deleter {
+//             unsafe {
+//                 del_fn(self as *mut ffi::DLManagedTensorVersioned);
+//             }
+//         }
+//     }
+// }
 
 impl AsTensor for ffi::DLTensor {
     fn data<T>(&self) -> *const T {
@@ -171,6 +169,63 @@ impl AsTensor for ffi::DLTensor {
     }
     fn byte_offset(&self) -> u64 {
         self.byte_offset
+    }
+}
+
+pub struct ManagedTensor {
+    pub inner: Box<ffi::DLManagedTensor>,
+    pub deleter: Box<dyn Fn()>,
+}
+
+impl Drop for ManagedTensor {
+    fn drop(&mut self) {
+        (self.deleter)();
+        drop(self);
+    }
+}
+
+impl<T> AsTensor for T
+where
+    T: HasTensor<ffi::DLTensor>,
+{
+    fn data<D>(&self) -> *const D {
+        self.tensor().data()
+    }
+
+    fn device(&self) -> Device {
+        self.tensor().device()
+    }
+
+    fn dtype(&self) -> DataType {
+        self.tensor().dtype()
+    }
+
+    fn ndim(&self) -> usize {
+        self.tensor().ndim()
+    }
+
+    fn byte_offset(&self) -> u64 {
+        self.tensor().byte_offset()
+    }
+
+    fn strides(&self) -> Option<&[i64]> {
+        self.tensor().strides()
+    }
+
+    fn shape(&self) -> &[i64] {
+        self.tensor().shape()
+    }
+}
+
+impl HasTensor<ffi::DLTensor> for ManagedTensor {
+    fn tensor(&self) -> &ffi::DLTensor {
+        &self.inner.dl_tensor
+    }
+}
+
+impl HasTensor<ffi::DLTensor> for ffi::DLManagedTensor {
+    fn tensor(&self) -> &ffi::DLTensor {
+        &self.dl_tensor
     }
 }
 

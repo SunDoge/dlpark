@@ -43,3 +43,8 @@ pub trait AsTensor {
     fn dtype(&self) -> DataType;
     fn byte_offset(&self) -> u64;
 }
+
+pub trait HasTensor<T> where T: AsTensor{
+    fn tensor(&self) -> &T;
+}
+

@@ -1,4 +1,4 @@
-use dlpark::tensor::ManagerCtx;
+use dlpark::tensor::{traits::AsTensor, ManagedTensor, ManagerCtx};
 use pyo3::{prelude::*, types::PyDict};
 
 #[pyfunction]
@@ -21,6 +21,11 @@ pub fn tensordict(py: Python<'_>) -> PyResult<&PyDict> {
     dic.set_item("v1", ManagerCtx::from(v1).to_capsule(py)?)?;
     dic.set_item("v2", ManagerCtx::from(v2).to_capsule(py)?)?;
     Ok(dic)
+}
+
+#[pyfunction]
+pub fn print_tensor(tensor: ManagedTensor) {
+    dbg!(tensor.shape(), tensor.dtype(), tensor.device());
 }
 
 #[pymodule]
