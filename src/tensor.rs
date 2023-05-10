@@ -182,10 +182,8 @@ impl Drop for ManagedTensor {
         unsafe {
             if let Some(ref del_fn) = self.deleter {
                 del_fn(self.inner);
-            } else {
-                if let Some(del_fn) = (*self.inner).deleter {
-                    del_fn(self.inner);
-                }
+            } else if let Some(del_fn) = (*self.inner).deleter {
+                del_fn(self.inner);
             }
         }
     }

@@ -1,6 +1,6 @@
 use super::{
     traits::{
-        HasByteOffset, HasData, HasDevice, HasDtype, HasShape, HasStrides, InferDtype, AsTensor,
+        HasByteOffset, HasData, HasDevice, HasDtype, HasShape, HasStrides, InferDtype,
     },
     Shape,
 };

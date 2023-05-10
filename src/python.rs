@@ -6,8 +6,7 @@ use crate::{
 use pyo3::{
     ffi::{PyCapsule_GetPointer, PyCapsule_New, PyCapsule_SetName, PyErr_Occurred, PyErr_Restore},
     prelude::*,
-    types::PyCapsule,
-    AsPyPointer, IntoPy, PyAny, PyResult, Python,
+    IntoPy, PyAny, PyResult, Python,
 };
 
 impl DLManagedTensor {
