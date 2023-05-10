@@ -1,9 +1,14 @@
 pub mod impls;
 pub mod traits;
 
+use std::{
+    ffi::c_void,
+    marker::{PhantomData, PhantomPinned},
+};
+
 use traits::{HasByteOffset, HasData, HasDevice, HasDtype, HasShape, HasStrides};
 
-use crate::ffi;
+use crate::ffi::{self, DataType, Device};
 
 unsafe extern "C" fn deleter_fn<T>(dl_managed_tensor: *mut ffi::DLManagedTensor) {
     // Reconstruct pointer and destroy it.
@@ -114,6 +119,115 @@ where
         }
     }
 }
+
+pub enum IntArrayRef<'a> {
+    Owned(Vec<i64>),
+    Borrowed(&'a [i64]),
+}
+
+#[derive(Debug)]
+#[repr(transparent)]
+pub struct TensorRef<'a> {
+    pub inner: ffi::DLTensor,
+    _marker: PhantomData<fn(&'a ()) -> &'a ()>,
+}
+
+impl<'a> From<ffi::DLTensor> for TensorRef<'a> {
+    fn from(value: ffi::DLTensor) -> Self {
+        TensorRef {
+            inner: value,
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<'a> TensorRef<'a> {
+    pub fn new(
+        data: *mut c_void,
+        device: Device,
+        ndim: i32,
+        dtype: DataType,
+        shape: *mut i64,
+        strides: *mut i64,
+        byte_offset: u64,
+    ) -> Self {
+        let inner = ffi::DLTensor {
+            data,
+            device,
+            ndim,
+            dtype,
+            shape,
+            strides,
+            byte_offset,
+        };
+        Self {
+            inner,
+            _marker: PhantomData,
+        }
+    }
+
+    pub fn into_inner(self) -> ffi::DLTensor {
+        self.inner
+    }
+
+    pub fn data(&self) -> *mut c_void {
+        self.inner.data
+    }
+
+    pub fn device(&self) -> Device {
+        self.inner.device
+    }
+
+    pub fn ndim(&self) -> usize {
+        self.inner.ndim as usize
+    }
+
+    pub fn dtype(&self) -> DataType {
+        self.inner.dtype
+    }
+
+    pub fn shape(&self) -> &[i64] {
+        unsafe { std::slice::from_raw_parts(self.inner.shape, self.ndim()) }
+    }
+
+    pub fn strides(&self) -> Option<&[i64]> {
+        if self.inner.strides.is_null() {
+            None
+        } else {
+            Some(unsafe { std::slice::from_raw_parts(self.inner.strides, self.ndim()) })
+        }
+    }
+
+    pub fn byte_offset(&self) -> u64 {
+        self.inner.byte_offset
+    }
+}
+
+#[derive(Debug)]
+#[repr(transparent)]
+pub struct ManagedTensor<T> {
+    pub inner: ffi::DLManagedTensor,
+    _type: PhantomData<T>,
+    _pinned: PhantomPinned,
+}
+
+impl<T> From<ffi::DLManagedTensor> for ManagedTensor<T> {
+    fn from(value: ffi::DLManagedTensor) -> Self {
+        Self {
+            inner: value,
+            _type: PhantomData,
+            _pinned: PhantomPinned,
+        }
+    }
+}
+
+
+
+pub struct ManagerCtx<T> {
+    inner: T,
+    // shape: IntArrayRef<>
+}
+
 
 #[cfg(test)]
 mod tests {
