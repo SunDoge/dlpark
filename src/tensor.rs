@@ -124,17 +124,21 @@ where
 
 impl Drop for ffi::DLManagedTensor {
     fn drop(&mut self) {
-        self.deleter.map(|del_fn| unsafe {
-            del_fn(self as *mut ffi::DLManagedTensor);
-        });
+        if let Some(del_fn) = self.deleter {
+            unsafe {
+                del_fn(self as *mut ffi::DLManagedTensor);
+            }
+        }
     }
 }
 
 impl Drop for ffi::DLManagedTensorVersioned {
     fn drop(&mut self) {
-        self.deleter.map(|del_fn| unsafe {
-            del_fn(self as *mut ffi::DLManagedTensorVersioned);
-        });
+        if let Some(del_fn) = self.deleter {
+            unsafe {
+                del_fn(self as *mut ffi::DLManagedTensorVersioned);
+            }
+        }
     }
 }
 
