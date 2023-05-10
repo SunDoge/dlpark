@@ -9,6 +9,9 @@ use pyo3::{
     IntoPy, PyAny, PyResult, Python,
 };
 
+const DLPACK_CAPSULE_NAME: &[u8] = b"dltensor\0";
+const DLPACK_CAPSULE_USED_NAME: &[u8] = b"used_dltensor\0";
+
 impl DLManagedTensor {
     pub fn to_capsule_ptr(self) -> *mut pyo3::ffi::PyObject {
         let self_ptr = Box::into_raw(Box::new(self));
@@ -16,7 +19,7 @@ impl DLManagedTensor {
         unsafe {
             PyCapsule_New(
                 self_ptr as *mut _,
-                b"dltensor\0".as_ptr() as *const _,
+                DLPACK_CAPSULE_NAME.as_ptr() as *const _,
                 Some(dlpack_capsule_deleter),
             )
         }
@@ -43,7 +46,7 @@ where
 
 /// Refer to [dlpack python_spec](https://dmlc.github.io/dlpack/latest/python_spec.html#implementation)
 unsafe extern "C" fn dlpack_capsule_deleter(capsule: *mut pyo3::ffi::PyObject) {
-    if pyo3::ffi::PyCapsule_IsValid(capsule, b"used_dltensor\0".as_ptr() as *const _) == 1 {
+    if pyo3::ffi::PyCapsule_IsValid(capsule, DLPACK_CAPSULE_USED_NAME.as_ptr() as *const _) == 1 {
         return;
     }
 
@@ -52,8 +55,8 @@ unsafe extern "C" fn dlpack_capsule_deleter(capsule: *mut pyo3::ffi::PyObject) {
     let mut exc_trace = std::ptr::null_mut();
     pyo3::ffi::PyErr_Fetch(&mut exc_type, &mut exc_value, &mut exc_trace);
 
-    let managed =
-        PyCapsule_GetPointer(capsule, b"dltensor\0".as_ptr() as *const _) as *mut DLManagedTensor;
+    let managed = PyCapsule_GetPointer(capsule, DLPACK_CAPSULE_NAME.as_ptr() as *const _)
+        as *mut DLManagedTensor;
 
     if managed.is_null() {
         pyo3::ffi::PyErr_WriteUnraisable(capsule);
@@ -79,46 +82,39 @@ where
     }
 }
 
-// impl<T> ToPyObject for TensorWrapper<T>
-//  where T: HasData + HasDevice + HasDtype + HasByteOffset {
-//     fn to_object(&self, py: Python<'_>) -> PyObject {
+impl ManagedTensor {
+    /// Check this [pytorch src](https://github.com/pytorch/pytorch/blob/main/torch/csrc/utils/tensor_new.cpp#L1583)
+    /// # Safety
+    /// We use pyo3 ffi here.
+    pub unsafe fn from_py_ptr(capsule: *mut pyo3::ffi::PyObject) -> Self {
+        let dl_managed_tensor =
+            PyCapsule_GetPointer(capsule, DLPACK_CAPSULE_NAME.as_ptr() as *const _)
+                as *mut DLManagedTensor;
 
-//     }
-// }
+        // TODO: we should add a flag for buggy numpy dlpack deleter
+        // let deleter_with_gil = move |_| {
+        //     if let Some(del_fn) = (*dl_managed_tensor).deleter {
+        //         Python::with_gil(move |_py| {
+        //             del_fn(dl_managed_tensor);
+        //         });
+        //     }
+        // };
 
-// impl<'source, T> FromPyObject<'source> for ManagerCtx<T> {
-//     fn extract(ob: &'source PyAny) -> PyResult<Self> {}
-// }
+        PyCapsule_SetName(capsule, DLPACK_CAPSULE_USED_NAME.as_ptr() as *const _);
 
-/// Check this [pytorch src](https://github.com/pytorch/pytorch/blob/main/torch/csrc/utils/tensor_new.cpp#L1583)
-impl From<*mut pyo3::ffi::PyObject> for ManagedTensor {
-    fn from(capsule: *mut pyo3::ffi::PyObject) -> Self {
-        unsafe {
-            let dl_managed_tensor =
-                PyCapsule_GetPointer(capsule, b"dltensor\0".as_ptr() as *const _)
-                    as *mut DLManagedTensor;
-
-            // TODO: we should add a flag for buggy numpy dlpack deleter
-            // let deleter_with_gil = move |_| {
-            //     if let Some(del_fn) = (*dl_managed_tensor).deleter {
-            //         Python::with_gil(move |_py| {
-            //             del_fn(dl_managed_tensor);
-            //         });
-            //     }
-            // };
-
-            PyCapsule_SetName(capsule, b"used_dltensor\0".as_ptr() as *const _);
-
-            ManagedTensor {
-                inner: dl_managed_tensor,
-                deleter: None,
-            }
+        ManagedTensor {
+            inner: dl_managed_tensor,
+            deleter: None,
         }
+    }
+
+    pub fn from_py(ob: impl IntoPyPointer) -> Self {
+        unsafe { Self::from_py_ptr(ob.into_ptr()) }
     }
 }
 
 impl<'source> FromPyObject<'source> for ManagedTensor {
     fn extract(ob: &'source PyAny) -> PyResult<Self> {
-        Ok(ManagedTensor::from(ob.into_ptr()))
+        Ok(ManagedTensor::from_py(ob))
     }
 }

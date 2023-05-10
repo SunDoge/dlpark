@@ -1,7 +1,5 @@
 use super::{
-    traits::{
-        HasByteOffset, HasData, HasDevice, HasDtype, HasShape, HasStrides, InferDtype,
-    },
+    traits::{HasByteOffset, HasData, HasDevice, HasDtype, HasShape, HasStrides, InferDtype},
     Shape,
 };
 use crate::ffi::{DataType, Device};
@@ -75,5 +73,3 @@ impl InferDtype for bool {
         DataType::BOOL
     }
 }
-
-

@@ -5,5 +5,8 @@ pub mod device;
 pub mod ffi;
 pub mod tensor;
 
+pub use ffi::{DataType, Device};
+pub use tensor::{ManagedTensor, ManagerCtx, Shape, Strides};
+
 #[cfg(feature = "python")]
 pub mod python;

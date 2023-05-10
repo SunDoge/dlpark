@@ -43,6 +43,14 @@ impl Shape {
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
+
+    pub fn as_slice(&self) -> &[i64] {
+        unsafe { std::slice::from_raw_parts(self.as_ptr(), self.len()) }
+    }
+
+    pub fn num_elements(&self) -> usize {
+        self.as_slice().iter().fold(1, |acc, x| acc * (*x as usize))
+    }
 }
 
 #[derive(Debug)]
@@ -186,6 +194,12 @@ impl Drop for ManagedTensor {
                 del_fn(self.inner);
             }
         }
+    }
+}
+
+impl ManagedTensor {
+    pub fn as_slice<T>(&self) -> &[T] {
+        unsafe { std::slice::from_raw_parts(self.data(), self.num_elements()) }
     }
 }
 
