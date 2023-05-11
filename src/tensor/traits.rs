@@ -42,9 +42,15 @@ pub trait AsTensor {
     fn device(&self) -> Device;
     fn dtype(&self) -> DataType;
     fn byte_offset(&self) -> u64;
+
+    fn num_elements(&self) -> usize {
+        self.shape().iter().fold(1usize, |acc, &x| acc * x as usize)
+    }
 }
 
-pub trait HasTensor<T> where T: AsTensor{
+pub trait HasTensor<T>
+where
+    T: AsTensor,
+{
     fn tensor(&self) -> &T;
 }
-

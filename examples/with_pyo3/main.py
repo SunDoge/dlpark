@@ -34,10 +34,12 @@ print(from_dlpack(mylib.arange(11)) + 1)
 dic = mylib.tensordict()
 print({k: from_dlpack(v) for k, v in dic.items()})
 
-mylib.print_tensor(to_dlpack(torch.rand(2, 3)))
-mylib.print_tensor(
-    to_dlpack(
-        torch.rand(21000, 3)
-        # torch.rand(21000, 3).cuda()
-    )
-)
+x3 = torch.rand(2, 3)
+print('x3', x3)
+mylib.print_tensor(to_dlpack(x3))
+# mylib.print_tensor(
+#     to_dlpack(
+#         torch.rand(21000, 3)
+#         # torch.rand(21000, 3).cuda()
+#     )
+# )

@@ -64,7 +64,7 @@ pub struct Device {
 }
 
 #[repr(u8)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum DataTypeCode {
     /// signed integer
     Int = 0,
@@ -93,7 +93,7 @@ pub enum DataTypeCode {
 /// - int8: type_code = 0, bits = 8, lanes=1
 /// - std::complex<float>: type_code = 5, bits = 64, lanes = 1
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct DataType {
     /// Type code of base types.
     pub code: DataTypeCode,
