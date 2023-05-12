@@ -31,20 +31,20 @@ impl HasData for PyRgbImage {
 }
 
 impl HasDevice for PyRgbImage {
-    fn device(&self) -> dlpark::ffi::Device {
+    fn device(&self) -> Device {
         Device::CPU
     }
 }
 
 impl HasDtype for PyRgbImage {
-    fn dtype(&self) -> dlpark::ffi::DataType {
+    fn dtype(&self) -> DataType {
         DataType::U8
     }
 }
 
 impl HasShape for PyRgbImage {
-    fn shape(&self) -> dlpark::tensor::Shape {
-        dlpark::tensor::Shape::Owned(
+    fn shape(&self) -> Shape {
+        Shape::Owned(
             [self.0.height(), self.0.width(), 3]
                 .map(|x| x as i64)
                 .to_vec(),
@@ -52,12 +52,9 @@ impl HasShape for PyRgbImage {
     }
 }
 
+// Strides can be infered from Shape since it's compact and row-majored.
 impl HasStrides for PyRgbImage {}
-impl HasByteOffset for PyRgbImage {
-    fn byte_offset(&self) -> u64 {
-        0
-    }
-}
+impl HasByteOffset for PyRgbImage {}
 ```
 
 Then we can return a `ManagerCtx<PyRgbImage>`

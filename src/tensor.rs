@@ -1,8 +1,6 @@
 pub mod impls;
 pub mod traits;
 
-use std::ffi::c_void;
-
 use traits::{HasByteOffset, HasData, HasDevice, HasDtype, HasShape, HasStrides};
 
 use crate::ffi::{self, DataType, Device};
@@ -53,6 +51,7 @@ impl Shape {
     }
 }
 
+/// If it is borrowed, the length should be `tensor.ndim()`
 #[derive(Debug)]
 pub enum Strides {
     Borrowed(*mut i64),
@@ -149,7 +148,7 @@ where
 
 impl AsTensor for ffi::DLTensor {
     fn data<T>(&self) -> *const T {
-        self.data as *const c_void as *const T
+        self.data as *const T
     }
 
     fn shape(&self) -> &[i64] {

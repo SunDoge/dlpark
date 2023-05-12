@@ -12,6 +12,7 @@ pub trait HasShape {
     fn shape(&self) -> Shape;
 }
 
+/// Can be `None`, indicating tensor is compact and row-majored.
 pub trait HasStrides {
     fn strides(&self) -> Option<Strides> {
         None
@@ -41,10 +42,30 @@ pub trait AsTensor {
     fn ndim(&self) -> usize;
     fn device(&self) -> Device;
     fn dtype(&self) -> DataType;
-    fn byte_offset(&self) -> u64;
+
+    fn byte_offset(&self) -> u64 {
+        0
+    }
 
     fn num_elements(&self) -> usize {
-        self.shape().iter().fold(1usize, |acc, &x| acc * x as usize)
+        self.shape().iter().product::<i64>() as usize
+    }
+
+    /// For given DLTensor, the size of memory required to store the contents of
+    /// data is calculated as follows:
+    ///
+    /// ```c
+    /// static inline size_t GetDataSize(const DLTensor* t) {
+    ///   size_t size = 1;
+    ///   for (tvm_index_t i = 0; i < t->ndim; ++i) {
+    ///     size *= t->shape[i];
+    ///   }
+    ///   size *= (t->dtype.bits * t->dtype.lanes + 7) / 8;
+    ///   return size;
+    /// }
+    /// ```
+    fn data_size(&self) -> usize {
+        self.num_elements() * self.dtype().size()
     }
 }
 
