@@ -1,7 +1,4 @@
-use dlpark::{
-    tensor::{traits::AsTensor, ManagedTensor, ManagerCtx},
-    DataType,
-};
+use dlpark::prelude::*;
 use pyo3::{prelude::*, types::PyDict};
 
 #[pyfunction]

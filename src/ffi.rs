@@ -2,6 +2,10 @@
 /// Please use the safe wrapper provided by dlpark.
 use std::ffi::c_void;
 
+pub const DLPACK_MAJOR_VERSION: u64 = 1;
+pub const DLPACK_MINOR_VERSION: u64 = 0;
+pub const DLPACK_FLAG_BITMASK_READ_ONLY: u64 = 1 << 0;
+
 #[repr(C)]
 #[derive(Debug)]
 pub struct PackVersion {
@@ -159,9 +163,6 @@ pub struct DLManagedTensor {
     pub manager_ctx: *mut c_void,
     pub deleter: Option<unsafe extern "C" fn(*mut Self)>,
 }
-
-#[allow(dead_code)]
-const DLPACK_FLAG_BITMASK_READ_ONLY: u64 = 1 << 0;
 
 #[repr(C)]
 #[derive(Debug)]

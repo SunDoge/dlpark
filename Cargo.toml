@@ -1,6 +1,6 @@
 [package]
 name = "dlpark"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 authors = ["SunDoge"]
 license-file = "LICENSE"
@@ -20,6 +20,6 @@ members = ["examples/from_numpy", "examples/with_pyo3"]
 
 [features]
 
-default = ["python"]
+default = ["pyo3"]
 
-python = ["dep:pyo3"]
+pyo3 = ["dep:pyo3"]
