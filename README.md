@@ -1,10 +1,12 @@
 # dlpark
 
+![Crates.io](https://img.shields.io/crates/v/dlpark?style=for-the-badge)
+
 A pure Rust implementation of [dmlc/dlpack](https://github.com/dmlc/dlpack).
 
 Check [example/from_numpy](./example/from_numpy) for usage.
 
-This implementation focuses on transferring tensor from Rust to Python.
+This implementation focuses on transferring tensor from Rust to Python and vice versa.
 
 ## Quick Start
 
@@ -12,7 +14,7 @@ We provide a simple example of how to transfer `image::RgbImage` to Python and `
 
 [Full code is here](https://github.com/SunDoge/dlparkimg).
 
-### Rust -> Python
+### Rust $\rightarrow$ Python
 
 We have to implement some traits for a struct to be able to converted to `PyObject`
 
@@ -100,7 +102,7 @@ class FakeTensor:
 arr = np.from_dlpack(FakeTensor(dlparkimg.read_image("candy.jpg")))
 ```
 
-### Python -> Rust
+### Python $\rightarrow$ Rust
 
 `ManagedTensor` holds the memory of tensor and provide methods to access the tensor's attributes.
 
