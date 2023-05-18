@@ -4,9 +4,11 @@
 
 A pure Rust implementation of [dmlc/dlpack](https://github.com/dmlc/dlpack).
 
-Check [example/from_numpy](./example/from_numpy) for usage.
+Check [example/with_pyo3](./example/with_pyo3) for usage.
 
 This implementation focuses on transferring tensor from Rust to Python and vice versa.
+
+It can also be used without `pyo3` as a Rust library with `default-features = false`, check [example/from_numpy](./example/from_numpy).
 
 ## Quick Start
 
