@@ -1,6 +1,6 @@
 # dlpark
-
-![Crates.io](https://img.shields.io/crates/v/dlpark?style=for-the-badge)
+[![Github Actions](https://img.shields.io/github/actions/workflow/status/SunDoge/dlpark/rust.yml?branch=main&style=for-the-badge)](https://github.com/SunDoge/dlpark/actions/workflows/rust.yml)
+[![Crates.io](https://img.shields.io/crates/v/dlpark?style=for-the-badge)](https://crates.io/crates/dlpark)
 
 A pure Rust implementation of [dmlc/dlpack](https://github.com/dmlc/dlpack).
 
