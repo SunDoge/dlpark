@@ -13,7 +13,7 @@ readme = "README.md"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-pyo3 = { version = "0.18.3", optional = true }
+pyo3 = { version = "0.19.0", optional = true }
 
 [workspace]
 members = ["examples/from_numpy", "examples/with_pyo3"]
