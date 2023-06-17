@@ -1,4 +1,4 @@
-use std::ptr::NonNull;
+use std::{mem::ManuallyDrop, ptr::NonNull};
 
 use crate::{
     ffi::DLManagedTensor,
@@ -30,6 +30,76 @@ impl DLManagedTensor {
     pub fn to_capsule(self, py: Python<'_>) -> PyResult<&PyAny> {
         let ptr = self.to_capsule_ptr();
         unsafe { py.from_owned_ptr_or_err(ptr) }
+    }
+
+    pub fn as_capsule_ptr(&mut self) -> *mut pyo3::ffi::PyObject {
+        unsafe {
+            PyCapsule_New(
+                self as *mut DLManagedTensor as _,
+                DLPACK_CAPSULE_NAME.as_ptr().cast(),
+                Some(dlpack_capsule_deleter),
+            )
+        }
+    }
+}
+
+impl IntoPyPointer for DLManagedTensor {
+    fn into_ptr(self) -> *mut pyo3::ffi::PyObject {
+        let self_ptr = Box::into_raw(Box::new(self));
+        unsafe {
+            PyCapsule_New(
+                self_ptr.cast(),
+                DLPACK_CAPSULE_NAME.as_ptr().cast(),
+                Some(dlpack_capsule_deleter),
+            )
+        }
+    }
+}
+
+impl IntoPyPointer for &mut DLManagedTensor {
+    fn into_ptr(self) -> *mut pyo3::ffi::PyObject {
+        unsafe {
+            PyCapsule_New(
+                self as *mut DLManagedTensor as *mut _,
+                DLPACK_CAPSULE_NAME.as_ptr().cast(),
+                Some(dlpack_capsule_deleter),
+            )
+        }
+    }
+}
+
+impl IntoPy<PyObject> for DLManagedTensor {
+    fn into_py(self, py: Python<'_>) -> PyObject {
+        let ptr = self.into_ptr();
+        unsafe { PyObject::from_owned_ptr(py, ptr) }
+    }
+}
+
+pub fn dl_managed_tensor_ptr_to_py_object(
+    dl_managed_tensor: *mut DLManagedTensor,
+    py: Python<'_>,
+) -> PyObject {
+    let ptr = unsafe {
+        PyCapsule_New(
+            dl_managed_tensor as _,
+            DLPACK_CAPSULE_NAME.as_ptr().cast(),
+            Some(dlpack_capsule_deleter),
+        )
+    };
+    unsafe { PyObject::from_owned_ptr(py, ptr) }
+}
+
+impl IntoPy<PyObject> for ManagedTensor {
+    fn into_py(self, py: Python<'_>) -> PyObject {
+        let self_ = ManuallyDrop::new(self);
+        dl_managed_tensor_ptr_to_py_object(self_.inner.as_ptr(), py)
+    }
+}
+
+impl IntoPy<PyObject> for &mut DLManagedTensor {
+    fn into_py(self, py: Python<'_>) -> PyObject {
+        let ptr = self.into_ptr();
+        unsafe { PyObject::from_owned_ptr(py, ptr) }
     }
 }
 
@@ -79,7 +149,7 @@ where
     T: HasData + HasDevice + HasDtype + HasByteOffset,
 {
     fn into_py(self, py: Python<'_>) -> PyObject {
-        let ptr = self.to_capsule_ptr();
+        let ptr = DLManagedTensor::from(self).into_ptr();
         unsafe { PyObject::from_owned_ptr(py, ptr) }
     }
 }
@@ -116,3 +186,9 @@ impl<'source> FromPyObject<'source> for ManagedTensor {
         Ok(ManagedTensor::from_py(ob))
     }
 }
+
+// impl IntoPy<PyObject> for ManagedTensor {
+//     fn into_py(self, py: Python<'_>) -> PyObject {
+//         unsafe { self.as_mut().into_py(py) }
+//     }
+// }

@@ -189,6 +189,14 @@ impl ManagedTensor {
     pub fn as_ptr(&self) -> *mut ffi::DLManagedTensor {
         self.inner.as_ptr()
     }
+
+    pub unsafe fn as_ref(&self) -> &ffi::DLManagedTensor {
+        self.inner.as_ref()
+    }
+
+    pub unsafe fn as_mut(&mut self) -> &mut ffi::DLManagedTensor {
+        self.inner.as_mut()
+    }
 }
 
 impl<T> AsTensor for T
