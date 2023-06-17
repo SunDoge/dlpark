@@ -88,8 +88,7 @@ impl ManagedTensor {
     /// We use pyo3 ffi here.
     pub unsafe fn from_py_ptr(capsule: *mut pyo3::ffi::PyObject) -> Self {
         let dl_managed_tensor =
-            PyCapsule_GetPointer(capsule, DLPACK_CAPSULE_NAME.as_ptr() as *const _)
-                as *mut DLManagedTensor;
+            PyCapsule_GetPointer(capsule, DLPACK_CAPSULE_NAME.as_ptr().cast()).cast();
 
         // TODO: we should add a flag for buggy numpy dlpack deleter
         // let deleter_with_gil = move |_| {
@@ -100,12 +99,9 @@ impl ManagedTensor {
         //     }
         // };
 
-        PyCapsule_SetName(capsule, DLPACK_CAPSULE_USED_NAME.as_ptr() as *const _);
+        PyCapsule_SetName(capsule, DLPACK_CAPSULE_USED_NAME.as_ptr().cast());
 
-        ManagedTensor {
-            inner: dl_managed_tensor,
-            deleter: None,
-        }
+        ManagedTensor::new(dl_managed_tensor)
     }
 
     pub fn from_py(ob: impl IntoPyPointer) -> Self {

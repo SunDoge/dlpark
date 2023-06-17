@@ -1,6 +1,8 @@
 pub mod impls;
 pub mod traits;
 
+use std::ptr::NonNull;
+
 use traits::{HasByteOffset, HasData, HasDevice, HasDtype, HasShape, HasStrides};
 
 use crate::ffi::{self, DataType, Device};
@@ -126,26 +128,6 @@ where
     }
 }
 
-// impl Drop for ffi::DLManagedTensor {
-//     fn drop(&mut self) {
-//         if let Some(del_fn) = self.deleter {
-//             unsafe {
-//                 del_fn(self as *mut ffi::DLManagedTensor);
-//             }
-//         }
-//     }
-// }
-
-// impl Drop for ffi::DLManagedTensorVersioned {
-//     fn drop(&mut self) {
-//         if let Some(del_fn) = self.deleter {
-//             unsafe {
-//                 del_fn(self as *mut ffi::DLManagedTensorVersioned);
-//             }
-//         }
-//     }
-// }
-
 impl AsTensor for ffi::DLTensor {
     fn data<T>(&self) -> *const T {
         self.data as *const T
@@ -179,26 +161,35 @@ impl AsTensor for ffi::DLTensor {
     }
 }
 
+/// Safe wrapper for DLManagedTensor
+/// Will call deleter when dropping
 pub struct ManagedTensor {
-    pub inner: *mut ffi::DLManagedTensor,
-    pub deleter: Option<Box<dyn Fn(*mut ffi::DLManagedTensor)>>,
+    pub inner: NonNull<ffi::DLManagedTensor>,
 }
 
 impl Drop for ManagedTensor {
     fn drop(&mut self) {
         unsafe {
-            if let Some(ref del_fn) = self.deleter {
-                del_fn(self.inner);
-            } else if let Some(del_fn) = (*self.inner).deleter {
-                del_fn(self.inner);
+            if let Some(deleter) = self.inner.as_ref().deleter {
+                deleter(self.inner.as_ptr());
             }
         }
     }
 }
 
 impl ManagedTensor {
+    pub fn new(ptr: *mut ffi::DLManagedTensor) -> Self {
+        Self {
+            inner: unsafe { NonNull::new_unchecked(ptr) },
+        }
+    }
+
     pub fn as_slice<T>(&self) -> &[T] {
         unsafe { std::slice::from_raw_parts(self.data(), self.num_elements()) }
+    }
+
+    pub fn as_ptr(&self) -> *mut ffi::DLManagedTensor {
+        self.inner.as_ptr()
     }
 }
 
@@ -237,7 +228,8 @@ where
 
 impl HasTensor<ffi::DLTensor> for ManagedTensor {
     fn tensor(&self) -> &ffi::DLTensor {
-        unsafe { &(*self.inner).dl_tensor }
+        // unsafe { &(*self.inner).dl_tensor }
+        unsafe { &self.inner.as_ref().dl_tensor }
     }
 }
 
