@@ -1,3 +1,5 @@
+use std::ptr::NonNull;
+
 use crate::{
     ffi::DLManagedTensor,
     tensor::traits::{HasByteOffset, HasData, HasDevice, HasDtype},
@@ -101,7 +103,7 @@ impl ManagedTensor {
 
         PyCapsule_SetName(capsule, DLPACK_CAPSULE_USED_NAME.as_ptr().cast());
 
-        ManagedTensor::new(dl_managed_tensor)
+        ManagedTensor::new(NonNull::new_unchecked(dl_managed_tensor))
     }
 
     pub fn from_py(ob: impl IntoPyPointer) -> Self {

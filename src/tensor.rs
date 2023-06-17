@@ -178,10 +178,8 @@ impl Drop for ManagedTensor {
 }
 
 impl ManagedTensor {
-    pub fn new(ptr: *mut ffi::DLManagedTensor) -> Self {
-        Self {
-            inner: unsafe { NonNull::new_unchecked(ptr) },
-        }
+    pub fn new(ptr: NonNull<ffi::DLManagedTensor>) -> Self {
+        Self { inner: ptr }
     }
 
     pub fn as_slice<T>(&self) -> &[T] {
