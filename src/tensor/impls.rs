@@ -1,9 +1,13 @@
 use super::{
-    traits::{HasByteOffset, HasData, HasDevice, HasDtype, HasShape, HasStrides, InferDtype},
-    Shape,
+    ffi,
+    traits::{
+        FromDLPack, HasByteOffset, HasData, HasDevice, HasDtype, HasShape, HasStrides, InferDtype,
+        ToDLPack,
+    },
+    ManagedTensor, ManagerCtx, Shape,
 };
 use crate::ffi::{DataType, Device};
-use std::ffi::c_void;
+use std::{ffi::c_void, ptr::NonNull};
 
 impl<T> HasDevice for Vec<T> {
     fn device(&self) -> Device {
@@ -71,5 +75,28 @@ impl InferDtype for u8 {
 impl InferDtype for bool {
     fn infer_dtype() -> DataType {
         DataType::BOOL
+    }
+}
+
+// It's hard and unsafe to recover T from dlpack ptr.
+// ManagerCtx should only be a DLManagedTensor builder.
+impl<T> ToDLPack for ManagerCtx<T>
+where
+    T: HasData + HasDevice + HasDtype + HasByteOffset,
+{
+    fn to_dlpack(self) -> NonNull<ffi::DLManagedTensor> {
+        self.into_dl_managed_tensor()
+    }
+}
+
+impl FromDLPack for ManagedTensor {
+    fn from_dlpack(src: NonNull<ffi::DLManagedTensor>) -> Self {
+        Self(src)
+    }
+}
+
+impl ToDLPack for ManagedTensor {
+    fn to_dlpack(self) -> NonNull<ffi::DLManagedTensor> {
+        self.0
     }
 }

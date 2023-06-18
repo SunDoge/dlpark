@@ -73,6 +73,75 @@ pub struct ManagerCtx<T> {
     inner: T,
     shape: Shape,
     strides: Option<Strides>,
+    // The ctx should hold DLManagedTensor, so that the tensor can be freed.
+    tensor: Option<ffi::DLManagedTensor>,
+}
+
+impl<T> ManagerCtx<T> {
+    pub fn set_tensor(&mut self, tensor: ffi::DLManagedTensor) {
+        self.tensor = Some(tensor);
+    }
+
+    pub fn get_tensor_ptr(&self) -> NonNull<ffi::DLManagedTensor> {
+        NonNull::from(self.tensor.as_ref().unwrap())
+    }
+}
+
+impl<T> ManagerCtx<T>
+where
+    T: HasShape + HasStrides,
+{
+    pub fn new(inner: T) -> Self {
+        let shape: Shape = inner.shape();
+        let strides = inner.strides();
+
+        Self {
+            inner,
+            shape,
+            strides,
+            tensor: None,
+        }
+    }
+
+    pub fn new_boxed(inner: T) -> Box<Self> {
+        Box::new(Self::new(inner))
+    }
+}
+
+impl<T> ManagerCtx<T>
+where
+    T: HasData + HasDevice + HasDtype + HasByteOffset,
+{
+    pub fn to_dl_tensor(&self) -> ffi::DLTensor {
+        ffi::DLTensor {
+            data: self.inner.data(),
+            device: self.inner.device(),
+            ndim: self.shape.ndim(),
+            shape: self.shape.as_ptr(),
+            dtype: self.inner.dtype(),
+            strides: match self.strides {
+                Some(ref strides) => strides.as_ptr(),
+                None => std::ptr::null_mut(),
+            },
+            byte_offset: self.inner.byte_offset(),
+        }
+    }
+
+    pub fn into_dl_managed_tensor(self) -> NonNull<ffi::DLManagedTensor> {
+        // Move self to heap and get it's pointer.
+        let ctx_ref = Box::leak(Box::new(self));
+        let dl_tensor = ctx_ref.to_dl_tensor();
+        let tensor = ffi::DLManagedTensor {
+            dl_tensor,
+            manager_ctx: ctx_ref as *const Self as *mut std::ffi::c_void,
+            deleter: Some(deleter_fn::<ManagerCtx<T>>),
+        };
+        // Make a self-reference struct so DLManagedTensor can be correctly dropped.
+        ctx_ref.set_tensor(tensor);
+
+        // Return the DLManagedTensor's pointer.
+        ctx_ref.get_tensor_ptr()
+    }
 }
 
 impl<T> From<T> for ManagerCtx<T>
@@ -87,15 +156,16 @@ where
             inner: value,
             shape,
             strides,
+            tensor: None,
         }
     }
 }
 
-impl<T> From<&Box<ManagerCtx<T>>> for ffi::DLTensor
+impl<T> From<&mut ManagerCtx<T>> for ffi::DLTensor
 where
     T: HasData + HasDevice + HasDtype + HasByteOffset,
 {
-    fn from(value: &Box<ManagerCtx<T>>) -> Self {
+    fn from(value: &mut ManagerCtx<T>) -> Self {
         Self {
             data: value.inner.data(),
             device: value.inner.device(),
@@ -111,20 +181,12 @@ where
     }
 }
 
-impl<T> From<ManagerCtx<T>> for ffi::DLManagedTensor
+impl<T> From<ManagerCtx<T>> for NonNull<ffi::DLManagedTensor>
 where
     T: HasData + HasDevice + HasDtype + HasByteOffset,
 {
     fn from(value: ManagerCtx<T>) -> Self {
-        let bv = Box::new(value);
-        let dl_tensor = ffi::DLTensor::from(&bv);
-        let ctx = Box::into_raw(bv);
-        // dbg!(ctx);
-        Self {
-            dl_tensor,
-            manager_ctx: ctx as *mut _,
-            deleter: Some(deleter_fn::<ManagerCtx<T>>),
-        }
+        value.into_dl_managed_tensor()
     }
 }
 
@@ -162,16 +224,15 @@ impl AsTensor for ffi::DLTensor {
 }
 
 /// Safe wrapper for DLManagedTensor
-/// Will call deleter when dropping
-pub struct ManagedTensor {
-    pub inner: NonNull<ffi::DLManagedTensor>,
-}
+/// Will call deleter when dropped.
+#[repr(transparent)]
+pub struct ManagedTensor(NonNull<ffi::DLManagedTensor>);
 
 impl Drop for ManagedTensor {
     fn drop(&mut self) {
         unsafe {
-            if let Some(deleter) = self.inner.as_ref().deleter {
-                deleter(self.inner.as_ptr());
+            if let Some(deleter) = self.0.as_ref().deleter {
+                deleter(self.0.as_ptr());
             }
         }
     }
@@ -179,7 +240,7 @@ impl Drop for ManagedTensor {
 
 impl ManagedTensor {
     pub fn new(ptr: NonNull<ffi::DLManagedTensor>) -> Self {
-        Self { inner: ptr }
+        Self(ptr)
     }
 
     pub fn as_slice<T>(&self) -> &[T] {
@@ -187,15 +248,11 @@ impl ManagedTensor {
     }
 
     pub fn as_ptr(&self) -> *mut ffi::DLManagedTensor {
-        self.inner.as_ptr()
+        self.0.as_ptr()
     }
 
-    pub unsafe fn as_ref(&self) -> &ffi::DLManagedTensor {
-        self.inner.as_ref()
-    }
-
-    pub unsafe fn as_mut(&mut self) -> &mut ffi::DLManagedTensor {
-        self.inner.as_mut()
+    pub fn into_inner(self) -> NonNull<ffi::DLManagedTensor> {
+        self.0
     }
 }
 
@@ -235,13 +292,22 @@ where
 impl HasTensor<ffi::DLTensor> for ManagedTensor {
     fn tensor(&self) -> &ffi::DLTensor {
         // unsafe { &(*self.inner).dl_tensor }
-        unsafe { &self.inner.as_ref().dl_tensor }
+        unsafe { &self.0.as_ref().dl_tensor }
     }
 }
 
 impl HasTensor<ffi::DLTensor> for ffi::DLManagedTensor {
     fn tensor(&self) -> &ffi::DLTensor {
         &self.dl_tensor
+    }
+}
+
+impl<T> From<ManagerCtx<T>> for ManagedTensor
+where
+    T: HasData + HasDevice + HasDtype + HasByteOffset,
+{
+    fn from(value: ManagerCtx<T>) -> Self {
+        Self(value.into_dl_managed_tensor())
     }
 }
 

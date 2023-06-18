@@ -1,6 +1,6 @@
-use std::ffi::c_void;
+use std::{ffi::c_void, ptr::NonNull};
 
-use crate::ffi::{DataType, Device};
+use crate::ffi::{DLManagedTensor, DataType, Device};
 
 use super::{Shape, Strides};
 
@@ -74,4 +74,12 @@ where
     T: AsTensor,
 {
     fn tensor(&self) -> &T;
+}
+
+pub trait ToDLPack {
+    fn to_dlpack(self) -> NonNull<DLManagedTensor>;
+}
+
+pub trait FromDLPack {
+    fn from_dlpack(src: NonNull<DLManagedTensor>) -> Self;
 }
