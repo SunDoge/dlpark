@@ -112,7 +112,7 @@ impl<T> ManagerCtx<T>
 where
     T: HasData + HasDevice + HasDtype + HasByteOffset,
 {
-    pub fn to_dl_tensor(&self) -> ffi::DLTensor {
+    fn to_dl_tensor(&self) -> ffi::DLTensor {
         ffi::DLTensor {
             data: self.inner.data(),
             device: self.inner.device(),
@@ -127,7 +127,7 @@ where
         }
     }
 
-    pub fn into_dl_managed_tensor(self) -> NonNull<ffi::DLManagedTensor> {
+    fn into_dl_managed_tensor(self) -> NonNull<ffi::DLManagedTensor> {
         // Move self to heap and get it's pointer.
         let ctx_ref = Box::leak(Box::new(self));
         let dl_tensor = ctx_ref.to_dl_tensor();
@@ -158,35 +158,6 @@ where
             strides,
             tensor: None,
         }
-    }
-}
-
-impl<T> From<&mut ManagerCtx<T>> for ffi::DLTensor
-where
-    T: HasData + HasDevice + HasDtype + HasByteOffset,
-{
-    fn from(value: &mut ManagerCtx<T>) -> Self {
-        Self {
-            data: value.inner.data(),
-            device: value.inner.device(),
-            ndim: value.shape.ndim(),
-            shape: value.shape.as_ptr(),
-            dtype: value.inner.dtype(),
-            strides: match value.strides {
-                Some(ref strides) => strides.as_ptr(),
-                None => std::ptr::null_mut(),
-            },
-            byte_offset: value.inner.byte_offset(),
-        }
-    }
-}
-
-impl<T> From<ManagerCtx<T>> for NonNull<ffi::DLManagedTensor>
-where
-    T: HasData + HasDevice + HasDtype + HasByteOffset,
-{
-    fn from(value: ManagerCtx<T>) -> Self {
-        value.into_dl_managed_tensor()
     }
 }
 
@@ -225,6 +196,7 @@ impl AsTensor for ffi::DLTensor {
 
 /// Safe wrapper for DLManagedTensor
 /// Will call deleter when dropped.
+#[derive(Debug, Clone)]
 #[repr(transparent)]
 pub struct ManagedTensor(NonNull<ffi::DLManagedTensor>);
 
@@ -310,6 +282,52 @@ where
         Self(value.into_dl_managed_tensor())
     }
 }
+
+impl<T> From<&T> for ffi::DLTensor
+where
+    T: HasData + HasDevice + HasShape + HasStrides + HasDtype + HasByteOffset,
+{
+    fn from(value: &T) -> Self {
+        let shape = value.shape();
+        let strides = value.strides();
+
+        ffi::DLTensor {
+            data: value.data(),
+            device: value.device(),
+            ndim: shape.ndim(),
+            dtype: value.dtype(),
+            shape: shape.as_ptr(),
+            strides: match strides {
+                Some(s) => s.as_ptr(),
+                None => std::ptr::null_mut(),
+            },
+            byte_offset: value.byte_offset(),
+        }
+    }
+}
+
+// impl<T> From<&mut T> for ffi::DLTensor
+// where
+//     T: HasData + HasDevice + HasShape + HasStrides + HasDtype + HasByteOffset,
+// {
+//     fn from(value: &T) -> Self {
+//         let shape = value.shape();
+//         let strides = value.strides();
+
+//         ffi::DLTensor {
+//             data: value.data(),
+//             device: value.device(),
+//             ndim: shape.ndim(),
+//             dtype: value.dtype(),
+//             shape: shape.as_ptr(),
+//             strides: match strides {
+//                 Some(s) => s.as_ptr(),
+//                 None => std::ptr::null_mut(),
+//             },
+//             byte_offset: value.byte_offset(),
+//         }
+//     }
+// }
 
 #[cfg(test)]
 mod tests {

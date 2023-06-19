@@ -2,7 +2,7 @@ use std::ptr::NonNull;
 
 use crate::{
     ffi::DLManagedTensor,
-    tensor::traits::{HasByteOffset, HasData, HasDevice, HasDtype},
+    tensor::traits::{HasByteOffset, HasData, HasDevice, HasDtype, ToDLPack},
     tensor::{ManagedTensor, ManagerCtx},
 };
 use pyo3::{
@@ -110,7 +110,7 @@ where
     T: HasData + HasDevice + HasDtype + HasByteOffset,
 {
     fn into_py(self, py: Python<'_>) -> PyObject {
-        let tensor = self.into_dl_managed_tensor();
+        let tensor = self.to_dlpack();
         let ptr = new_py_capsule(tensor.as_ptr());
         unsafe { PyObject::from_owned_ptr(py, ptr) }
     }

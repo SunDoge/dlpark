@@ -100,3 +100,13 @@ impl ToDLPack for ManagedTensor {
         self.0
     }
 }
+
+impl<T> ToDLPack for T
+where
+    T: HasData + HasDevice + HasShape + HasStrides + HasDtype + HasByteOffset,
+{
+    fn to_dlpack(self) -> NonNull<ffi::DLManagedTensor> {
+        let ctx = ManagerCtx::new(self);
+        ctx.into_dl_managed_tensor()
+    }
+}
