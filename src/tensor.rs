@@ -5,14 +5,15 @@ use std::ptr::NonNull;
 
 use traits::{HasByteOffset, HasData, HasDevice, HasDtype, HasShape, HasStrides};
 
-use crate::ffi::{self, DataType, Device};
+use crate::ffi;
 
-use self::traits::{AsTensor, HasTensor};
+use self::traits::{AsTensor, HasTensor, ToDLPack};
 
 unsafe extern "C" fn deleter_fn<T>(dl_managed_tensor: *mut ffi::DLManagedTensor) {
     // Reconstruct pointer and destroy it.
     let ctx = (*dl_managed_tensor).manager_ctx as *mut T;
-    drop(unsafe { Box::from_raw(ctx) });
+    // drop(unsafe { Box::from_raw(ctx) });
+    ctx.drop_in_place();
 }
 
 #[derive(Debug)]
@@ -67,6 +68,10 @@ impl Strides {
             Self::Owned(ref v) => v.as_ptr() as *mut i64,
         }
     }
+
+    pub fn as_slice(&self, len: usize) -> &[i64] {
+        unsafe { std::slice::from_raw_parts(self.as_ptr(), len) }
+    }
 }
 
 pub struct ManagerCtx<T> {
@@ -103,9 +108,9 @@ where
         }
     }
 
-    pub fn new_boxed(inner: T) -> Box<Self> {
-        Box::new(Self::new(inner))
-    }
+    // pub fn new_boxed(inner: T) -> Box<Self> {
+    //     Box::new(Self::new(inner))
+    // }
 }
 
 impl<T> ManagerCtx<T>
@@ -161,39 +166,6 @@ where
     }
 }
 
-impl AsTensor for ffi::DLTensor {
-    fn data<T>(&self) -> *const T {
-        self.data as *const T
-    }
-
-    fn shape(&self) -> &[i64] {
-        unsafe { std::slice::from_raw_parts(self.shape, self.ndim()) }
-    }
-
-    fn strides(&self) -> Option<&[i64]> {
-        if self.strides.is_null() {
-            None
-        } else {
-            Some(unsafe { std::slice::from_raw_parts(self.strides, self.ndim()) })
-        }
-    }
-
-    fn ndim(&self) -> usize {
-        self.ndim as usize
-    }
-
-    fn device(&self) -> Device {
-        self.device
-    }
-
-    fn dtype(&self) -> DataType {
-        self.dtype
-    }
-    fn byte_offset(&self) -> u64 {
-        self.byte_offset
-    }
-}
-
 /// Safe wrapper for DLManagedTensor
 /// Will call deleter when dropped.
 #[derive(Debug, Clone)]
@@ -202,6 +174,7 @@ pub struct ManagedTensor(NonNull<ffi::DLManagedTensor>);
 
 impl Drop for ManagedTensor {
     fn drop(&mut self) {
+        // TODO: we should add a flag for buggy numpy dlpack deleter
         unsafe {
             if let Some(deleter) = self.0.as_ref().deleter {
                 deleter(self.0.as_ptr());
@@ -211,12 +184,12 @@ impl Drop for ManagedTensor {
 }
 
 impl ManagedTensor {
-    pub fn new(ptr: NonNull<ffi::DLManagedTensor>) -> Self {
-        Self(ptr)
+    pub fn new(src: NonNull<ffi::DLManagedTensor>) -> Self {
+        Self(src)
     }
 
-    pub fn as_slice<T>(&self) -> &[T] {
-        unsafe { std::slice::from_raw_parts(self.data(), self.num_elements()) }
+    pub fn as_slice<A>(&self) -> &[A] {
+        unsafe { std::slice::from_raw_parts(self.data().cast(), self.num_elements()) }
     }
 
     pub fn as_ptr(&self) -> *mut ffi::DLManagedTensor {
@@ -225,39 +198,6 @@ impl ManagedTensor {
 
     pub fn into_inner(self) -> NonNull<ffi::DLManagedTensor> {
         self.0
-    }
-}
-
-impl<T> AsTensor for T
-where
-    T: HasTensor<ffi::DLTensor>,
-{
-    fn data<D>(&self) -> *const D {
-        self.tensor().data()
-    }
-
-    fn device(&self) -> Device {
-        self.tensor().device()
-    }
-
-    fn dtype(&self) -> DataType {
-        self.tensor().dtype()
-    }
-
-    fn ndim(&self) -> usize {
-        self.tensor().ndim()
-    }
-
-    fn byte_offset(&self) -> u64 {
-        self.tensor().byte_offset()
-    }
-
-    fn strides(&self) -> Option<&[i64]> {
-        self.tensor().strides()
-    }
-
-    fn shape(&self) -> &[i64] {
-        self.tensor().shape()
     }
 }
 
@@ -279,7 +219,7 @@ where
     T: HasData + HasDevice + HasDtype + HasByteOffset,
 {
     fn from(value: ManagerCtx<T>) -> Self {
-        Self(value.into_dl_managed_tensor())
+        Self(value.to_dlpack())
     }
 }
 
@@ -305,29 +245,6 @@ where
         }
     }
 }
-
-// impl<T> From<&mut T> for ffi::DLTensor
-// where
-//     T: HasData + HasDevice + HasShape + HasStrides + HasDtype + HasByteOffset,
-// {
-//     fn from(value: &T) -> Self {
-//         let shape = value.shape();
-//         let strides = value.strides();
-
-//         ffi::DLTensor {
-//             data: value.data(),
-//             device: value.device(),
-//             ndim: shape.ndim(),
-//             dtype: value.dtype(),
-//             shape: shape.as_ptr(),
-//             strides: match strides {
-//                 Some(s) => s.as_ptr(),
-//                 None => std::ptr::null_mut(),
-//             },
-//             byte_offset: value.byte_offset(),
-//         }
-//     }
-// }
 
 #[cfg(test)]
 mod tests {

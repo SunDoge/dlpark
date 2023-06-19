@@ -2,7 +2,7 @@ use std::{ffi::c_void, ptr::NonNull};
 
 use crate::ffi::{DLManagedTensor, DataType, Device};
 
-use super::{ManagerCtx, Shape, Strides};
+use super::{Shape, Strides};
 
 pub trait HasData {
     fn data(&self) -> *mut c_void;
@@ -36,16 +36,13 @@ pub trait InferDtype {
 }
 
 pub trait AsTensor {
-    fn data<T>(&self) -> *const T;
+    fn data(&self) -> *mut std::ffi::c_void;
     fn shape(&self) -> &[i64];
     fn strides(&self) -> Option<&[i64]>;
     fn ndim(&self) -> usize;
     fn device(&self) -> Device;
     fn dtype(&self) -> DataType;
-
-    fn byte_offset(&self) -> u64 {
-        0
-    }
+    fn byte_offset(&self) -> u64;
 
     fn num_elements(&self) -> usize {
         self.shape().iter().product::<i64>() as usize
@@ -83,7 +80,3 @@ pub trait ToDLPack {
 pub trait FromDLPack {
     fn from_dlpack(src: NonNull<DLManagedTensor>) -> Self;
 }
-
-
-
-
