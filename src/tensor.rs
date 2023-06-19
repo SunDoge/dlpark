@@ -192,10 +192,12 @@ impl ManagedTensor {
         unsafe { std::slice::from_raw_parts(self.data().cast(), self.num_elements()) }
     }
 
+    /// Get raw pointer.
     pub fn as_ptr(&self) -> *mut ffi::DLManagedTensor {
         self.0.as_ptr()
     }
 
+    /// Get DLPack ptr.
     pub fn into_inner(self) -> NonNull<ffi::DLManagedTensor> {
         self.0
     }
@@ -249,12 +251,17 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::prelude::*;
 
     #[test]
     fn from_vec_f32() {
         let v: Vec<f32> = (0..10).map(|x| x as f32).collect();
         let tensor = ManagerCtx::from(v);
-        dbg!(&tensor.shape, &tensor.strides);
-        assert_eq!(tensor.shape.len(), 1);
+        assert_eq!(tensor.shape(), &[10]);
+        assert_eq!(tensor.ndim(), 1);
+        assert_eq!(tensor.device(), Device::CPU);
+        assert_eq!(tensor.strides(), None);
+        assert_eq!(tensor.byte_offset(), 0);
+        assert_eq!(tensor.dtype(), DataType::F32);
     }
 }

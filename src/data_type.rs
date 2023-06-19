@@ -12,11 +12,17 @@ impl From<(DataTypeCode, u8, u16)> for DataType {
 
 impl Default for DataType {
     fn default() -> Self {
+        // Most deep learning framework create float32 tensor by default.
         Self::F32
     }
 }
 
 impl DataType {
+    pub const F16: Self = Self {
+        code: DataTypeCode::Float,
+        bits: 16,
+        lanes: 1,
+    };
     pub const F32: Self = Self {
         code: DataTypeCode::Float,
         bits: 32,
@@ -58,6 +64,7 @@ impl DataType {
         lanes: 1,
     };
 
+    /// Calculate `DataType` size as (bits * lanes + 7) // 8
     pub fn size(&self) -> usize {
         ((self.bits as u32 * self.lanes as u32 + 7) / 8) as usize
     }

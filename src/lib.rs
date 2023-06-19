@@ -1,8 +1,9 @@
-pub mod data_type;
-pub mod device;
+mod data_type;
+mod device;
+mod tensor;
+
 pub mod ffi;
 pub mod prelude;
-pub mod tensor;
 
 #[cfg(feature = "pyo3")]
 pub mod python;

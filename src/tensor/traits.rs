@@ -36,8 +36,11 @@ pub trait InferDtype {
 }
 
 pub trait AsTensor {
+    /// Get untyped data ptr
     fn data(&self) -> *mut std::ffi::c_void;
+    /// Get shape as slice.
     fn shape(&self) -> &[i64];
+    /// Get strides as slice, can have no strides.
     fn strides(&self) -> Option<&[i64]>;
     fn ndim(&self) -> usize;
     fn device(&self) -> Device;

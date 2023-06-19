@@ -10,40 +10,7 @@ use crate::{
     ffi::{DataType, Device},
     prelude::AsTensor,
 };
-use std::{ffi::c_void, ptr::NonNull};
-
-impl<T> HasDevice for Vec<T> {
-    fn device(&self) -> Device {
-        Device::CPU
-    }
-}
-
-impl<T> HasShape for Vec<T> {
-    fn shape(&self) -> Shape {
-        Shape::Owned(vec![self.len() as i64])
-    }
-}
-
-impl<T> HasData for Vec<T> {
-    fn data(&self) -> *mut c_void {
-        self.as_ptr() as *const c_void as *mut c_void
-    }
-}
-
-impl<T> HasDtype for Vec<T>
-where
-    T: InferDtype,
-{
-    fn dtype(&self) -> DataType {
-        T::infer_dtype()
-    }
-}
-impl<T> HasStrides for Vec<T> {}
-impl<T> HasByteOffset for Vec<T> {
-    fn byte_offset(&self) -> u64 {
-        0
-    }
-}
+use std::{ffi::c_void, ptr::NonNull, sync::Arc};
 
 impl InferDtype for f32 {
     fn infer_dtype() -> DataType {
@@ -78,6 +45,107 @@ impl InferDtype for u8 {
 impl InferDtype for bool {
     fn infer_dtype() -> DataType {
         DataType::BOOL
+    }
+}
+
+impl<T> HasDevice for Vec<T> {
+    fn device(&self) -> Device {
+        Device::CPU
+    }
+}
+
+impl<T> HasShape for Vec<T> {
+    fn shape(&self) -> Shape {
+        Shape::Owned(vec![self.len() as i64])
+    }
+}
+
+impl<T> HasData for Vec<T> {
+    fn data(&self) -> *mut c_void {
+        self.as_ptr() as *const c_void as *mut c_void
+    }
+}
+
+impl<T> HasDtype for Vec<T>
+where
+    T: InferDtype,
+{
+    fn dtype(&self) -> DataType {
+        T::infer_dtype()
+    }
+}
+impl<T> HasStrides for Vec<T> {}
+impl<T> HasByteOffset for Vec<T> {
+    fn byte_offset(&self) -> u64 {
+        0
+    }
+}
+
+impl<T> HasData for Box<[T]> {
+    fn data(&self) -> *mut c_void {
+        self.as_ptr() as *mut T as *mut c_void
+    }
+}
+
+impl<T> HasShape for Box<[T]> {
+    fn shape(&self) -> Shape {
+        Shape::Owned(vec![self.len() as i64])
+    }
+}
+
+impl<T> HasDtype for Box<[T]>
+where
+    T: InferDtype,
+{
+    fn dtype(&self) -> DataType {
+        T::infer_dtype()
+    }
+}
+
+impl<T> HasDevice for Box<[T]> {
+    fn device(&self) -> Device {
+        Device::CPU
+    }
+}
+
+impl<T> HasStrides for Box<[T]> {}
+impl<T> HasByteOffset for Box<[T]> {
+    fn byte_offset(&self) -> u64 {
+        0
+    }
+}
+
+impl<T> HasData for Arc<[T]> {
+    fn data(&self) -> *mut c_void {
+        self.as_ptr() as *mut T as *mut c_void
+    }
+}
+
+impl<T> HasShape for Arc<[T]> {
+    fn shape(&self) -> Shape {
+        Shape::Owned(vec![self.len() as i64])
+    }
+}
+
+impl<T> HasDtype for Arc<[T]>
+where
+    T: InferDtype,
+{
+    fn dtype(&self) -> DataType {
+        T::infer_dtype()
+    }
+}
+
+impl<T> HasDevice for Arc<[T]> {
+    fn device(&self) -> Device {
+        Device::CPU
+    }
+}
+
+impl<T> HasStrides for Arc<[T]> {}
+impl<T> HasByteOffset for Arc<[T]> {
+    fn byte_offset(&self) -> u64 {
+        0
     }
 }
 

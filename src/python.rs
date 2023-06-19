@@ -48,7 +48,7 @@ impl IntoPy<PyObject> for ffi::DLManagedTensor {
     }
 }
 
-pub fn new_py_capsule(dl_managed_tensor: *mut ffi::DLManagedTensor) -> *mut pyo3::ffi::PyObject {
+fn new_py_capsule(dl_managed_tensor: *mut ffi::DLManagedTensor) -> *mut pyo3::ffi::PyObject {
     unsafe {
         PyCapsule_New(
             dl_managed_tensor.cast(),
