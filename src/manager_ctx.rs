@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 use std::ptr::NonNull;
 
-use crate::tensor::traits::TensorView;
+use crate::tensor::traits::{TensorView, ToDLPack};
 use crate::{ffi, prelude::ToTensor};
 
 unsafe extern "C" fn deleter_fn<T>(dl_managed_tensor: *mut ffi::DLManagedTensor) {
@@ -160,5 +160,16 @@ where
 
     fn dtype(&self) -> ffi::DataType {
         self.inner.dtype()
+    }
+}
+
+// It's hard and unsafe to recover T from dlpack ptr.
+// ManagerCtx should only be a DLManagedTensor builder.
+impl<T> ToDLPack for ManagerCtx<T>
+where
+    T: ToTensor,
+{
+    fn to_dlpack(self) -> NonNull<ffi::DLManagedTensor> {
+        self.into_dl_managed_tensor()
     }
 }

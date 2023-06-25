@@ -5,7 +5,7 @@ use std::ptr::NonNull;
 
 use crate::ffi;
 
-use self::traits::{TensorView, ToDLPack, ToTensor};
+use self::traits::{FromDLPack, TensorView, ToDLPack, ToTensor};
 use crate::manager_ctx::ManagerCtx;
 
 /// Safe wrapper for DLManagedTensor
@@ -49,12 +49,48 @@ impl ManagedTensor {
     }
 }
 
+impl TensorView for ManagedTensor {
+    fn data_ptr(&self) -> *mut std::ffi::c_void {
+        self.dl_tensor().data_ptr()
+    }
+
+    fn byte_offset(&self) -> u64 {
+        self.dl_tensor().byte_offset()
+    }
+
+    fn device(&self) -> ffi::Device {
+        self.dl_tensor().device()
+    }
+
+    fn dtype(&self) -> ffi::DataType {
+        self.dl_tensor().dtype()
+    }
+
+    fn shape(&self) -> &[i64] {
+        self.dl_tensor().shape()
+    }
+
+    fn strides(&self) -> Option<&[i64]> {
+        self.dl_tensor().strides()
+    }
+
+    fn ndim(&self) -> usize {
+        self.dl_tensor().ndim()
+    }
+}
+
 impl<T> From<ManagerCtx<T>> for ManagedTensor
 where
     T: ToTensor,
 {
     fn from(value: ManagerCtx<T>) -> Self {
         Self(value.to_dlpack())
+    }
+}
+
+impl FromDLPack for ManagedTensor {
+    fn from_dlpack(src: NonNull<ffi::DLManagedTensor>) -> Self {
+        Self(src)
     }
 }
 
