@@ -113,10 +113,6 @@ where
         ctx.update_tensor();
         NonNull::from(&ctx.tensor)
     }
-
-    pub fn as_ref(&self) -> &T {
-        &self.inner
-    }
 }
 
 impl<T> ManagerCtx<T> where T: ToTensor {}
