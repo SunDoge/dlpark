@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::ptr::NonNull;
 
 use crate::tensor::traits::TensorView;
@@ -10,24 +11,35 @@ unsafe extern "C" fn deleter_fn<T>(dl_managed_tensor: *mut ffi::DLManagedTensor)
     // ctx.drop_in_place();
 }
 
-#[derive(Debug)]
-pub enum Shape {
-    Borrowed(*mut i64, usize),
-    Owned(Vec<i64>),
-}
+// #[derive(Debug)]
+// pub enum Shape {
+//     Borrowed(*mut i64, usize),
+//     Owned(Vec<i64>),
+// }
 
-impl Shape {
+#[derive(Debug)]
+pub struct CowIntArray(Cow<'static, [i64]>);
+
+impl CowIntArray {
+    pub fn from_owned(v: Vec<i64>) -> Self {
+        Self(Cow::Owned(v))
+    }
+
+    pub fn from_borrowed(v: &'static [i64]) -> Self {
+        Self(Cow::Borrowed(v))
+    }
+
     pub fn as_ptr(&self) -> *mut i64 {
-        match self {
-            Self::Borrowed(ref ptr, _) => *ptr,
-            Self::Owned(ref v) => v.as_ptr() as *mut i64,
+        match self.0 {
+            Cow::Borrowed(v) => v.as_ptr() as *mut i64,
+            Cow::Owned(ref v) => v.as_ptr() as *mut i64,
         }
     }
 
-    pub fn len(&self) -> usize {
-        match self {
-            Self::Borrowed(_, len) => *len,
-            Self::Owned(ref v) => v.len(),
+    fn len(&self) -> usize {
+        match self.0 {
+            Cow::Borrowed(v) => v.len(),
+            Cow::Owned(ref v) => v.len(),
         }
     }
 
@@ -50,28 +62,15 @@ impl Shape {
 
 /// If it is borrowed, the length should be `tensor.ndim()`
 #[derive(Debug)]
-pub enum Strides {
-    Borrowed(*mut i64),
-    Owned(Vec<i64>),
-}
-
-impl Strides {
-    pub fn as_ptr(&self) -> *mut i64 {
-        match self {
-            Self::Borrowed(ref ptr) => *ptr,
-            Self::Owned(ref v) => v.as_ptr() as *mut i64,
-        }
-    }
-
-    pub fn as_slice(&self, len: usize) -> &[i64] {
-        unsafe { std::slice::from_raw_parts(self.as_ptr(), len) }
-    }
-}
+// pub enum Strides {
+//     Borrowed(*mut i64),
+//     Owned(Vec<i64>),
+// }
 
 pub struct ManagerCtx<T> {
     inner: T,
-    shape: Shape,
-    strides: Option<Strides>,
+    shape: CowIntArray,
+    strides: Option<CowIntArray>,
     // The ctx should hold DLManagedTensor, so that the tensor can be freed.
     tensor: ffi::DLManagedTensor,
 }
@@ -81,7 +80,7 @@ where
     T: ToTensor,
 {
     pub fn new(inner: T) -> Self {
-        let shape: Shape = inner.shape();
+        let shape: CowIntArray = inner.shape();
         let strides = inner.strides();
         dbg!(&shape, &strides);
         Self {
@@ -152,7 +151,7 @@ where
     }
 
     fn strides(&self) -> Option<&[i64]> {
-        self.strides.as_ref().map(|s| s.as_slice(self.ndim()))
+        self.strides.as_ref().map(|s| s.as_slice())
     }
 
     fn ndim(&self) -> usize {

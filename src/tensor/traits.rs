@@ -2,7 +2,7 @@ use std::ptr::NonNull;
 
 use crate::ffi::{self, DLManagedTensor, DataType, Device};
 
-use crate::manager_ctx::{Shape, Strides};
+use crate::manager_ctx::CowIntArray;
 
 // User should define their own InferDtype trait.
 pub(crate) trait InferDtype {
@@ -50,8 +50,8 @@ pub(crate) trait GetInitializedDLTensor {
 
 pub trait ToTensor {
     fn data_ptr(&self) -> *mut std::ffi::c_void;
-    fn shape(&self) -> Shape;
-    fn strides(&self) -> Option<Strides>;
+    fn shape(&self) -> CowIntArray;
+    fn strides(&self) -> Option<CowIntArray>;
     fn device(&self) -> Device;
     fn dtype(&self) -> DataType;
     fn byte_offset(&self) -> u64;

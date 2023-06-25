@@ -4,7 +4,7 @@ use super::{
     ManagedTensor,
 };
 use crate::ffi::{DataType, Device};
-use crate::manager_ctx::{ManagerCtx, Shape, Strides};
+use crate::manager_ctx::{CowIntArray, ManagerCtx};
 use std::{ptr::NonNull, sync::Arc};
 
 impl InferDtype for f32 {
@@ -63,11 +63,11 @@ where
         T::infer_dtype()
     }
 
-    fn shape(&self) -> Shape {
-        Shape::Owned(vec![self.len() as i64])
+    fn shape(&self) -> CowIntArray {
+        CowIntArray::from_owned(vec![self.len() as i64])
     }
 
-    fn strides(&self) -> Option<Strides> {
+    fn strides(&self) -> Option<CowIntArray> {
         None
     }
 }
@@ -92,11 +92,11 @@ where
         T::infer_dtype()
     }
 
-    fn shape(&self) -> Shape {
-        Shape::Owned(vec![self.len() as i64])
+    fn shape(&self) -> CowIntArray {
+        CowIntArray::from_owned(vec![self.len() as i64])
     }
 
-    fn strides(&self) -> Option<Strides> {
+    fn strides(&self) -> Option<CowIntArray> {
         None
     }
 }
@@ -121,11 +121,11 @@ where
         T::infer_dtype()
     }
 
-    fn shape(&self) -> Shape {
-        Shape::Owned(vec![self.len() as i64])
+    fn shape(&self) -> CowIntArray {
+        CowIntArray::from_owned(vec![self.len() as i64])
     }
 
-    fn strides(&self) -> Option<Strides> {
+    fn strides(&self) -> Option<CowIntArray> {
         None
     }
 }
@@ -162,8 +162,6 @@ impl TensorView for ffi::DLTensor {
         self.byte_offset
     }
 }
-
-
 
 impl TensorView for ManagedTensor {
     fn data_ptr(&self) -> *mut std::ffi::c_void {
