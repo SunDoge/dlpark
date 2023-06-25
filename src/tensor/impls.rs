@@ -1,16 +1,10 @@
 use super::{
     ffi,
-    traits::{
-        FromDLPack, HasByteOffset, HasData, HasDevice, HasDtype, HasShape, HasStrides, HasTensor,
-        InferDtype, ToDLPack,
-    },
+    traits::{FromDLPack, InferDtype, TensorView, ToDLPack, ToTensor},
     ManagedTensor, ManagerCtx, Shape,
 };
-use crate::{
-    ffi::{DataType, Device},
-    prelude::AsTensor,
-};
-use std::{ffi::c_void, ptr::NonNull, sync::Arc};
+use crate::ffi::{DataType, Device};
+use std::{ptr::NonNull, sync::Arc};
 
 impl InferDtype for f32 {
     fn infer_dtype() -> DataType {
@@ -48,109 +42,95 @@ impl InferDtype for bool {
     }
 }
 
-impl<T> HasDevice for Vec<T> {
-    fn device(&self) -> Device {
-        Device::CPU
-    }
-}
-
-impl<T> HasShape for Vec<T> {
-    fn shape(&self) -> Shape {
-        Shape::Owned(vec![self.len() as i64])
-    }
-}
-
-impl<T> HasData for Vec<T> {
-    fn data(&self) -> *mut c_void {
-        self.as_ptr() as *const c_void as *mut c_void
-    }
-}
-
-impl<T> HasDtype for Vec<T>
+impl<T> ToTensor for Vec<T>
 where
     T: InferDtype,
 {
-    fn dtype(&self) -> DataType {
-        T::infer_dtype()
+    fn data_ptr(&self) -> *mut std::ffi::c_void {
+        self.as_ptr() as *mut T as *mut std::ffi::c_void
     }
-}
-impl<T> HasStrides for Vec<T> {}
-impl<T> HasByteOffset for Vec<T> {
+
     fn byte_offset(&self) -> u64 {
         0
     }
-}
 
-impl<T> HasData for Box<[T]> {
-    fn data(&self) -> *mut c_void {
-        self.as_ptr() as *mut T as *mut c_void
-    }
-}
-
-impl<T> HasShape for Box<[T]> {
-    fn shape(&self) -> Shape {
-        Shape::Owned(vec![self.len() as i64])
-    }
-}
-
-impl<T> HasDtype for Box<[T]>
-where
-    T: InferDtype,
-{
-    fn dtype(&self) -> DataType {
-        T::infer_dtype()
-    }
-}
-
-impl<T> HasDevice for Box<[T]> {
     fn device(&self) -> Device {
         Device::CPU
     }
-}
 
-impl<T> HasStrides for Box<[T]> {}
-impl<T> HasByteOffset for Box<[T]> {
-    fn byte_offset(&self) -> u64 {
-        0
-    }
-}
-
-impl<T> HasData for Arc<[T]> {
-    fn data(&self) -> *mut c_void {
-        self.as_ptr() as *mut T as *mut c_void
-    }
-}
-
-impl<T> HasShape for Arc<[T]> {
-    fn shape(&self) -> Shape {
-        Shape::Owned(vec![self.len() as i64])
-    }
-}
-
-impl<T> HasDtype for Arc<[T]>
-where
-    T: InferDtype,
-{
     fn dtype(&self) -> DataType {
         T::infer_dtype()
     }
-}
 
-impl<T> HasDevice for Arc<[T]> {
-    fn device(&self) -> Device {
-        Device::CPU
+    fn shape(&self) -> Shape {
+        Shape::Owned(vec![self.len() as i64])
+    }
+
+    fn strides(&self) -> Option<super::Strides> {
+        None
     }
 }
 
-impl<T> HasStrides for Arc<[T]> {}
-impl<T> HasByteOffset for Arc<[T]> {
+impl<T> ToTensor for Box<[T]>
+where
+    T: InferDtype,
+{
+    fn data_ptr(&self) -> *mut std::ffi::c_void {
+        self.as_ptr() as *mut T as *mut std::ffi::c_void
+    }
+
     fn byte_offset(&self) -> u64 {
         0
     }
+
+    fn device(&self) -> Device {
+        Device::CPU
+    }
+
+    fn dtype(&self) -> DataType {
+        T::infer_dtype()
+    }
+
+    fn shape(&self) -> Shape {
+        Shape::Owned(vec![self.len() as i64])
+    }
+
+    fn strides(&self) -> Option<super::Strides> {
+        None
+    }
 }
 
-impl AsTensor for ffi::DLTensor {
-    fn data(&self) -> *mut std::ffi::c_void {
+impl<T> ToTensor for Arc<[T]>
+where
+    T: InferDtype,
+{
+    fn data_ptr(&self) -> *mut std::ffi::c_void {
+        self.as_ptr() as *mut T as *mut std::ffi::c_void
+    }
+
+    fn byte_offset(&self) -> u64 {
+        0
+    }
+
+    fn device(&self) -> Device {
+        Device::CPU
+    }
+
+    fn dtype(&self) -> DataType {
+        T::infer_dtype()
+    }
+
+    fn shape(&self) -> Shape {
+        Shape::Owned(vec![self.len() as i64])
+    }
+
+    fn strides(&self) -> Option<super::Strides> {
+        None
+    }
+}
+
+impl TensorView for ffi::DLTensor {
+    fn data_ptr(&self) -> *mut std::ffi::c_void {
         self.data
     }
 
@@ -182,45 +162,12 @@ impl AsTensor for ffi::DLTensor {
     }
 }
 
-impl<T> AsTensor for T
+impl<T> TensorView for ManagerCtx<T>
 where
-    T: HasTensor<ffi::DLTensor>,
+    T: ToTensor,
 {
-    fn data(&self) -> *mut std::ffi::c_void {
-        self.tensor().data()
-    }
-
-    fn device(&self) -> Device {
-        self.tensor().device()
-    }
-
-    fn dtype(&self) -> DataType {
-        self.tensor().dtype()
-    }
-
-    fn ndim(&self) -> usize {
-        self.tensor().ndim()
-    }
-
-    fn byte_offset(&self) -> u64 {
-        self.tensor().byte_offset()
-    }
-
-    fn strides(&self) -> Option<&[i64]> {
-        self.tensor().strides()
-    }
-
-    fn shape(&self) -> &[i64] {
-        self.tensor().shape()
-    }
-}
-
-impl<T> AsTensor for ManagerCtx<T>
-where
-    T: HasData + HasDevice + HasDtype + HasByteOffset,
-{
-    fn data(&self) -> *mut std::ffi::c_void {
-        self.inner.data()
+    fn data_ptr(&self) -> *mut std::ffi::c_void {
+        self.inner.data_ptr()
     }
 
     fn device(&self) -> Device {
@@ -248,11 +195,41 @@ where
     }
 }
 
+impl TensorView for ManagedTensor {
+    fn data_ptr(&self) -> *mut std::ffi::c_void {
+        self.dl_tensor().data_ptr()
+    }
+
+    fn byte_offset(&self) -> u64 {
+        self.dl_tensor().byte_offset()
+    }
+
+    fn device(&self) -> Device {
+        self.dl_tensor().device()
+    }
+
+    fn dtype(&self) -> DataType {
+        self.dl_tensor().dtype()
+    }
+
+    fn shape(&self) -> &[i64] {
+        self.dl_tensor().shape()
+    }
+
+    fn strides(&self) -> Option<&[i64]> {
+        self.dl_tensor().strides()
+    }
+
+    fn ndim(&self) -> usize {
+        self.dl_tensor().ndim()
+    }
+}
+
 // It's hard and unsafe to recover T from dlpack ptr.
 // ManagerCtx should only be a DLManagedTensor builder.
 impl<T> ToDLPack for ManagerCtx<T>
 where
-    T: HasData + HasDevice + HasDtype + HasByteOffset,
+    T: ToTensor,
 {
     fn to_dlpack(self) -> NonNull<ffi::DLManagedTensor> {
         self.into_dl_managed_tensor()
@@ -267,7 +244,7 @@ impl FromDLPack for ManagedTensor {
 
 impl<T> ToDLPack for T
 where
-    T: HasData + HasDevice + HasShape + HasStrides + HasDtype + HasByteOffset,
+    T: ToTensor,
 {
     fn to_dlpack(self) -> NonNull<ffi::DLManagedTensor> {
         let ctx = ManagerCtx::new(self);

@@ -3,11 +3,9 @@ pub mod traits;
 
 use std::ptr::NonNull;
 
-use traits::{HasByteOffset, HasData, HasDevice, HasDtype, HasShape, HasStrides};
-
 use crate::ffi;
 
-use self::traits::{AsTensor, HasTensor, ToDLPack};
+use self::traits::{TensorView, ToDLPack, ToTensor};
 
 unsafe extern "C" fn deleter_fn<T>(dl_managed_tensor: *mut ffi::DLManagedTensor) {
     // Reconstruct pointer and destroy it.
@@ -95,7 +93,7 @@ pub struct ManagerCtx<T> {
 
 impl<T> ManagerCtx<T>
 where
-    T: HasShape + HasStrides,
+    T: ToTensor,
 {
     pub fn new(inner: T) -> Self {
         let shape: Shape = inner.shape();
@@ -108,23 +106,9 @@ where
             tensor: Default::default(),
         }
     }
-}
 
-impl<T> Drop for ManagerCtx<T> {
-    fn drop(&mut self) {
-        dbg!(self.tensor.deleter.is_some());
-        if let Some(delete_fn) = self.tensor.deleter {
-            unsafe { delete_fn(&mut self.tensor as *mut _) };
-        }
-    }
-}
-
-impl<T> ManagerCtx<T>
-where
-    T: HasData + HasDevice + HasDtype + HasByteOffset,
-{
     fn update_tensor(&mut self) {
-        self.tensor.dl_tensor.data = self.inner.data();
+        self.tensor.dl_tensor.data = self.inner.data_ptr();
         self.tensor.dl_tensor.device = self.inner.device();
         self.tensor.dl_tensor.ndim = self.shape.ndim();
         self.tensor.dl_tensor.shape = self.shape.as_ptr();
@@ -147,9 +131,20 @@ where
     }
 }
 
+impl<T> Drop for ManagerCtx<T> {
+    fn drop(&mut self) {
+        dbg!(self.tensor.deleter.is_some());
+        if let Some(delete_fn) = self.tensor.deleter {
+            unsafe { delete_fn(&mut self.tensor as *mut _) };
+        }
+    }
+}
+
+impl<T> ManagerCtx<T> where T: ToTensor {}
+
 impl<T> From<T> for ManagerCtx<T>
 where
-    T: HasShape + HasStrides,
+    T: ToTensor,
 {
     fn from(value: T) -> Self {
         Self::new(value)
@@ -179,7 +174,7 @@ impl ManagedTensor {
     }
 
     pub fn as_slice<A>(&self) -> &[A] {
-        unsafe { std::slice::from_raw_parts(self.data().cast(), self.num_elements()) }
+        unsafe { std::slice::from_raw_parts(self.data_ptr().cast(), self.num_elements()) }
     }
 
     /// Get raw pointer.
@@ -191,50 +186,18 @@ impl ManagedTensor {
     pub fn into_inner(self) -> NonNull<ffi::DLManagedTensor> {
         self.0
     }
-}
 
-impl HasTensor<ffi::DLTensor> for ManagedTensor {
-    fn tensor(&self) -> &ffi::DLTensor {
-        // unsafe { &(*self.inner).dl_tensor }
+    pub fn dl_tensor(&self) -> &ffi::DLTensor {
         unsafe { &self.0.as_ref().dl_tensor }
-    }
-}
-
-impl HasTensor<ffi::DLTensor> for ffi::DLManagedTensor {
-    fn tensor(&self) -> &ffi::DLTensor {
-        &self.dl_tensor
     }
 }
 
 impl<T> From<ManagerCtx<T>> for ManagedTensor
 where
-    T: HasData + HasDevice + HasDtype + HasByteOffset,
+    T: ToTensor,
 {
     fn from(value: ManagerCtx<T>) -> Self {
         Self(value.to_dlpack())
-    }
-}
-
-impl<T> From<&T> for ffi::DLTensor
-where
-    T: HasData + HasDevice + HasShape + HasStrides + HasDtype + HasByteOffset,
-{
-    fn from(value: &T) -> Self {
-        let shape = value.shape();
-        let strides = value.strides();
-
-        ffi::DLTensor {
-            data: value.data(),
-            device: value.device(),
-            ndim: shape.ndim(),
-            dtype: value.dtype(),
-            shape: shape.as_ptr(),
-            strides: match strides {
-                Some(s) => s.as_ptr(),
-                None => std::ptr::null_mut(),
-            },
-            byte_offset: value.byte_offset(),
-        }
     }
 }
 

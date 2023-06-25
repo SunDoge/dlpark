@@ -2,7 +2,7 @@ use std::ptr::NonNull;
 
 use crate::{
     ffi,
-    tensor::traits::{HasByteOffset, HasData, HasDevice, HasDtype, ToDLPack},
+    tensor::traits::{ToDLPack, ToTensor},
     tensor::{ManagedTensor, ManagerCtx},
 };
 use pyo3::{
@@ -88,7 +88,7 @@ unsafe extern "C" fn dlpack_capsule_deleter(capsule: *mut pyo3::ffi::PyObject) {
 
 impl<T> IntoPy<PyObject> for ManagerCtx<T>
 where
-    T: HasData + HasDevice + HasDtype + HasByteOffset,
+    T: ToTensor,
 {
     fn into_py(self, py: Python<'_>) -> PyObject {
         let tensor = self.to_dlpack();
