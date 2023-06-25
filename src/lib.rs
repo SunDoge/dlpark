@@ -1,8 +1,9 @@
 mod data_type;
 mod device;
-mod tensor;
 mod dl_managed_tensor;
 mod dl_tensor;
+mod manager_ctx;
+mod tensor;
 
 pub mod ffi;
 pub mod prelude;

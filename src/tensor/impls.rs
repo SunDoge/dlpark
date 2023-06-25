@@ -1,9 +1,10 @@
 use super::{
     ffi,
     traits::{FromDLPack, InferDtype, TensorView, ToDLPack, ToTensor},
-    ManagedTensor, ManagerCtx, Shape,
+    ManagedTensor,
 };
 use crate::ffi::{DataType, Device};
+use crate::manager_ctx::{ManagerCtx, Shape, Strides};
 use std::{ptr::NonNull, sync::Arc};
 
 impl InferDtype for f32 {
@@ -66,7 +67,7 @@ where
         Shape::Owned(vec![self.len() as i64])
     }
 
-    fn strides(&self) -> Option<super::Strides> {
+    fn strides(&self) -> Option<Strides> {
         None
     }
 }
@@ -95,7 +96,7 @@ where
         Shape::Owned(vec![self.len() as i64])
     }
 
-    fn strides(&self) -> Option<super::Strides> {
+    fn strides(&self) -> Option<Strides> {
         None
     }
 }
@@ -124,7 +125,7 @@ where
         Shape::Owned(vec![self.len() as i64])
     }
 
-    fn strides(&self) -> Option<super::Strides> {
+    fn strides(&self) -> Option<Strides> {
         None
     }
 }
@@ -162,38 +163,7 @@ impl TensorView for ffi::DLTensor {
     }
 }
 
-impl<T> TensorView for ManagerCtx<T>
-where
-    T: ToTensor,
-{
-    fn data_ptr(&self) -> *mut std::ffi::c_void {
-        self.inner.data_ptr()
-    }
 
-    fn device(&self) -> Device {
-        self.inner.device()
-    }
-
-    fn byte_offset(&self) -> u64 {
-        self.inner.byte_offset()
-    }
-
-    fn shape(&self) -> &[i64] {
-        self.shape.as_slice()
-    }
-
-    fn strides(&self) -> Option<&[i64]> {
-        self.strides.as_ref().map(|s| s.as_slice(self.ndim()))
-    }
-
-    fn ndim(&self) -> usize {
-        self.shape.ndim() as usize
-    }
-
-    fn dtype(&self) -> DataType {
-        self.inner.dtype()
-    }
-}
 
 impl TensorView for ManagedTensor {
     fn data_ptr(&self) -> *mut std::ffi::c_void {

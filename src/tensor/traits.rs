@@ -2,7 +2,7 @@ use std::ptr::NonNull;
 
 use crate::ffi::{self, DLManagedTensor, DataType, Device};
 
-use super::{Shape, Strides};
+use crate::manager_ctx::{Shape, Strides};
 
 // User should define their own InferDtype trait.
 pub(crate) trait InferDtype {

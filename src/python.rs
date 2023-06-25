@@ -2,8 +2,9 @@ use std::ptr::NonNull;
 
 use crate::{
     ffi,
+    manager_ctx::ManagerCtx,
     tensor::traits::{ToDLPack, ToTensor},
-    tensor::{ManagedTensor, ManagerCtx},
+    tensor::ManagedTensor,
 };
 use pyo3::{
     ffi::{PyCapsule_GetPointer, PyCapsule_New, PyCapsule_SetName, PyErr_Occurred, PyErr_Restore},
