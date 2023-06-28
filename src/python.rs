@@ -23,39 +23,21 @@ const DLPACK_CAPSULE_NAME: &[u8] = b"dltensor\0";
 /// (ensured if PyCapsule_Destructor calls deleter only for capsules whose name is "dltensor")
 const DLPACK_CAPSULE_USED_NAME: &[u8] = b"used_dltensor\0";
 
-impl IntoPyPointer for ffi::DLManagedTensor {
-    fn into_ptr(self) -> *mut pyo3::ffi::PyObject {
-        let self_ = Box::new(self);
-        self_.into_ptr()
-    }
-}
-
-impl IntoPyPointer for Box<ffi::DLManagedTensor> {
-    fn into_ptr(self) -> *mut pyo3::ffi::PyObject {
-        unsafe {
-            PyCapsule_New(
-                Box::into_raw(self).cast(),
-                DLPACK_CAPSULE_NAME.as_ptr().cast(),
-                Some(dlpack_capsule_deleter),
-            )
-        }
-    }
-}
-
-impl IntoPy<PyObject> for ffi::DLManagedTensor {
-    fn into_py(self, py: Python<'_>) -> PyObject {
-        let ptr = self.into_ptr();
-        unsafe { PyObject::from_owned_ptr(py, ptr) }
-    }
-}
-
-fn new_py_capsule(dl_managed_tensor: *mut ffi::DLManagedTensor) -> *mut pyo3::ffi::PyObject {
+fn dlpack_to_py_capsule(dlpack: NonNull<ffi::DLManagedTensor>) -> *mut pyo3::ffi::PyObject {
     unsafe {
         PyCapsule_New(
-            dl_managed_tensor.cast(),
+            dlpack.as_ptr().cast(),
             DLPACK_CAPSULE_NAME.as_ptr().cast(),
             Some(dlpack_capsule_deleter),
         )
+    }
+}
+
+fn py_capsule_to_dlpack(capsule: *mut pyo3::ffi::PyObject) -> NonNull<ffi::DLManagedTensor> {
+    unsafe {
+        let ptr = PyCapsule_GetPointer(capsule, DLPACK_CAPSULE_NAME.as_ptr().cast()).cast();
+        PyCapsule_SetName(capsule, DLPACK_CAPSULE_USED_NAME.as_ptr().cast());
+        NonNull::new_unchecked(ptr)
     }
 }
 
@@ -87,13 +69,22 @@ unsafe extern "C" fn dlpack_capsule_deleter(capsule: *mut pyo3::ffi::PyObject) {
     PyErr_Restore(exc_type, exc_value, exc_trace);
 }
 
+impl<T> IntoPyPointer for ManagerCtx<T>
+where
+    T: ToTensor,
+{
+    fn into_ptr(self) -> *mut pyo3::ffi::PyObject {
+        let dlpack = self.to_dlpack();
+        dlpack_to_py_capsule(dlpack)
+    }
+}
+
 impl<T> IntoPy<PyObject> for ManagerCtx<T>
 where
     T: ToTensor,
 {
     fn into_py(self, py: Python<'_>) -> PyObject {
-        let tensor = self.to_dlpack();
-        let ptr = new_py_capsule(tensor.as_ptr());
+        let ptr = self.into_ptr();
         unsafe { PyObject::from_owned_ptr(py, ptr) }
     }
 }
@@ -102,30 +93,31 @@ impl ManagedTensor {
     /// Check this [pytorch src](https://github.com/pytorch/pytorch/blob/main/torch/csrc/utils/tensor_new.cpp#L1583)
     /// # Safety
     /// We use pyo3 ffi here.
-    pub unsafe fn from_py_ptr(capsule: *mut pyo3::ffi::PyObject) -> Self {
-        let dl_managed_tensor =
-            PyCapsule_GetPointer(capsule, DLPACK_CAPSULE_NAME.as_ptr().cast()).cast();
-
-        PyCapsule_SetName(capsule, DLPACK_CAPSULE_USED_NAME.as_ptr().cast());
-
-        ManagedTensor::new(NonNull::new_unchecked(dl_managed_tensor))
+    pub fn from_py_ptr(capsule: *mut pyo3::ffi::PyObject) -> Self {
+        Self::new(py_capsule_to_dlpack(capsule))
     }
 
-    pub fn from_py(ob: impl IntoPyPointer) -> Self {
-        unsafe { Self::from_py_ptr(ob.into_ptr()) }
+    pub fn from_py_object(ob: impl IntoPyPointer) -> Self {
+        Self::from_py_ptr(ob.into_ptr())
     }
 }
 
 impl<'source> FromPyObject<'source> for ManagedTensor {
     fn extract(ob: &'source PyAny) -> PyResult<Self> {
-        Ok(ManagedTensor::from_py(ob))
+        Ok(ManagedTensor::from_py_object(ob))
+    }
+}
+
+impl IntoPyPointer for ManagedTensor {
+    fn into_ptr(self) -> *mut pyo3::ffi::PyObject {
+        let dlpack = self.to_dlpack();
+        dlpack_to_py_capsule(dlpack)
     }
 }
 
 impl IntoPy<PyObject> for ManagedTensor {
     fn into_py(self, py: Python<'_>) -> PyObject {
-        let tensor = self.into_inner();
-        let ptr = new_py_capsule(tensor.as_ptr());
+        let ptr = self.into_ptr();
         unsafe { PyObject::from_owned_ptr(py, ptr) }
     }
 }

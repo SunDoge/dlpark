@@ -2,8 +2,8 @@
 /// Please use the safe wrapper provided by dlpark.
 use std::ffi::c_void;
 
-pub const DLPACK_MAJOR_VERSION: u64 = 1;
-pub const DLPACK_MINOR_VERSION: u64 = 0;
+pub const DLPACK_MAJOR_VERSION: u32 = 1;
+pub const DLPACK_MINOR_VERSION: u32 = 0;
 pub const DLPACK_FLAG_BITMASK_READ_ONLY: u64 = 1 << 0;
 
 /// The DLPack version.

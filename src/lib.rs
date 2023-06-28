@@ -1,12 +1,14 @@
 mod data_type;
 mod device;
 mod dl_managed_tensor;
+mod dl_managed_tensor_versioned;
 mod dl_tensor;
-mod manager_ctx;
+mod pack_version;
 mod tensor;
 
-pub mod ffi;
-pub mod prelude;
-
 #[cfg(feature = "pyo3")]
-pub mod python;
+mod python;
+
+pub mod ffi;
+pub mod manager_ctx;
+pub mod prelude;
