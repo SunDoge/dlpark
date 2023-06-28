@@ -1,42 +1,10 @@
 use super::{
-    traits::{HasByteOffset, HasData, HasDevice, HasDtype, HasShape, HasStrides, InferDtype},
-    Shape,
+    ffi,
+    traits::{InferDtype, ToDLPack, ToTensor},
 };
 use crate::ffi::{DataType, Device};
-use std::ffi::c_void;
-
-impl<T> HasDevice for Vec<T> {
-    fn device(&self) -> Device {
-        Device::CPU
-    }
-}
-
-impl<T> HasShape for Vec<T> {
-    fn shape(&self) -> Shape {
-        Shape::Owned(vec![self.len() as i64])
-    }
-}
-
-impl<T> HasData for Vec<T> {
-    fn data(&self) -> *mut c_void {
-        self.as_ptr() as *const c_void as *mut c_void
-    }
-}
-
-impl<T> HasDtype for Vec<T>
-where
-    T: InferDtype,
-{
-    fn dtype(&self) -> DataType {
-        T::infer_dtype()
-    }
-}
-impl<T> HasStrides for Vec<T> {}
-impl<T> HasByteOffset for Vec<T> {
-    fn byte_offset(&self) -> u64 {
-        0
-    }
-}
+use crate::manager_ctx::{CowIntArray, ManagerCtx};
+use std::{ptr::NonNull, sync::Arc};
 
 impl InferDtype for f32 {
     fn infer_dtype() -> DataType {
@@ -71,5 +39,102 @@ impl InferDtype for u8 {
 impl InferDtype for bool {
     fn infer_dtype() -> DataType {
         DataType::BOOL
+    }
+}
+
+impl<T> ToTensor for Vec<T>
+where
+    T: InferDtype,
+{
+    fn data_ptr(&self) -> *mut std::ffi::c_void {
+        self.as_ptr() as *mut T as *mut std::ffi::c_void
+    }
+
+    fn byte_offset(&self) -> u64 {
+        0
+    }
+
+    fn device(&self) -> Device {
+        Device::CPU
+    }
+
+    fn dtype(&self) -> DataType {
+        T::infer_dtype()
+    }
+
+    fn shape(&self) -> CowIntArray {
+        CowIntArray::from_owned(vec![self.len() as i64])
+    }
+
+    fn strides(&self) -> Option<CowIntArray> {
+        None
+    }
+}
+
+impl<T> ToTensor for Box<[T]>
+where
+    T: InferDtype,
+{
+    fn data_ptr(&self) -> *mut std::ffi::c_void {
+        self.as_ptr() as *mut T as *mut std::ffi::c_void
+    }
+
+    fn byte_offset(&self) -> u64 {
+        0
+    }
+
+    fn device(&self) -> Device {
+        Device::CPU
+    }
+
+    fn dtype(&self) -> DataType {
+        T::infer_dtype()
+    }
+
+    fn shape(&self) -> CowIntArray {
+        CowIntArray::from_owned(vec![self.len() as i64])
+    }
+
+    fn strides(&self) -> Option<CowIntArray> {
+        None
+    }
+}
+
+impl<T> ToTensor for Arc<[T]>
+where
+    T: InferDtype,
+{
+    fn data_ptr(&self) -> *mut std::ffi::c_void {
+        self.as_ptr() as *mut T as *mut std::ffi::c_void
+    }
+
+    fn byte_offset(&self) -> u64 {
+        0
+    }
+
+    fn device(&self) -> Device {
+        Device::CPU
+    }
+
+    fn dtype(&self) -> DataType {
+        T::infer_dtype()
+    }
+
+    fn shape(&self) -> CowIntArray {
+        CowIntArray::from_owned(vec![self.len() as i64])
+    }
+
+    fn strides(&self) -> Option<CowIntArray> {
+        None
+    }
+}
+
+impl<T> ToDLPack for T
+where
+    T: ToTensor,
+{
+    fn to_dlpack(self) -> NonNull<ffi::DLManagedTensor> {
+        let ctx = ManagerCtx::new(self);
+        ctx.into_dl_managed_tensor()
     }
 }

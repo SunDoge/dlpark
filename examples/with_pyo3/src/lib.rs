@@ -9,7 +9,7 @@ pub fn add(left: usize, right: usize) -> usize {
 #[pyfunction]
 pub fn arange(n: usize) -> ManagerCtx<Vec<f32>> {
     let v: Vec<f32> = (0..n).map(|x| x as f32).collect();
-    let tensor = ManagerCtx::from(v);
+    let tensor = ManagerCtx::new(v);
     tensor
 }
 
@@ -18,8 +18,8 @@ pub fn tensordict(py: Python<'_>) -> PyResult<&PyDict> {
     let dic = PyDict::new(py);
     let v1: Vec<f32> = vec![1.0; 10];
     let v2: Vec<u8> = vec![2; 10];
-    dic.set_item("v1", ManagerCtx::from(v1).to_capsule(py)?)?;
-    dic.set_item("v2", ManagerCtx::from(v2).to_capsule(py)?)?;
+    dic.set_item("v1", ManagerCtx::new(v1).into_py(py))?;
+    dic.set_item("v2", ManagerCtx::new(v2).into_py(py))?;
     Ok(dic)
 }
 

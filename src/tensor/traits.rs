@@ -1,52 +1,27 @@
-use std::ffi::c_void;
+use std::ptr::NonNull;
 
-use crate::ffi::{DataType, Device};
+use crate::ffi::{self, DLManagedTensor, DataType, Device};
 
-use super::{Shape, Strides};
+use crate::manager_ctx::CowIntArray;
 
-pub trait HasData {
-    fn data(&self) -> *mut c_void;
-}
-
-pub trait HasShape {
-    fn shape(&self) -> Shape;
-}
-
-/// Can be `None`, indicating tensor is compact and row-majored.
-pub trait HasStrides {
-    fn strides(&self) -> Option<Strides> {
-        None
-    }
-}
-
-pub trait HasByteOffset {
-    fn byte_offset(&self) -> u64;
-}
-
-pub trait HasDevice {
-    fn device(&self) -> Device;
-}
-
-pub trait HasDtype {
-    fn dtype(&self) -> DataType;
-}
-
-pub trait InferDtype {
+// User should define their own InferDtype trait.
+pub(crate) trait InferDtype {
     fn infer_dtype() -> DataType;
 }
 
-pub trait AsTensor {
-    fn data<T>(&self) -> *const T;
+pub trait TensorView {
+    /// Get untyped data ptr
+    fn data_ptr(&self) -> *mut std::ffi::c_void;
+    /// Get shape as slice.
     fn shape(&self) -> &[i64];
+    /// Get strides as slice, can have no strides.
     fn strides(&self) -> Option<&[i64]>;
     fn ndim(&self) -> usize;
     fn device(&self) -> Device;
     fn dtype(&self) -> DataType;
+    fn byte_offset(&self) -> u64;
 
-    fn byte_offset(&self) -> u64 {
-        0
-    }
-
+    // Get num elements in Tensor.
     fn num_elements(&self) -> usize {
         self.shape().iter().product::<i64>() as usize
     }
@@ -69,9 +44,23 @@ pub trait AsTensor {
     }
 }
 
-pub trait HasTensor<T>
-where
-    T: AsTensor,
-{
-    fn tensor(&self) -> &T;
+pub(crate) trait GetInitializedDLTensor {
+    fn get_initialized_dl_tensor(&self) -> &ffi::DLTensor;
+}
+
+pub trait ToTensor {
+    fn data_ptr(&self) -> *mut std::ffi::c_void;
+    fn shape(&self) -> CowIntArray;
+    fn strides(&self) -> Option<CowIntArray>;
+    fn device(&self) -> Device;
+    fn dtype(&self) -> DataType;
+    fn byte_offset(&self) -> u64;
+}
+
+pub trait ToDLPack {
+    fn to_dlpack(self) -> NonNull<DLManagedTensor>;
+}
+
+pub trait FromDLPack {
+    fn from_dlpack(src: NonNull<DLManagedTensor>) -> Self;
 }

@@ -25,8 +25,17 @@ impl Default for Device {
 }
 
 impl Device {
+    /// CPU device with `device_id = 0`.
     pub const CPU: Self = Self {
         device_type: DeviceType::Cpu,
         device_id: 0,
     };
+
+    /// Create CUDA device.
+    pub fn cuda(index: usize) -> Self {
+        Self {
+            device_type: DeviceType::Cuda,
+            device_id: index as i32,
+        }
+    }
 }

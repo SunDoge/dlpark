@@ -1,7 +1,10 @@
+use std::ptr::NonNull;
+
 use crate::{
-    ffi::DLManagedTensor,
-    tensor::traits::{HasByteOffset, HasData, HasDevice, HasDtype},
-    tensor::{ManagedTensor, ManagerCtx},
+    ffi,
+    manager_ctx::ManagerCtx,
+    tensor::traits::{ToDLPack, ToTensor},
+    tensor::ManagedTensor,
 };
 use pyo3::{
     ffi::{PyCapsule_GetPointer, PyCapsule_New, PyCapsule_SetName, PyErr_Occurred, PyErr_Restore},
@@ -9,38 +12,50 @@ use pyo3::{
     IntoPy, PyAny, PyResult, Python,
 };
 
+/// The producer must set the PyCapsule name to "dltensor" so that it can be inspected by name,
+/// and set PyCapsule_Destructor that calls the deleter of the ffi::DLManagedTensor
+/// when the "dltensor"-named capsule is no longer needed.
 const DLPACK_CAPSULE_NAME: &[u8] = b"dltensor\0";
+
+/// The consumer must transer ownership of the DLManangedTensor from the capsule
+/// to its own object. It does so by renaming the capsule to "used_dltensor"
+/// to ensure that PyCapsule_Destructor will not get called
+/// (ensured if PyCapsule_Destructor calls deleter only for capsules whose name is "dltensor")
 const DLPACK_CAPSULE_USED_NAME: &[u8] = b"used_dltensor\0";
 
-impl DLManagedTensor {
-    pub fn to_capsule_ptr(self) -> *mut pyo3::ffi::PyObject {
-        let self_ptr = Box::into_raw(Box::new(self));
+impl IntoPyPointer for ffi::DLManagedTensor {
+    fn into_ptr(self) -> *mut pyo3::ffi::PyObject {
+        let self_ = Box::new(self);
+        self_.into_ptr()
+    }
+}
 
+impl IntoPyPointer for Box<ffi::DLManagedTensor> {
+    fn into_ptr(self) -> *mut pyo3::ffi::PyObject {
         unsafe {
             PyCapsule_New(
-                self_ptr as *mut _,
-                DLPACK_CAPSULE_NAME.as_ptr() as *const _,
+                Box::into_raw(self).cast(),
+                DLPACK_CAPSULE_NAME.as_ptr().cast(),
                 Some(dlpack_capsule_deleter),
             )
         }
     }
+}
 
-    pub fn to_capsule(self, py: Python<'_>) -> PyResult<&PyAny> {
-        let ptr = self.to_capsule_ptr();
-        unsafe { py.from_owned_ptr_or_err(ptr) }
+impl IntoPy<PyObject> for ffi::DLManagedTensor {
+    fn into_py(self, py: Python<'_>) -> PyObject {
+        let ptr = self.into_ptr();
+        unsafe { PyObject::from_owned_ptr(py, ptr) }
     }
 }
 
-impl<T> ManagerCtx<T>
-where
-    T: HasData + HasDevice + HasDtype + HasByteOffset,
-{
-    pub fn to_capsule(self, py: Python<'_>) -> PyResult<&PyAny> {
-        DLManagedTensor::from(self).to_capsule(py)
-    }
-
-    pub fn to_capsule_ptr(self) -> *mut pyo3::ffi::PyObject {
-        DLManagedTensor::from(self).to_capsule_ptr()
+fn new_py_capsule(dl_managed_tensor: *mut ffi::DLManagedTensor) -> *mut pyo3::ffi::PyObject {
+    unsafe {
+        PyCapsule_New(
+            dl_managed_tensor.cast(),
+            DLPACK_CAPSULE_NAME.as_ptr().cast(),
+            Some(dlpack_capsule_deleter),
+        )
     }
 }
 
@@ -56,7 +71,7 @@ unsafe extern "C" fn dlpack_capsule_deleter(capsule: *mut pyo3::ffi::PyObject) {
     pyo3::ffi::PyErr_Fetch(&mut exc_type, &mut exc_value, &mut exc_trace);
 
     let managed = PyCapsule_GetPointer(capsule, DLPACK_CAPSULE_NAME.as_ptr() as *const _)
-        as *mut DLManagedTensor;
+        as *mut ffi::DLManagedTensor;
 
     if managed.is_null() {
         pyo3::ffi::PyErr_WriteUnraisable(capsule);
@@ -74,10 +89,11 @@ unsafe extern "C" fn dlpack_capsule_deleter(capsule: *mut pyo3::ffi::PyObject) {
 
 impl<T> IntoPy<PyObject> for ManagerCtx<T>
 where
-    T: HasData + HasDevice + HasDtype + HasByteOffset,
+    T: ToTensor,
 {
     fn into_py(self, py: Python<'_>) -> PyObject {
-        let ptr = self.to_capsule_ptr();
+        let tensor = self.to_dlpack();
+        let ptr = new_py_capsule(tensor.as_ptr());
         unsafe { PyObject::from_owned_ptr(py, ptr) }
     }
 }
@@ -88,24 +104,11 @@ impl ManagedTensor {
     /// We use pyo3 ffi here.
     pub unsafe fn from_py_ptr(capsule: *mut pyo3::ffi::PyObject) -> Self {
         let dl_managed_tensor =
-            PyCapsule_GetPointer(capsule, DLPACK_CAPSULE_NAME.as_ptr() as *const _)
-                as *mut DLManagedTensor;
+            PyCapsule_GetPointer(capsule, DLPACK_CAPSULE_NAME.as_ptr().cast()).cast();
 
-        // TODO: we should add a flag for buggy numpy dlpack deleter
-        // let deleter_with_gil = move |_| {
-        //     if let Some(del_fn) = (*dl_managed_tensor).deleter {
-        //         Python::with_gil(move |_py| {
-        //             del_fn(dl_managed_tensor);
-        //         });
-        //     }
-        // };
+        PyCapsule_SetName(capsule, DLPACK_CAPSULE_USED_NAME.as_ptr().cast());
 
-        PyCapsule_SetName(capsule, DLPACK_CAPSULE_USED_NAME.as_ptr() as *const _);
-
-        ManagedTensor {
-            inner: dl_managed_tensor,
-            deleter: None,
-        }
+        ManagedTensor::new(NonNull::new_unchecked(dl_managed_tensor))
     }
 
     pub fn from_py(ob: impl IntoPyPointer) -> Self {
@@ -116,5 +119,13 @@ impl ManagedTensor {
 impl<'source> FromPyObject<'source> for ManagedTensor {
     fn extract(ob: &'source PyAny) -> PyResult<Self> {
         Ok(ManagedTensor::from_py(ob))
+    }
+}
+
+impl IntoPy<PyObject> for ManagedTensor {
+    fn into_py(self, py: Python<'_>) -> PyObject {
+        let tensor = self.into_inner();
+        let ptr = new_py_capsule(tensor.as_ptr());
+        unsafe { PyObject::from_owned_ptr(py, ptr) }
     }
 }
