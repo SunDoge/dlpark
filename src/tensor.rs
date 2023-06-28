@@ -94,20 +94,36 @@ impl FromDLPack for ManagedTensor {
     }
 }
 
+impl ToDLPack for ManagedTensor {
+    fn to_dlpack(self) -> NonNull<ffi::DLManagedTensor> {
+        self.0
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
     use crate::prelude::*;
 
     #[test]
     fn from_vec_f32() {
         let v: Vec<f32> = (0..10).map(|x| x as f32).collect();
-        let tensor = ManagerCtx::new(v);
+        let tensor = ManagedTensor::from_dlpack(v.to_dlpack());
         assert_eq!(tensor.shape(), &[10]);
         assert_eq!(tensor.ndim(), 1);
         assert_eq!(tensor.device(), Device::CPU);
         assert_eq!(tensor.strides(), None);
         assert_eq!(tensor.byte_offset(), 0);
         assert_eq!(tensor.dtype(), DataType::F32);
+    }
+
+    #[test]
+    fn from_arc_slice_f32() {
+        let v: Arc<[f32]> = (0..10).map(|x| x as f32).collect::<Vec<_>>().into();
+        let t1 = ManagedTensor::from_dlpack(v.clone().to_dlpack());
+        let t2 = ManagedTensor::from_dlpack(v.clone().to_dlpack());
+        assert_eq!(t1.data_ptr(), t2.data_ptr());
     }
 }

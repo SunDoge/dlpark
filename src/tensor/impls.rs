@@ -6,41 +6,35 @@ use crate::ffi::{DataType, Device};
 use crate::manager_ctx::{CowIntArray, ManagerCtx};
 use std::{ptr::NonNull, sync::Arc};
 
-impl InferDtype for f32 {
-    fn infer_dtype() -> DataType {
-        DataType::F32
-    }
+macro_rules! impl_infer_dtype {
+    ($rust_type:ty, $dtype:expr) => {
+        impl InferDtype for $rust_type {
+            fn infer_dtype() -> DataType {
+                $dtype
+            }
+        }
+    };
 }
 
-impl InferDtype for f64 {
-    fn infer_dtype() -> DataType {
-        DataType::F64
-    }
-}
+impl_infer_dtype!(f32, DataType::F32);
+impl_infer_dtype!(f64, DataType::F64);
 
-impl InferDtype for i64 {
-    fn infer_dtype() -> DataType {
-        DataType::I64
-    }
-}
+impl_infer_dtype!(u8, DataType::U8);
+impl_infer_dtype!(u16, DataType::U16);
+impl_infer_dtype!(u32, DataType::U32);
+impl_infer_dtype!(u64, DataType::U64);
 
-impl InferDtype for i32 {
-    fn infer_dtype() -> DataType {
-        DataType::I32
-    }
-}
+impl_infer_dtype!(i8, DataType::I8);
+impl_infer_dtype!(i16, DataType::I16);
+impl_infer_dtype!(i32, DataType::I32);
+impl_infer_dtype!(i64, DataType::I64);
 
-impl InferDtype for u8 {
-    fn infer_dtype() -> DataType {
-        DataType::U8
-    }
-}
+impl_infer_dtype!(bool, DataType::BOOL);
 
-impl InferDtype for bool {
-    fn infer_dtype() -> DataType {
-        DataType::BOOL
-    }
-}
+#[cfg(feature = "half")]
+impl_infer_dtype!(half::f16, DataType::F16);
+#[cfg(feature = "half")]
+impl_infer_dtype!(half::bf16, DataType::BF16);
 
 impl<T> ToTensor for Vec<T>
 where

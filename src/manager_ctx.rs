@@ -82,7 +82,7 @@ where
     pub fn new(inner: T) -> Self {
         let shape: CowIntArray = inner.shape();
         let strides = inner.strides();
-        dbg!(&shape, &strides);
+
         Self {
             inner,
             shape,
