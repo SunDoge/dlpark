@@ -1,20 +1,6 @@
 use crate::ffi;
 use crate::tensor::traits::TensorView;
 
-impl Default for ffi::DLTensor {
-    fn default() -> Self {
-        ffi::DLTensor {
-            data: std::ptr::null_mut(),
-            ndim: 0,
-            shape: std::ptr::null_mut(),
-            strides: std::ptr::null_mut(),
-            byte_offset: 0,
-            device: Default::default(),
-            dtype: Default::default(),
-        }
-    }
-}
-
 impl TensorView for ffi::DLTensor {
     fn data_ptr(&self) -> *mut std::ffi::c_void {
         self.data

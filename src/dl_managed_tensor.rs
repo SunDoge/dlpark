@@ -1,16 +1,6 @@
 use crate::ffi;
 use crate::tensor::traits::TensorView;
 
-impl Default for ffi::DLManagedTensor {
-    fn default() -> Self {
-        ffi::DLManagedTensor {
-            dl_tensor: Default::default(),
-            manager_ctx: std::ptr::null_mut(),
-            deleter: None,
-        }
-    }
-}
-
 impl TensorView for ffi::DLManagedTensor {
     fn data_ptr(&self) -> *mut std::ffi::c_void {
         self.dl_tensor.data_ptr()

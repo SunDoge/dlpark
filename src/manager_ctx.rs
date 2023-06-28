@@ -1,5 +1,4 @@
 use std::borrow::Cow;
-use std::pin::Pin;
 use std::ptr::NonNull;
 
 use crate::tensor::traits::{TensorView, ToDLPack};
@@ -8,15 +7,8 @@ use crate::{ffi, prelude::ToTensor};
 unsafe extern "C" fn deleter_fn<T>(dl_managed_tensor: *mut ffi::DLManagedTensor) {
     // Reconstruct pointer and destroy it.
     let ctx = (*dl_managed_tensor).manager_ctx as *mut T;
-    drop(unsafe { Box::from_raw(ctx) });
-    // ctx.drop_in_place();
+    ctx.drop_in_place();
 }
-
-// #[derive(Debug)]
-// pub enum Shape {
-//     Borrowed(*mut i64, usize),
-//     Owned(Vec<i64>),
-// }
 
 #[derive(Debug)]
 pub struct CowIntArray(Cow<'static, [i64]>);
@@ -61,13 +53,6 @@ impl CowIntArray {
     }
 }
 
-/// If it is borrowed, the length should be `tensor.ndim()`
-#[derive(Debug)]
-// pub enum Strides {
-//     Borrowed(*mut i64),
-//     Owned(Vec<i64>),
-// }
-
 // TODO: should be ManagerCtx<T, M> where M is one of DLManagedTensor and DLManagedTensorVersioned
 pub struct ManagerCtx<T> {
     inner: T,
@@ -93,35 +78,17 @@ where
         }
     }
 
-    fn update_tensor(&mut self) -> &ffi::DLManagedTensor {
-        // self.tensor.dl_tensor.data = self.inner.data_ptr();
-        // self.tensor.dl_tensor.device = self.inner.device();
-        // self.tensor.dl_tensor.ndim = self.shape.ndim();
-        // self.tensor.dl_tensor.shape = self.shape.as_ptr();
-        // self.tensor.dl_tensor.strides = match self.strides {
-        //     Some(ref strides) => strides.as_ptr(),
-        //     None => std::ptr::null_mut(),
-        // };
-        // self.tensor.dl_tensor.dtype = self.inner.dtype();
-        // self.tensor.dl_tensor.byte_offset = self.inner.byte_offset();
-
-        // self.tensor.manager_ctx = self as *const Self as *mut std::ffi::c_void;
-        // self.tensor.deleter = Some(deleter_fn::<Self>);
-
-        let tensor = ffi::DLManagedTensor {
-            dl_tensor: self.make_dl_tensor(),
-            manager_ctx: self as *mut Self as *mut std::ffi::c_void,
-            deleter: Some(deleter_fn::<Self>),
-        };
-        self.tensor = Some(tensor);
-        &self.tensor.as_ref().unwrap()
-    }
-
     pub fn into_dl_managed_tensor(self) -> NonNull<ffi::DLManagedTensor> {
         // Move self to heap and get it's pointer.
+        // TODO: use pin here.
         let ctx = Box::leak(Box::new(self));
-        let tensor = ctx.update_tensor();
-        NonNull::from(tensor)
+        let tensor: ffi::DLManagedTensor = ffi::DLManagedTensor {
+            dl_tensor: ctx.make_dl_tensor(),
+            manager_ctx: ctx as *mut Self as *mut std::ffi::c_void,
+            deleter: Some(deleter_fn::<Self>),
+        };
+        ctx.tensor = Some(tensor);
+        NonNull::from(ctx.tensor.as_ref().unwrap())
     }
 
     fn make_dl_tensor(&self) -> ffi::DLTensor {
