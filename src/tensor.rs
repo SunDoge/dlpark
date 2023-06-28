@@ -125,5 +125,6 @@ mod tests {
         let t1 = ManagedTensor::from_dlpack(v.clone().to_dlpack());
         let t2 = ManagedTensor::from_dlpack(v.clone().to_dlpack());
         assert_eq!(t1.data_ptr(), t2.data_ptr());
+        assert_eq!(v.data_ptr(), t1.data_ptr());
     }
 }
