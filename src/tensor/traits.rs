@@ -44,10 +44,7 @@ pub trait TensorView {
     }
 }
 
-pub(crate) trait GetInitializedDLTensor {
-    fn get_initialized_dl_tensor(&self) -> &ffi::DLTensor;
-}
-
+/// User should implement this trait for their tensor.
 pub trait ToTensor {
     fn data_ptr(&self) -> *mut std::ffi::c_void;
     fn shape(&self) -> CowIntArray;
@@ -62,5 +59,6 @@ pub trait ToDLPack {
 }
 
 pub trait FromDLPack {
-    fn from_dlpack(src: NonNull<DLManagedTensor>) -> Self;
+    // TODO: DLManagedTensor will be deprecated in th future.
+    fn from_dlpack(dlpack: NonNull<DLManagedTensor>) -> Self;
 }

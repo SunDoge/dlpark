@@ -7,9 +7,14 @@ use crate::{ffi, prelude::ToTensor};
 unsafe extern "C" fn deleter_fn<T>(dl_managed_tensor: *mut ffi::DLManagedTensor) {
     // Reconstruct pointer and destroy it.
     let ctx = (*dl_managed_tensor).manager_ctx as *mut T;
-    ctx.drop_in_place();
+    // https://doc.rust-lang.org/std/boxed/struct.Box.html#method.into_raw
+    // Use from_raw to clean it.
+    unsafe { Box::from_raw(ctx) };
 }
 
+/// If the shape or strides of Tensor is vec of i64, then it should be borrowed to avoid copy.
+/// The lifetime should be 'static since we don't managed its memory.
+/// Otherwise, we should copy the data and convert its type to i64 and managed it ourselves.
 #[derive(Debug)]
 pub struct CowIntArray(Cow<'static, [i64]>);
 
@@ -80,14 +85,16 @@ where
 
     pub fn into_dl_managed_tensor(self) -> NonNull<ffi::DLManagedTensor> {
         // Move self to heap and get it's pointer.
-        // TODO: use pin here.
+        // We leak the data here and let deleter handle its memmory.
         let ctx = Box::leak(Box::new(self));
         let tensor: ffi::DLManagedTensor = ffi::DLManagedTensor {
             dl_tensor: ctx.make_dl_tensor(),
             manager_ctx: ctx as *mut Self as *mut std::ffi::c_void,
             deleter: Some(deleter_fn::<Self>),
         };
+        // Hold the data so it can be dropped when ctx dropped.
         ctx.tensor = Some(tensor);
+        // Take the address of DLManagedTensor
         NonNull::from(ctx.tensor.as_ref().unwrap())
     }
 
