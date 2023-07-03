@@ -1,6 +1,6 @@
 use std::ptr::NonNull;
 
-use crate::ffi::{self, DLManagedTensor, DataType, Device};
+use crate::ffi::{self, DataType, Device};
 
 use crate::manager_ctx::CowIntArray;
 
@@ -55,10 +55,10 @@ pub trait ToTensor {
 }
 
 pub trait ToDLPack {
-    fn to_dlpack(self) -> NonNull<DLManagedTensor>;
+    fn to_dlpack(self) -> NonNull<ffi::DLManagedTensor>;
 }
 
 pub trait FromDLPack {
     // TODO: DLManagedTensor will be deprecated in th future.
-    fn from_dlpack(dlpack: NonNull<DLManagedTensor>) -> Self;
+    fn from_dlpack(dlpack: NonNull<ffi::DLManagedTensor>) -> Self;
 }
