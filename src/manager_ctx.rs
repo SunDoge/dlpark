@@ -54,7 +54,7 @@ impl CowIntArray {
     }
 
     pub fn num_elements(&self) -> usize {
-        self.as_slice().iter().fold(1, |acc, x| acc * (*x as usize))
+        self.as_slice().iter().product::<i64>() as usize
     }
 }
 
