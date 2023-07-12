@@ -56,6 +56,11 @@ impl DataType {
         bits: 64,
         lanes: 1,
     };
+    pub const U128: Self = Self {
+        code: DataTypeCode::UInt,
+        bits: 128,
+        lanes: 1,
+    };
 
     // Int
     pub const I8: Self = Self {
@@ -76,6 +81,11 @@ impl DataType {
     pub const I64: Self = Self {
         code: DataTypeCode::Int,
         bits: 64,
+        lanes: 1,
+    };
+    pub const I128: Self = Self {
+        code: DataTypeCode::Int,
+        bits: 128,
         lanes: 1,
     };
 

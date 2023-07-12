@@ -4,8 +4,10 @@ use crate::ffi::{self, DataType, Device};
 
 use crate::manager_ctx::CowIntArray;
 
-// User should define their own InferDtype trait.
-pub(crate) trait InferDtype {
+use super::calculate_contiguous_strides;
+
+/// Infer DataType from generic parameter.
+pub trait InferDtype {
     fn infer_dtype() -> DataType;
 }
 
@@ -42,22 +44,40 @@ pub trait TensorView {
     fn data_size(&self) -> usize {
         self.num_elements() * self.dtype().size()
     }
+
+    /// Return true if tensor is contiguous in memory in the order specified by memory format.
+    fn is_contiguous(&self) -> bool {
+        match self.strides() {
+            Some(strides) => strides == calculate_contiguous_strides(self.shape()),
+            None => true,
+        }
+    }
 }
 
 /// User should implement this trait for their tensor.
 pub trait ToTensor {
     fn data_ptr(&self) -> *mut std::ffi::c_void;
     fn shape(&self) -> CowIntArray;
+    /// If return None, tensor must be contiguous.
+    /// Or you can calculate contiguous strides by
+    /// [`self.calcualte_contiguous_strides()`](ToTensor::calculate_contiguous_strides)
     fn strides(&self) -> Option<CowIntArray>;
     fn device(&self) -> Device;
     fn dtype(&self) -> DataType;
     fn byte_offset(&self) -> u64;
+
+    fn calculate_contiguous_strides(&self) -> CowIntArray {
+        let strides = calculate_contiguous_strides(self.shape().as_slice());
+        CowIntArray::from_owned(strides)
+    }
 }
 
+// TODO: we should add `try_to_dlpack` fn
 pub trait ToDLPack {
     fn to_dlpack(self) -> NonNull<ffi::DLManagedTensor>;
 }
 
+// TODO: we should add `try_from_dlpack` fn
 pub trait FromDLPack {
     // TODO: DLManagedTensor will be deprecated in th future.
     fn from_dlpack(dlpack: NonNull<ffi::DLManagedTensor>) -> Self;

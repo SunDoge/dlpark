@@ -1,3 +1,9 @@
+"""
+Call from root workspace:
+python examples/with_pyo3/main.py
+"""
+
+
 import sys
 import os
 

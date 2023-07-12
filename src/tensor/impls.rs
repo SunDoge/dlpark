@@ -49,11 +49,13 @@ impl_for_rust_type!(u8, DataType::U8);
 impl_for_rust_type!(u16, DataType::U16);
 impl_for_rust_type!(u32, DataType::U32);
 impl_for_rust_type!(u64, DataType::U64);
+impl_for_rust_type!(u128, DataType::U128);
 
 impl_for_rust_type!(i8, DataType::I8);
 impl_for_rust_type!(i16, DataType::I16);
 impl_for_rust_type!(i32, DataType::I32);
 impl_for_rust_type!(i64, DataType::I64);
+impl_for_rust_type!(i128, DataType::I128);
 
 impl_for_rust_type!(bool, DataType::BOOL);
 

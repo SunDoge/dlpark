@@ -100,6 +100,15 @@ impl ToDLPack for ManagedTensor {
     }
 }
 
+pub fn calculate_contiguous_strides(shape: &[i64]) -> Vec<i64> {
+    let rank = shape.len();
+    let mut strides = vec![1; rank];
+    for i in (0..rank - 1).rev() {
+        strides[i] = strides[i + 1] * shape[i + 1];
+    }
+    strides
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -126,5 +135,12 @@ mod tests {
         let t2 = ManagedTensor::from_dlpack(v.clone().to_dlpack());
         assert_eq!(t1.data_ptr(), t2.data_ptr());
         assert_eq!(v.data_ptr(), t1.data_ptr());
+    }
+
+    #[test]
+    fn contiguous_strides() {
+        let shape = [1, 2, 3];
+        let strides = calculate_contiguous_strides(&shape);
+        assert_eq!(&strides, &[6, 3, 1]);
     }
 }
