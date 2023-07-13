@@ -26,37 +26,35 @@ use dlpark::prelude::*;
 
 struct PyRgbImage(image::RgbImage);
 
-impl HasData for PyRgbImage {
-    fn data(&self) -> *mut std::ffi::c_void {
+impl ToTensor for PyRgbImage {
+    fn data_ptr(&self) -> *mut std::ffi::c_void {
         self.0.as_ptr() as *const c_void as *mut c_void
     }
-}
 
-impl HasDevice for PyRgbImage {
-    fn device(&self) -> Device {
-        Device::CPU
+    fn byte_offset(&self) -> u64 {
+        0
     }
-}
 
-impl HasDtype for PyRgbImage {
-    fn dtype(&self) -> DataType {
-        DataType::U8
-    }
-}
-
-impl HasShape for PyRgbImage {
-    fn shape(&self) -> Shape {
-        Shape::Owned(
+    fn shape(&self) -> CowIntArray {
+        CowIntArray::from_owned(
             [self.0.height(), self.0.width(), 3]
                 .map(|x| x as i64)
                 .to_vec(),
         )
     }
-}
 
-// Strides can be infered from Shape since it's compact and row-majored.
-impl HasStrides for PyRgbImage {}
-impl HasByteOffset for PyRgbImage {}
+    fn device(&self) -> Device {
+        Device::CPU
+    }
+
+    fn dtype(&self) -> DataType {
+        DataType::U8
+    }
+
+    fn strides(&self) -> Option<CowIntArray> {
+        None
+    }
+}
 ```
 
 Then we can return a `ManagerCtx<PyRgbImage>`
@@ -66,7 +64,7 @@ Then we can return a `ManagerCtx<PyRgbImage>`
 fn read_image(filename: &str) -> ManagerCtx<PyRgbImage> {
     let img = image::open(filename).unwrap();
     let rgb_img = img.to_rgb8();
-    PyRgbImage(rgb_img).into()
+    ManagerCtx::new(PyRgbImage(rgb_img))
 }
 ```
 

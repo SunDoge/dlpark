@@ -30,11 +30,16 @@ impl ManagedTensor {
         Self(src)
     }
 
+    /// Access inner data as 1d array.
     pub fn as_slice<A>(&self) -> &[A] {
-        unsafe { std::slice::from_raw_parts(self.data_ptr().cast(), self.num_elements()) }
+        unsafe {
+            let ptr = self.data_ptr().add(self.byte_offset() as usize);
+            std::slice::from_raw_parts(ptr.cast(), self.num_elements())
+        }
     }
 
     /// Get raw pointer.
+    /// Please note that consume raw pointer multiple times may lead to double free error.
     pub fn as_ptr(&self) -> *mut ffi::DLManagedTensor {
         self.0.as_ptr()
     }
