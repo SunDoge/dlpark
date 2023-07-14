@@ -6,6 +6,8 @@ use crate::manager_ctx::CowIntArray;
 
 use super::calculate_contiguous_strides;
 
+pub type DLPack = NonNull<ffi::DLManagedTensor>;
+
 /// Infer DataType from generic parameter.
 pub trait InferDtype {
     fn infer_dtype() -> DataType;
@@ -74,11 +76,11 @@ pub trait ToTensor {
 
 // TODO: we should add `try_to_dlpack` fn
 pub trait ToDLPack {
-    fn to_dlpack(self) -> NonNull<ffi::DLManagedTensor>;
+    fn to_dlpack(self) -> DLPack;
 }
 
 // TODO: we should add `try_from_dlpack` fn
 pub trait FromDLPack {
     // TODO: DLManagedTensor will be deprecated in th future.
-    fn from_dlpack(dlpack: NonNull<ffi::DLManagedTensor>) -> Self;
+    fn from_dlpack(dlpack: DLPack) -> Self;
 }
