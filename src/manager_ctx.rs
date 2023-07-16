@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 use std::ptr::NonNull;
 
-use crate::tensor::traits::{TensorView, ToDLPack};
+use crate::tensor::traits::{IntoDLPack, TensorView};
 use crate::{ffi, prelude::ToTensor};
 
 unsafe extern "C" fn deleter_fn<T>(dl_managed_tensor: *mut ffi::DLManagedTensor) {
@@ -53,12 +53,14 @@ impl CowIntArray {
         unsafe { std::slice::from_raw_parts(self.as_ptr(), self.len()) }
     }
 
+    /// Calculate number of elements in Tensor.
     pub fn num_elements(&self) -> usize {
         self.as_slice().iter().product::<i64>() as usize
     }
 }
 
 // TODO: should be ManagerCtx<T, M> where M is one of DLManagedTensor and DLManagedTensorVersioned
+/// The ManagerCtx holds the Tensor and its metadata.
 pub struct ManagerCtx<T> {
     inner: T,
     shape: CowIntArray,
@@ -83,7 +85,7 @@ where
         }
     }
 
-    pub fn into_dl_managed_tensor(self) -> NonNull<ffi::DLManagedTensor> {
+    pub(crate) fn into_dl_managed_tensor(self) -> NonNull<ffi::DLManagedTensor> {
         // Move self to heap and get it's pointer.
         // We leak the data here and let deleter handle its memmory.
         let ctx = Box::leak(Box::new(self));
@@ -160,11 +162,11 @@ where
 
 // It's hard and unsafe to recover T from dlpack ptr.
 // ManagerCtx should only be a DLManagedTensor builder.
-impl<T> ToDLPack for ManagerCtx<T>
+impl<T> IntoDLPack for ManagerCtx<T>
 where
     T: ToTensor,
 {
-    fn to_dlpack(self) -> NonNull<ffi::DLManagedTensor> {
+    fn into_dlpack(self) -> NonNull<ffi::DLManagedTensor> {
         self.into_dl_managed_tensor()
     }
 }

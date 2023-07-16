@@ -5,10 +5,10 @@ use std::ptr::NonNull;
 
 use crate::ffi;
 
-use self::traits::{FromDLPack, TensorView, ToDLPack, ToTensor};
+use self::traits::{FromDLPack, IntoDLPack, TensorView, ToTensor};
 use crate::manager_ctx::ManagerCtx;
 
-/// Safe wrapper for DLManagedTensor
+/// Safe wrapper for DLManagedTensor.
 /// Will call deleter when dropped.
 #[derive(Debug, Clone)]
 #[repr(transparent)]
@@ -49,7 +49,7 @@ impl ManagedTensor {
         self.0
     }
 
-    pub fn dl_tensor(&self) -> &ffi::DLTensor {
+    pub(crate) fn dl_tensor(&self) -> &ffi::DLTensor {
         unsafe { &self.0.as_ref().dl_tensor }
     }
 }
@@ -89,7 +89,7 @@ where
     T: ToTensor,
 {
     fn from(value: ManagerCtx<T>) -> Self {
-        Self(value.to_dlpack())
+        Self(value.into_dlpack())
     }
 }
 
@@ -99,8 +99,8 @@ impl FromDLPack for ManagedTensor {
     }
 }
 
-impl ToDLPack for ManagedTensor {
-    fn to_dlpack(self) -> NonNull<ffi::DLManagedTensor> {
+impl IntoDLPack for ManagedTensor {
+    fn into_dlpack(self) -> NonNull<ffi::DLManagedTensor> {
         self.0
     }
 }
@@ -124,7 +124,7 @@ mod tests {
     #[test]
     fn from_vec_f32() {
         let v: Vec<f32> = (0..10).map(|x| x as f32).collect();
-        let tensor = ManagedTensor::from_dlpack(v.to_dlpack());
+        let tensor = ManagedTensor::from_dlpack(v.into_dlpack());
         assert_eq!(tensor.shape(), &[10]);
         assert_eq!(tensor.ndim(), 1);
         assert_eq!(tensor.device(), Device::CPU);
@@ -136,8 +136,8 @@ mod tests {
     #[test]
     fn from_arc_slice_f32() {
         let v: Arc<[f32]> = (0..10).map(|x| x as f32).collect::<Vec<_>>().into();
-        let t1 = ManagedTensor::from_dlpack(v.clone().to_dlpack());
-        let t2 = ManagedTensor::from_dlpack(v.clone().to_dlpack());
+        let t1 = ManagedTensor::from_dlpack(v.clone().into_dlpack());
+        let t2 = ManagedTensor::from_dlpack(v.clone().into_dlpack());
         assert_eq!(t1.data_ptr(), t2.data_ptr());
         assert_eq!(v.data_ptr(), t1.data_ptr());
     }

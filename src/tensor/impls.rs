@@ -1,6 +1,6 @@
 use super::{
     ffi,
-    traits::{InferDtype, ToDLPack, ToTensor},
+    traits::{InferDtype, IntoDLPack, ToTensor},
 };
 use crate::ffi::{DataType, Device};
 use crate::manager_ctx::{CowIntArray, ManagerCtx};
@@ -151,11 +151,11 @@ where
     }
 }
 
-impl<T> ToDLPack for T
+impl<T> IntoDLPack for T
 where
     T: ToTensor,
 {
-    fn to_dlpack(self) -> NonNull<ffi::DLManagedTensor> {
+    fn into_dlpack(self) -> NonNull<ffi::DLManagedTensor> {
         let ctx = ManagerCtx::new(self);
         ctx.into_dl_managed_tensor()
     }

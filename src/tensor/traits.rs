@@ -1,11 +1,11 @@
 use std::ptr::NonNull;
 
+use super::calculate_contiguous_strides;
 use crate::ffi::{self, DataType, Device};
-
 use crate::manager_ctx::CowIntArray;
 
-use super::calculate_contiguous_strides;
-
+/// DLPack is a data structure that can be used to describe tensor data.
+/// It's a pointer to a DLManagedTensor.
 pub type DLPack = NonNull<ffi::DLManagedTensor>;
 
 /// Infer DataType from generic parameter.
@@ -18,7 +18,7 @@ pub trait TensorView {
     fn data_ptr(&self) -> *mut std::ffi::c_void;
     /// Get shape as slice.
     fn shape(&self) -> &[i64];
-    /// Get strides as slice, can have no strides.
+    /// Get strides as slice. If strides is None, Tensor is assumed to be contiguous.
     fn strides(&self) -> Option<&[i64]>;
     fn ndim(&self) -> usize;
     fn device(&self) -> Device;
@@ -50,9 +50,14 @@ pub trait TensorView {
     /// Return true if tensor is contiguous in memory in the order specified by memory format.
     fn is_contiguous(&self) -> bool {
         match self.strides() {
-            Some(strides) => strides == calculate_contiguous_strides(self.shape()),
+            Some(strides) => strides == self.calculate_contiguous_strides(),
             None => true,
         }
+    }
+
+    /// Calculate contiguous strides based on shape.
+    fn calculate_contiguous_strides(&self) -> Vec<i64> {
+        calculate_contiguous_strides(self.shape())
     }
 }
 
@@ -75,8 +80,9 @@ pub trait ToTensor {
 }
 
 // TODO: we should add `try_to_dlpack` fn
-pub trait ToDLPack {
-    fn to_dlpack(self) -> DLPack;
+// We may have to define error type for this.
+pub trait IntoDLPack {
+    fn into_dlpack(self) -> DLPack;
 }
 
 // TODO: we should add `try_from_dlpack` fn

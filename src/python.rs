@@ -3,7 +3,7 @@ use std::ptr::NonNull;
 use crate::{
     ffi,
     manager_ctx::ManagerCtx,
-    tensor::traits::{ToDLPack, ToTensor},
+    tensor::traits::{IntoDLPack, ToTensor},
     tensor::ManagedTensor,
 };
 use pyo3::{
@@ -74,7 +74,7 @@ where
     T: ToTensor,
 {
     fn into_ptr(self) -> *mut pyo3::ffi::PyObject {
-        let dlpack = self.to_dlpack();
+        let dlpack = self.into_dlpack();
         dlpack_to_py_capsule(dlpack)
     }
 }
@@ -110,7 +110,7 @@ impl<'source> FromPyObject<'source> for ManagedTensor {
 
 impl IntoPyPointer for ManagedTensor {
     fn into_ptr(self) -> *mut pyo3::ffi::PyObject {
-        let dlpack = self.to_dlpack();
+        let dlpack = self.into_dlpack();
         dlpack_to_py_capsule(dlpack)
     }
 }
