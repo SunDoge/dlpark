@@ -13,6 +13,7 @@ pub trait InferDtype {
     fn infer_dtype() -> DataType;
 }
 
+/// Access Tensor data.
 pub trait TensorView {
     /// Get untyped data ptr
     fn data_ptr(&self) -> *mut std::ffi::c_void;
@@ -81,11 +82,13 @@ pub trait ToTensor {
 
 // TODO: we should add `try_to_dlpack` fn
 // We may have to define error type for this.
+/// Convert into [`DLPack`](crate::DLPack)
 pub trait IntoDLPack {
     fn into_dlpack(self) -> DLPack;
 }
 
 // TODO: we should add `try_from_dlpack` fn
+/// Make Tensor from [`DLPack`](crate::DLPack)
 pub trait FromDLPack {
     // TODO: DLManagedTensor will be deprecated in th future.
     fn from_dlpack(dlpack: DLPack) -> Self;

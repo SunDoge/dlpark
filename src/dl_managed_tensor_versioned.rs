@@ -1,6 +1,6 @@
 use crate::{
     ffi::{self},
-    prelude::TensorView,
+    tensor::traits::TensorView,
 };
 
 // TODO: DLManagedTensor may be deprecated in the future.
