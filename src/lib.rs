@@ -12,3 +12,7 @@ pub mod ffi;
 pub mod manager_ctx;
 pub mod prelude;
 pub mod tensor;
+
+pub use manager_ctx::{CowIntArray, ManagerCtx};
+pub use tensor::traits::{DLPack, FromDLPack, InferDtype, IntoDLPack, TensorView, ToTensor};
+pub use tensor::ManagedTensor;
