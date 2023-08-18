@@ -32,11 +32,11 @@ macro_rules! impl_for_rust_type {
             }
 
             fn shape(&self) -> CowIntArray {
-                CowIntArray::from_owned(vec![])
+                CowIntArray::from_owned(Box::new([]))
             }
 
             fn strides(&self) -> Option<CowIntArray> {
-                Some(CowIntArray::from_owned(vec![]))
+                Some(CowIntArray::from_owned(Box::new([])))
             }
         }
     };
@@ -85,11 +85,11 @@ where
     }
 
     fn shape(&self) -> CowIntArray {
-        CowIntArray::from_owned(vec![self.len() as i64])
+        CowIntArray::from_owned(Box::new([self.len() as i64]))
     }
 
     fn strides(&self) -> Option<CowIntArray> {
-        Some(CowIntArray::from_owned(vec![1]))
+        Some(CowIntArray::from_owned(Box::new([1])))
     }
 }
 
@@ -114,11 +114,11 @@ where
     }
 
     fn shape(&self) -> CowIntArray {
-        CowIntArray::from_owned(vec![self.len() as i64])
+        CowIntArray::from_owned(Box::new([self.len() as i64]))
     }
 
     fn strides(&self) -> Option<CowIntArray> {
-        Some(CowIntArray::from_owned(vec![1]))
+        Some(CowIntArray::from_owned(Box::new([1])))
     }
 }
 
@@ -143,11 +143,11 @@ where
     }
 
     fn shape(&self) -> CowIntArray {
-        CowIntArray::from_owned(vec![self.len() as i64])
+        CowIntArray::from_owned(Box::new([self.len() as i64]))
     }
 
     fn strides(&self) -> Option<CowIntArray> {
-        Some(CowIntArray::from_owned(vec![1]))
+        Some(CowIntArray::from_owned(Box::new([1])))
     }
 }
 

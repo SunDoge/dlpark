@@ -1,4 +1,3 @@
-use std::borrow::Cow;
 use std::ptr::NonNull;
 
 use crate::tensor::traits::{IntoDLPack, TensorView};
@@ -16,28 +15,31 @@ unsafe extern "C" fn deleter_fn<T>(dl_managed_tensor: *mut ffi::DLManagedTensor)
 /// The lifetime should be 'static since we don't managed its memory.
 /// Otherwise, we should copy the data and convert its type to i64 and managed it ourselves.
 #[derive(Debug)]
-pub struct CowIntArray(Cow<'static, [i64]>);
+pub enum CowIntArray {
+    Owned(Box<[i64]>),
+    Borrowed(&'static [i64]),
+}
 
 impl CowIntArray {
-    pub fn from_owned(v: Vec<i64>) -> Self {
-        Self(Cow::Owned(v))
+    pub fn from_owned(v: Box<[i64]>) -> Self {
+        Self::Owned(v)
     }
 
     pub fn from_borrowed(v: &'static [i64]) -> Self {
-        Self(Cow::Borrowed(v))
+        Self::Borrowed(v)
     }
 
     pub fn as_ptr(&self) -> *mut i64 {
-        match self.0 {
-            Cow::Borrowed(v) => v.as_ptr() as *mut i64,
-            Cow::Owned(ref v) => v.as_ptr() as *mut i64,
+        match self {
+            Self::Borrowed(v) => v.as_ptr() as *mut i64,
+            Self::Owned(ref v) => v.as_ptr() as *mut i64,
         }
     }
 
     fn len(&self) -> usize {
-        match self.0 {
-            Cow::Borrowed(v) => v.len(),
-            Cow::Owned(ref v) => v.len(),
+        match self {
+            Self::Borrowed(v) => v.len(),
+            Self::Owned(ref v) => v.len(),
         }
     }
 
