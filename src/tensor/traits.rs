@@ -76,7 +76,7 @@ pub trait ToTensor {
 
     fn calculate_contiguous_strides(&self) -> CowIntArray {
         let strides = calculate_contiguous_strides(self.shape().as_slice());
-        CowIntArray::from_owned(strides)
+        CowIntArray::from_owned(strides.into_boxed_slice())
     }
 }
 
