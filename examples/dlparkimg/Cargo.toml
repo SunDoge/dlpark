@@ -12,6 +12,3 @@ crate-type = ["cdylib"]
 pyo3 = "0.19.0"
 dlpark = { path = "../../", features = ["pyo3"] }
 image = "0.24.7"
-
-[profile.dev.package."image"]
-opt-level = 3

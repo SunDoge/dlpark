@@ -24,3 +24,7 @@ default = []
 
 pyo3 = ["dep:pyo3"]
 half = ["dep:half"] # support f16 and bf16
+
+# for examples/dlparkimg
+[profile.dev.package."image"]
+opt-level = 3
