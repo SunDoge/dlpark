@@ -16,7 +16,7 @@ It can also be used without `pyo3` as a Rust library with `default-features = fa
 
 We provide a simple example of how to transfer `image::RgbImage` to Python and `torch.Tensor` to Rust.
 
-[Full code is here](https://github.com/SunDoge/dlparkimg).
+[Full code is here](./examples/dlparkimg/).
 
 ### Rust $\rightarrow$ Python
 
