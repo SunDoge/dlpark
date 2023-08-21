@@ -3,7 +3,8 @@ use super::{
     traits::{InferDtype, IntoDLPack, ToTensor},
 };
 use crate::ffi::{DataType, Device};
-use crate::manager_ctx::{CowIntArray, ManagerCtx};
+use crate::manager_ctx::ManagerCtx;
+use crate::ShapeAndStrides;
 use std::{ptr::NonNull, sync::Arc};
 
 macro_rules! impl_for_rust_type {
@@ -31,12 +32,8 @@ macro_rules! impl_for_rust_type {
                 $dtype
             }
 
-            fn shape(&self) -> CowIntArray {
-                CowIntArray::from_owned(Box::new([]))
-            }
-
-            fn strides(&self) -> Option<CowIntArray> {
-                Some(CowIntArray::from_owned(Box::new([])))
+            fn shape_and_strides(&self) -> ShapeAndStrides {
+                ShapeAndStrides::new_contiguous(&[])
             }
         }
     };
@@ -84,12 +81,8 @@ where
         T::infer_dtype()
     }
 
-    fn shape(&self) -> CowIntArray {
-        CowIntArray::from_owned(Box::new([self.len() as i64]))
-    }
-
-    fn strides(&self) -> Option<CowIntArray> {
-        Some(CowIntArray::from_owned(Box::new([1])))
+    fn shape_and_strides(&self) -> ShapeAndStrides {
+        ShapeAndStrides::new_with_strides(&[self.len() as i64], &[1])
     }
 }
 
@@ -113,12 +106,8 @@ where
         T::infer_dtype()
     }
 
-    fn shape(&self) -> CowIntArray {
-        CowIntArray::from_owned(Box::new([self.len() as i64]))
-    }
-
-    fn strides(&self) -> Option<CowIntArray> {
-        Some(CowIntArray::from_owned(Box::new([1])))
+    fn shape_and_strides(&self) -> ShapeAndStrides {
+        ShapeAndStrides::new_with_strides(&[self.len() as i64], &[1])
     }
 }
 
@@ -142,12 +131,8 @@ where
         T::infer_dtype()
     }
 
-    fn shape(&self) -> CowIntArray {
-        CowIntArray::from_owned(Box::new([self.len() as i64]))
-    }
-
-    fn strides(&self) -> Option<CowIntArray> {
-        Some(CowIntArray::from_owned(Box::new([1])))
+    fn shape_and_strides(&self) -> ShapeAndStrides {
+        ShapeAndStrides::new_with_strides(&[self.len() as i64], &[1])
     }
 }
 

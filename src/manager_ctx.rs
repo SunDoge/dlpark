@@ -1,6 +1,7 @@
 use std::ptr::NonNull;
 
 use crate::tensor::traits::{IntoDLPack, TensorView};
+use crate::ShapeAndStrides;
 use crate::{ffi, prelude::ToTensor};
 
 unsafe extern "C" fn deleter_fn<T>(dl_managed_tensor: *mut ffi::DLManagedTensor) {
@@ -11,62 +12,11 @@ unsafe extern "C" fn deleter_fn<T>(dl_managed_tensor: *mut ffi::DLManagedTensor)
     unsafe { Box::from_raw(ctx) };
 }
 
-/// If the shape or strides of Tensor is vec of i64, then it should be borrowed to avoid copy.
-/// The lifetime should be 'static since we don't managed its memory.
-/// Otherwise, we should copy the data and convert its type to i64 and managed it ourselves.
-#[derive(Debug)]
-pub enum CowIntArray {
-    Owned(Box<[i64]>),
-    Borrowed(&'static [i64]),
-}
-
-impl CowIntArray {
-    pub fn from_owned(v: Box<[i64]>) -> Self {
-        Self::Owned(v)
-    }
-
-    pub fn from_borrowed(v: &'static [i64]) -> Self {
-        Self::Borrowed(v)
-    }
-
-    pub fn as_ptr(&self) -> *mut i64 {
-        match self {
-            Self::Borrowed(v) => v.as_ptr() as *mut i64,
-            Self::Owned(ref v) => v.as_ptr() as *mut i64,
-        }
-    }
-
-    fn len(&self) -> usize {
-        match self {
-            Self::Borrowed(v) => v.len(),
-            Self::Owned(ref v) => v.len(),
-        }
-    }
-
-    pub fn ndim(&self) -> i32 {
-        self.len() as i32
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
-    pub fn as_slice(&self) -> &[i64] {
-        unsafe { std::slice::from_raw_parts(self.as_ptr(), self.len()) }
-    }
-
-    /// Calculate number of elements in Tensor.
-    pub fn num_elements(&self) -> usize {
-        self.as_slice().iter().product::<i64>() as usize
-    }
-}
-
 // TODO: should be ManagerCtx<T, M> where M is one of DLManagedTensor and DLManagedTensorVersioned
 /// The ManagerCtx holds the Tensor and its metadata.
 pub struct ManagerCtx<T> {
     inner: T,
-    shape: CowIntArray,
-    strides: Option<CowIntArray>,
+    shape_and_strides: ShapeAndStrides,
     // The ctx should hold DLManagedTensor, so that the tensor can be freed.
     tensor: Option<ffi::DLManagedTensor>,
 }
@@ -76,13 +26,10 @@ where
     T: ToTensor,
 {
     pub fn new(inner: T) -> Self {
-        let shape: CowIntArray = inner.shape();
-        let strides = inner.strides();
-
+        let shape_and_strides = inner.shape_and_strides();
         Self {
             inner,
-            shape,
-            strides,
+            shape_and_strides,
             tensor: None,
         }
     }
@@ -106,13 +53,10 @@ where
         ffi::DLTensor {
             data: self.inner.data_ptr(),
             device: self.inner.device(),
-            ndim: self.shape.ndim(),
+            ndim: self.shape_and_strides.ndim(),
             dtype: self.inner.dtype(),
-            shape: self.shape.as_ptr(),
-            strides: match self.strides.as_ref() {
-                Some(s) => s.as_ptr(),
-                None => std::ptr::null_mut(),
-            },
+            shape: self.shape_and_strides.shape_ptr(),
+            strides: self.shape_and_strides.strides_ptr(),
             byte_offset: self.inner.byte_offset(),
         }
     }
@@ -146,15 +90,15 @@ where
     }
 
     fn shape(&self) -> &[i64] {
-        self.shape.as_slice()
+        self.shape_and_strides.shape()
     }
 
     fn strides(&self) -> Option<&[i64]> {
-        self.strides.as_ref().map(|s| s.as_slice())
+        self.shape_and_strides.strides()
     }
 
     fn ndim(&self) -> usize {
-        self.shape.ndim() as usize
+        self.shape_and_strides.len()
     }
 
     fn dtype(&self) -> ffi::DataType {
