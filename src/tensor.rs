@@ -105,21 +105,13 @@ impl IntoDLPack for ManagedTensor {
     }
 }
 
-pub fn calculate_contiguous_strides(shape: &[i64]) -> Vec<i64> {
-    let rank = shape.len();
-    let mut strides = vec![1; rank];
-    for i in (0..rank - 1).rev() {
-        strides[i] = strides[i + 1] * shape[i + 1];
-    }
-    strides
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
 
     use super::*;
     use crate::prelude::*;
+    use crate::utils::make_contiguous_strides;
 
     #[test]
     fn from_vec_f32() {
@@ -128,9 +120,9 @@ mod tests {
         assert_eq!(tensor.shape(), &[10]);
         assert_eq!(tensor.ndim(), 1);
         assert_eq!(tensor.device(), Device::CPU);
-        // assert_eq!(tensor.strides(), None);
         assert_eq!(tensor.byte_offset(), 0);
         assert_eq!(tensor.dtype(), DataType::F32);
+        assert!(tensor.is_contiguous());
     }
 
     #[test]
@@ -145,7 +137,7 @@ mod tests {
     #[test]
     fn contiguous_strides() {
         let shape = [1, 2, 3];
-        let strides = calculate_contiguous_strides(&shape);
+        let strides = make_contiguous_strides(&shape);
         assert_eq!(&strides, &[6, 3, 1]);
     }
 }
