@@ -59,7 +59,7 @@ impl ShapeAndStrides {
     }
 
     pub fn new_borrowed(shape: &[i64], strides: Option<&[i64]>) -> Self {
-        if let Some(ref strides) = strides {
+        if let Some(strides) = strides {
             assert_eq!(
                 shape.len(),
                 strides.len(),
