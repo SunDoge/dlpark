@@ -31,7 +31,11 @@ impl ShapeAndStrides {
     {
         let shape: Vec<&i64> = shape.into_iter().collect();
         let strides: Vec<&i64> = strides.into_iter().collect();
-        assert_eq!(shape.len(), strides.len());
+        assert_eq!(
+            shape.len(),
+            strides.len(),
+            "shape and strides should have same length"
+        );
         let mut buf: Vec<i64> = Vec::with_capacity(shape.len() + strides.len());
         buf.extend(shape);
         buf.extend(strides);
@@ -56,7 +60,11 @@ impl ShapeAndStrides {
 
     pub fn new_borrowed(shape: &[i64], strides: Option<&[i64]>) -> Self {
         if let Some(ref strides) = strides {
-            assert_eq!(shape.len(), strides.len());
+            assert_eq!(
+                shape.len(),
+                strides.len(),
+                "shape and strides should have same length"
+            );
         }
         let len = shape.len();
         let shape = NonNull::from(&shape[0]);

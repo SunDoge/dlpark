@@ -17,7 +17,7 @@ half = { version = "2.3", optional = true }
 pyo3 = { version = "0.19", optional = true }
 
 [workspace]
-members = ["examples/from_numpy", "examples/with_pyo3"]
+members = ["examples/from_numpy", "examples/with_pyo3", "examples/dlparkimg"]
 
 [features]
 default = []

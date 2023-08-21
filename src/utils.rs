@@ -8,7 +8,11 @@ pub fn make_contiguous_strides(shape: &[i64]) -> Vec<i64> {
 }
 
 pub fn is_contiguous(shape: &[i64], strides: &[i64]) -> bool {
-    assert_eq!(shape.len(), strides.len());
+    assert_eq!(
+        shape.len(),
+        strides.len(),
+        "shape and strides should have same length"
+    );
     let mut expected_stride = 1;
     for (&dim, &stride) in shape.iter().rev().zip(strides.iter().rev()) {
         if stride != expected_stride {

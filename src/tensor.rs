@@ -32,6 +32,11 @@ impl ManagedTensor {
 
     /// Access inner data as 1d array.
     pub fn as_slice<A>(&self) -> &[A] {
+        assert_eq!(
+            std::mem::size_of::<A>(),
+            self.dtype().size(),
+            "dtype and A size mismatch"
+        );
         unsafe {
             let ptr = self.data_ptr().add(self.byte_offset() as usize);
             std::slice::from_raw_parts(ptr.cast(), self.num_elements())
@@ -139,5 +144,12 @@ mod tests {
         let shape = [1, 2, 3];
         let strides = make_contiguous_strides(&shape);
         assert_eq!(&strides, &[6, 3, 1]);
+    }
+
+    #[test]
+    fn test_as_slice() {
+        let v: Vec<f32> = (0..10).map(|x| x as f32).collect();
+        let tensor = ManagedTensor::from_dlpack(v.clone().into_dlpack());
+        assert_eq!(tensor.as_slice::<f32>(), &v[..]);
     }
 }
