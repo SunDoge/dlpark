@@ -13,6 +13,7 @@ mod python;
 
 /// Raw bindings for DLPack.
 pub mod ffi;
+pub mod utils;
 
 /// Imports the structs and traits for you to implement [`IntoDLPack`] and [`FromDLPack`].
 pub mod prelude;

@@ -1,7 +1,7 @@
 use std::ptr::NonNull;
 
-use super::calculate_contiguous_strides;
 use crate::ffi::{self, DataType, Device};
+use crate::utils::is_contiguous;
 use crate::ShapeAndStrides;
 
 /// DLPack is a data structure that can be used to describe tensor data.
@@ -51,14 +51,9 @@ pub trait TensorView {
     /// Return true if tensor is contiguous in memory in the order specified by memory format.
     fn is_contiguous(&self) -> bool {
         match self.strides() {
-            Some(strides) => strides == self.calculate_contiguous_strides(),
+            Some(strides) => is_contiguous(self.shape(), strides),
             None => true,
         }
-    }
-
-    /// Calculate contiguous strides based on shape.
-    fn calculate_contiguous_strides(&self) -> Vec<i64> {
-        calculate_contiguous_strides(self.shape())
     }
 }
 
@@ -70,11 +65,6 @@ pub trait ToTensor {
     fn device(&self) -> Device;
     fn dtype(&self) -> DataType;
     fn byte_offset(&self) -> u64;
-
-    // fn calculate_contiguous_strides(&self) -> CowIntArray {
-    //     let strides = calculate_contiguous_strides(self.shape().as_slice());
-    //     CowIntArray::from_owned(strides.into_boxed_slice())
-    // }
 }
 
 // TODO: we should add `try_to_dlpack` fn
