@@ -37,13 +37,6 @@ impl ToTensor for PyRgbImage {
         0
     }
 
-    fn shape(&self) -> CowIntArray {
-        CowIntArray::from_owned(
-            [self.0.height(), self.0.width(), 3]
-                .map(|x| x as i64)
-                .to_vec(),
-        )
-    }
 
     fn device(&self) -> Device {
         Device::CPU
@@ -53,8 +46,10 @@ impl ToTensor for PyRgbImage {
         DataType::U8
     }
 
-    fn strides(&self) -> Option<CowIntArray> {
-        None
+    fn shape_and_strides(&self) -> ShapeAndStrides {
+        ShapeAndStrides::new_contiguous_with_strides(
+            &[self.0.height(), self.0.width(), 3].map(|x| x as i64),
+        )
     }
 }
 ```

@@ -94,7 +94,7 @@ impl ShapeAndStrides {
         }
     }
 
-    pub fn shape_ptr(&self) -> *mut i64 {
+    pub(crate) fn shape_ptr(&self) -> *mut i64 {
         match self {
             Self::Contiguous(ref v) => v.as_ptr() as *mut i64,
             Self::WithStrides(ref v) => v.as_ptr() as *mut i64,
@@ -113,7 +113,7 @@ impl ShapeAndStrides {
     }
 
     /// Return nullptr if strides is None.
-    pub fn strides_ptr(&self) -> *mut i64 {
+    pub(crate) fn strides_ptr(&self) -> *mut i64 {
         match self {
             Self::Contiguous(_) => std::ptr::null_mut(),
             Self::WithStrides(ref v) => &v[self.len()] as *const i64 as *mut i64,

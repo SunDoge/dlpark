@@ -62,8 +62,6 @@ where
     }
 }
 
-impl<T> ManagerCtx<T> where T: ToTensor {}
-
 impl<T> From<T> for ManagerCtx<T>
 where
     T: ToTensor,
