@@ -15,10 +15,15 @@ mod python;
 pub mod ffi;
 pub mod utils;
 
-/// Imports the structs and traits for you to implement [`IntoDLPack`] and [`FromDLPack`].
+/// Imports the structs and traits for you to implement [`IntoDLPack`] and
+/// [`FromDLPack`].
 pub mod prelude;
 
-pub use crate::manager_ctx::ManagerCtx;
-pub use crate::shape_and_strides::ShapeAndStrides;
-pub use crate::tensor::traits::{DLPack, FromDLPack, InferDtype, IntoDLPack, TensorView, ToTensor};
-pub use crate::tensor::ManagedTensor;
+pub use crate::{
+    manager_ctx::ManagerCtx,
+    shape_and_strides::ShapeAndStrides,
+    tensor::{
+        traits::{DLPack, FromDLPack, InferDtype, IntoDLPack, TensorView, ToTensor},
+        ManagedTensor,
+    },
+};

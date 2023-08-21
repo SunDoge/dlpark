@@ -1,5 +1,4 @@
-use crate::ffi;
-use crate::tensor::traits::TensorView;
+use crate::{ffi, tensor::traits::TensorView};
 
 impl TensorView for ffi::DLTensor {
     fn data_ptr(&self) -> *mut std::ffi::c_void {
@@ -29,6 +28,7 @@ impl TensorView for ffi::DLTensor {
     fn dtype(&self) -> ffi::DataType {
         self.dtype
     }
+
     fn byte_offset(&self) -> u64 {
         self.byte_offset
     }

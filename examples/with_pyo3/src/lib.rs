@@ -25,7 +25,12 @@ pub fn tensordict(py: Python<'_>) -> PyResult<&PyDict> {
 
 #[pyfunction]
 pub fn print_tensor(tensor: ManagedTensor) {
-    dbg!(tensor.shape(), tensor.strides(), tensor.dtype(), tensor.device());
+    dbg!(
+        tensor.shape(),
+        tensor.strides(),
+        tensor.dtype(),
+        tensor.device()
+    );
     assert!(tensor.dtype() == DataType::F32);
     dbg!(tensor.as_slice::<f32>());
 }

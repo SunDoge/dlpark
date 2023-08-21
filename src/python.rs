@@ -1,26 +1,31 @@
 use std::ptr::NonNull;
 
-use crate::{
-    ffi,
-    manager_ctx::ManagerCtx,
-    tensor::traits::{IntoDLPack, ToTensor},
-    tensor::ManagedTensor,
-};
 use pyo3::{
     ffi::{PyCapsule_GetPointer, PyCapsule_New, PyCapsule_SetName, PyErr_Occurred, PyErr_Restore},
     prelude::*,
     IntoPy, PyAny, PyResult, Python,
 };
 
-/// The producer must set the PyCapsule name to "dltensor" so that it can be inspected by name,
-/// and set PyCapsule_Destructor that calls the deleter of the ffi::DLManagedTensor
-/// when the "dltensor"-named capsule is no longer needed.
+use crate::{
+    ffi,
+    manager_ctx::ManagerCtx,
+    tensor::{
+        traits::{IntoDLPack, ToTensor},
+        ManagedTensor,
+    },
+};
+
+/// The producer must set the PyCapsule name to "dltensor" so that it can be
+/// inspected by name, and set PyCapsule_Destructor that calls the deleter of
+/// the ffi::DLManagedTensor when the "dltensor"-named capsule is no longer
+/// needed.
 const DLPACK_CAPSULE_NAME: &[u8] = b"dltensor\0";
 
 /// The consumer must transer ownership of the DLManangedTensor from the capsule
 /// to its own object. It does so by renaming the capsule to "used_dltensor"
 /// to ensure that PyCapsule_Destructor will not get called
-/// (ensured if PyCapsule_Destructor calls deleter only for capsules whose name is "dltensor")
+/// (ensured if PyCapsule_Destructor calls deleter only for capsules whose name
+/// is "dltensor")
 const DLPACK_CAPSULE_USED_NAME: &[u8] = b"used_dltensor\0";
 
 fn dlpack_to_py_capsule(dlpack: NonNull<ffi::DLManagedTensor>) -> *mut pyo3::ffi::PyObject {

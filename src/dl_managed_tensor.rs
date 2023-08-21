@@ -1,5 +1,4 @@
-use crate::ffi;
-use crate::tensor::traits::TensorView;
+use crate::{ffi, tensor::traits::TensorView};
 
 impl TensorView for ffi::DLManagedTensor {
     fn data_ptr(&self) -> *mut std::ffi::c_void {

@@ -2,9 +2,10 @@ use std::ptr::NonNull;
 
 use crate::utils::is_contiguous;
 
-/// If the shape or strides of Tensor is vec of i64, then it should be borrowed to avoid copy.
-/// The lifetime should be 'static since we don't managed its memory.
-/// Otherwise, we should copy the data and convert its type to i64 and managed it ourselves.
+/// If the shape or strides of Tensor is vec of i64, then it should be borrowed
+/// to avoid copy. The lifetime should be 'static since we don't managed its
+/// memory. Otherwise, we should copy the data and convert its type to i64 and
+/// managed it ourselves.
 #[derive(Debug)]
 pub enum ShapeAndStrides {
     Contiguous(Box<[i64]>),  // Shape only

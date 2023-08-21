@@ -18,6 +18,18 @@ impl Default for DataType {
 }
 
 impl DataType {
+    // Bfloat
+    pub const BF16: Self = Self {
+        code: DataTypeCode::Bfloat,
+        bits: 16,
+        lanes: 1,
+    };
+    // Bool
+    pub const BOOL: Self = Self {
+        code: DataTypeCode::Bool,
+        bits: 8,
+        lanes: 1,
+    };
     // Float
     pub const F16: Self = Self {
         code: DataTypeCode::Float,
@@ -34,38 +46,9 @@ impl DataType {
         bits: 64,
         lanes: 1,
     };
-
-    // Uint
-    pub const U8: Self = Self {
-        code: DataTypeCode::UInt,
-        bits: 8,
-        lanes: 1,
-    };
-    pub const U16: Self = Self {
-        code: DataTypeCode::UInt,
-        bits: 16,
-        lanes: 1,
-    };
-    pub const U32: Self = Self {
-        code: DataTypeCode::UInt,
-        bits: 32,
-        lanes: 1,
-    };
-    pub const U64: Self = Self {
-        code: DataTypeCode::UInt,
-        bits: 64,
-        lanes: 1,
-    };
-    pub const U128: Self = Self {
-        code: DataTypeCode::UInt,
-        bits: 128,
-        lanes: 1,
-    };
-
-    // Int
-    pub const I8: Self = Self {
+    pub const I128: Self = Self {
         code: DataTypeCode::Int,
-        bits: 8,
+        bits: 128,
         lanes: 1,
     };
     pub const I16: Self = Self {
@@ -83,23 +66,36 @@ impl DataType {
         bits: 64,
         lanes: 1,
     };
-    pub const I128: Self = Self {
+    // Int
+    pub const I8: Self = Self {
         code: DataTypeCode::Int,
-        bits: 128,
-        lanes: 1,
-    };
-
-    // Bool
-    pub const BOOL: Self = Self {
-        code: DataTypeCode::Bool,
         bits: 8,
         lanes: 1,
     };
-
-    // Bfloat
-    pub const BF16: Self = Self {
-        code: DataTypeCode::Bfloat,
+    pub const U128: Self = Self {
+        code: DataTypeCode::UInt,
+        bits: 128,
+        lanes: 1,
+    };
+    pub const U16: Self = Self {
+        code: DataTypeCode::UInt,
         bits: 16,
+        lanes: 1,
+    };
+    pub const U32: Self = Self {
+        code: DataTypeCode::UInt,
+        bits: 32,
+        lanes: 1,
+    };
+    pub const U64: Self = Self {
+        code: DataTypeCode::UInt,
+        bits: 64,
+        lanes: 1,
+    };
+    // Uint
+    pub const U8: Self = Self {
+        code: DataTypeCode::UInt,
+        bits: 8,
         lanes: 1,
     };
 

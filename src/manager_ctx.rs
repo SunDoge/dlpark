@@ -1,8 +1,11 @@
 use std::ptr::NonNull;
 
-use crate::tensor::traits::{IntoDLPack, TensorView};
-use crate::ShapeAndStrides;
-use crate::{ffi, prelude::ToTensor};
+use crate::{
+    ffi,
+    prelude::ToTensor,
+    tensor::traits::{IntoDLPack, TensorView},
+    ShapeAndStrides,
+};
 
 unsafe extern "C" fn deleter_fn<T>(dl_managed_tensor: *mut ffi::DLManagedTensor) {
     // Reconstruct pointer and destroy it.
@@ -12,7 +15,8 @@ unsafe extern "C" fn deleter_fn<T>(dl_managed_tensor: *mut ffi::DLManagedTensor)
     unsafe { Box::from_raw(ctx) };
 }
 
-// TODO: should be ManagerCtx<T, M> where M is one of DLManagedTensor and DLManagedTensorVersioned
+// TODO: should be ManagerCtx<T, M> where M is one of DLManagedTensor and
+// DLManagedTensorVersioned
 /// The ManagerCtx holds the Tensor and its metadata.
 pub struct ManagerCtx<T> {
     inner: T,

@@ -3,10 +3,8 @@ pub mod traits;
 
 use std::ptr::NonNull;
 
-use crate::ffi;
-
 use self::traits::{FromDLPack, IntoDLPack, TensorView, ToTensor};
-use crate::manager_ctx::ManagerCtx;
+use crate::{ffi, manager_ctx::ManagerCtx};
 
 /// Safe wrapper for DLManagedTensor.
 /// Will call deleter when dropped.
@@ -44,7 +42,8 @@ impl ManagedTensor {
     }
 
     /// Get raw pointer.
-    /// Please note that consume raw pointer multiple times may lead to double free error.
+    /// Please note that consume raw pointer multiple times may lead to double
+    /// free error.
     pub fn as_ptr(&self) -> *mut ffi::DLManagedTensor {
         self.0.as_ptr()
     }
@@ -115,8 +114,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::prelude::*;
-    use crate::utils::make_contiguous_strides;
+    use crate::{prelude::*, utils::make_contiguous_strides};
 
     #[test]
     fn from_vec_f32() {

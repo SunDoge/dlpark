@@ -1,8 +1,10 @@
 use std::ptr::NonNull;
 
-use crate::ffi::{self, DataType, Device};
-use crate::utils::is_contiguous;
-use crate::ShapeAndStrides;
+use crate::{
+    ffi::{self, DataType, Device},
+    utils::is_contiguous,
+    ShapeAndStrides,
+};
 
 /// DLPack is a data structure that can be used to describe tensor data.
 /// It's a pointer to a DLManagedTensor.
@@ -19,7 +21,8 @@ pub trait TensorView {
     fn data_ptr(&self) -> *mut std::ffi::c_void;
     /// Get shape as slice.
     fn shape(&self) -> &[i64];
-    /// Get strides as slice. If strides is None, Tensor is assumed to be contiguous.
+    /// Get strides as slice. If strides is None, Tensor is assumed to be
+    /// contiguous.
     fn strides(&self) -> Option<&[i64]>;
     fn ndim(&self) -> usize;
     fn device(&self) -> Device;
@@ -48,7 +51,8 @@ pub trait TensorView {
         self.num_elements() * self.dtype().size()
     }
 
-    /// Return true if tensor is contiguous in memory in the order specified by memory format.
+    /// Return true if tensor is contiguous in memory in the order specified by
+    /// memory format.
     fn is_contiguous(&self) -> bool {
         match self.strides() {
             Some(strides) => is_contiguous(self.shape(), strides),

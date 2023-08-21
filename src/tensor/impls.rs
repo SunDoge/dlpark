@@ -1,11 +1,14 @@
+use std::{ptr::NonNull, sync::Arc};
+
 use super::{
     ffi,
     traits::{InferDtype, IntoDLPack, ToTensor},
 };
-use crate::ffi::{DataType, Device};
-use crate::manager_ctx::ManagerCtx;
-use crate::ShapeAndStrides;
-use std::{ptr::NonNull, sync::Arc};
+use crate::{
+    ffi::{DataType, Device},
+    manager_ctx::ManagerCtx,
+    ShapeAndStrides,
+};
 
 macro_rules! impl_for_rust_type {
     ($rust_type:ty, $dtype:expr) => {
