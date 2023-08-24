@@ -9,6 +9,7 @@ homepage = "https://crates.io/crates/dlpark"
 documentation = "https://docs.rs/dlpark"
 repository = "https://github.com/SunDoge/dlpark"
 readme = "README.md"
+exclude = [".github/"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
