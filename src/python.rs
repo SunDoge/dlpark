@@ -3,7 +3,7 @@ use std::ptr::NonNull;
 use pyo3::{
     ffi::{PyCapsule_GetPointer, PyCapsule_New, PyCapsule_SetName, PyErr_Occurred, PyErr_Restore},
     prelude::*,
-    IntoPy, PyAny, PyResult, Python,
+    IntoPy, Python,
 };
 
 use crate::{
@@ -74,23 +74,14 @@ unsafe extern "C" fn dlpack_capsule_deleter(capsule: *mut pyo3::ffi::PyObject) {
     PyErr_Restore(exc_type, exc_value, exc_trace);
 }
 
-impl<T> IntoPyPointer for ManagerCtx<T>
-where
-    T: ToTensor,
-{
-    fn into_ptr(self) -> *mut pyo3::ffi::PyObject {
-        let dlpack = self.into_dlpack();
-        dlpack_to_py_capsule(dlpack)
-    }
-}
-
 impl<T> IntoPy<PyObject> for ManagerCtx<T>
 where
     T: ToTensor,
 {
     fn into_py(self, py: Python<'_>) -> PyObject {
-        let ptr = self.into_ptr();
-        unsafe { PyObject::from_owned_ptr(py, ptr) }
+        let dlpack = self.into_dlpack();
+        let capsule = dlpack_to_py_capsule(dlpack);
+        unsafe { PyObject::from_owned_ptr(py, capsule) }
     }
 }
 
@@ -101,28 +92,17 @@ impl ManagedTensor {
     pub fn from_py_ptr(capsule: *mut pyo3::ffi::PyObject) -> Self {
         Self::new(py_capsule_to_dlpack(capsule))
     }
-
-    pub fn from_py_object(ob: impl IntoPyPointer) -> Self {
-        Self::from_py_ptr(ob.into_ptr())
-    }
 }
 
 impl<'source> FromPyObject<'source> for ManagedTensor {
     fn extract(ob: &'source PyAny) -> PyResult<Self> {
-        Ok(ManagedTensor::from_py_object(ob))
-    }
-}
-
-impl IntoPyPointer for ManagedTensor {
-    fn into_ptr(self) -> *mut pyo3::ffi::PyObject {
-        let dlpack = self.into_dlpack();
-        dlpack_to_py_capsule(dlpack)
+        Ok(ManagedTensor::from_py_ptr(ob.into_ptr()))
     }
 }
 
 impl IntoPy<PyObject> for ManagedTensor {
     fn into_py(self, py: Python<'_>) -> PyObject {
-        let ptr = self.into_ptr();
-        unsafe { PyObject::from_owned_ptr(py, ptr) }
+        let capsule = dlpack_to_py_capsule(self.into_inner());
+        unsafe { PyObject::from_owned_ptr(py, capsule) }
     }
 }
