@@ -74,10 +74,6 @@ unsafe extern "C" fn dlpack_capsule_deleter(capsule: *mut pyo3::ffi::PyObject) {
     PyErr_Restore(exc_type, exc_value, exc_trace);
 }
 
-struct DLPackPtr<T>(T);
-
-unsafe impl<T> Send for DLPackPtr<T> {}
-
 impl<T> IntoPy<PyObject> for ManagerCtx<T>
 where
     T: ToTensor,

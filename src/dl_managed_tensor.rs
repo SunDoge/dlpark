@@ -1,4 +1,4 @@
-use crate::{ffi::{self, DLManagedTensor}, tensor::traits::TensorView};
+use crate::{ffi, tensor::traits::TensorView};
 
 impl TensorView for ffi::DLManagedTensor {
     fn data_ptr(&self) -> *mut std::ffi::c_void {
@@ -29,5 +29,3 @@ impl TensorView for ffi::DLManagedTensor {
         self.dl_tensor.ndim()
     }
 }
-
-unsafe impl Send for DLManagedTensor {}
