@@ -53,7 +53,7 @@ fn write_image(filename: &str, tensor: ManagedTensor) {
 
 /// A Python module implemented in Rust.
 #[pymodule]
-fn dlparkimg(_py: Python, m: &PyModule) -> PyResult<()> {
+fn dlparkimg(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(read_image, m)?)?;
     m.add_function(wrap_pyfunction!(write_image, m)?)?;
     Ok(())

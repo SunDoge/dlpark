@@ -9,18 +9,17 @@ pub fn add(left: usize, right: usize) -> usize {
 #[pyfunction]
 pub fn arange(n: usize) -> ManagerCtx<Vec<f32>> {
     let v: Vec<f32> = (0..n).map(|x| x as f32).collect();
-    let tensor = ManagerCtx::new(v);
-    tensor
+    ManagerCtx::new(v)
 }
 
 #[pyfunction]
-pub fn tensordict(py: Python<'_>) -> PyResult<&PyDict> {
-    let dic = PyDict::new(py);
+pub fn tensordict(py: Python<'_>) -> PyResult<Py<PyDict>> {
+    let dic = PyDict::new_bound(py);
     let v1: Vec<f32> = vec![1.0; 10];
     let v2: Vec<u8> = vec![2; 10];
     dic.set_item("v1", ManagerCtx::new(v1).into_py(py))?;
     dic.set_item("v2", ManagerCtx::new(v2).into_py(py))?;
-    Ok(dic)
+    Ok(dic.unbind())
 }
 
 #[pyfunction]
@@ -36,7 +35,7 @@ pub fn print_tensor(tensor: ManagedTensor) {
 }
 
 #[pymodule]
-fn mylib(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
+fn mylib(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(add, m)?)?;
     m.add_function(wrap_pyfunction!(arange, m)?)?;
     m.add_function(wrap_pyfunction!(tensordict, m)?)?;
