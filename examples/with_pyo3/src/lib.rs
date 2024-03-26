@@ -13,13 +13,13 @@ pub fn arange(n: usize) -> ManagerCtx<Vec<f32>> {
 }
 
 #[pyfunction]
-pub fn tensordict(py: Python<'_>) -> PyResult<Py<PyDict>> {
+pub fn tensordict(py: Python<'_>) -> PyResult<Bound<'_, PyDict>> {
     let dic = PyDict::new_bound(py);
     let v1: Vec<f32> = vec![1.0; 10];
     let v2: Vec<u8> = vec![2; 10];
     dic.set_item("v1", ManagerCtx::new(v1).into_py(py))?;
     dic.set_item("v2", ManagerCtx::new(v2).into_py(py))?;
-    Ok(dic.unbind())
+    Ok(dic)
 }
 
 #[pyfunction]
