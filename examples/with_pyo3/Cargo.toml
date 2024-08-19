@@ -12,4 +12,4 @@ name = "mylib"
 [dependencies]
 pyo3 = { version = "0.21.0", features = ["extension-module"] }
 dlpark = { path = "../../", features = ["pyo3"] }
-ndarray = "0.15.6"
+ndarray = "0.16.1"
