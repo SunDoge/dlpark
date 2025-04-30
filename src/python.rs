@@ -95,8 +95,8 @@ impl ManagedTensor {
 }
 
 impl<'source> FromPyObject<'source> for ManagedTensor {
-    fn extract(ob: &'source PyAny) -> PyResult<Self> {
-        Ok(ManagedTensor::from_py_ptr(ob.into_ptr()))
+    fn extract_bound(ob: &Bound<'source, PyAny>) -> PyResult<Self> {
+        Ok(ManagedTensor::from_py_ptr(ob.clone().into_ptr()))
     }
 }
 
