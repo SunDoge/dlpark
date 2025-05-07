@@ -15,7 +15,7 @@ exclude = [".github/"]
 
 [dependencies]
 half = { version = "2.3", optional = true }
-pyo3 = { version = "0.23", optional = true }
+pyo3 = { version = "0.24", optional = true }
 
 [workspace]
 members = ["examples/from_numpy", "examples/with_pyo3", "examples/dlparkimg"]
