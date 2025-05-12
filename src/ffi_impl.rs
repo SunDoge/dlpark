@@ -1,28 +1,9 @@
 use std::sync::Arc;
 
 use crate::{
-    ffi::{
-        MAJOR_VERSION, MINOR_VERSION, ManagedTensor, ManagedTensorVersioned, PackVersion, Tensor,
-    },
-
-    traits::{IntoDlpack},
+    ffi::{ManagedTensor, ManagedTensorVersioned, Tensor},
+    traits::IntoDlpack,
 };
-
-impl Default for PackVersion {
-    fn default() -> Self {
-        PackVersion {
-            major: MAJOR_VERSION,
-            minor: MINOR_VERSION,
-        }
-    }
-}
-
-impl PackVersion {
-    /// Create a new `PackVersion` instance.
-    pub fn new(major: u32, minor: u32) -> Self {
-        PackVersion { major, minor }
-    }
-}
 
 impl Drop for ManagedTensor {
     fn drop(&mut self) {
@@ -118,8 +99,8 @@ unsafe extern "C" fn arc_deleter<T>(managed_tensor: *mut ManagedTensor) {
 //         let tensor = Tensor::from(self.as_ref());
 //         Box::new(ManagedTensor {
 //             dl_tensor: tensor,
-//             manager_ctx: Box::into_raw(Box::new(self)) as *mut std::ffi::c_void,
-//             deleter: Some(box_deleter::<T>),
+//             manager_ctx: Box::into_raw(Box::new(self)) as *mut
+// std::ffi::c_void,             deleter: Some(box_deleter::<T>),
 //         })
 //     }
 // }

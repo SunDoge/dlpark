@@ -1,6 +1,6 @@
 use std::ffi::c_void;
 
-use crate::ffi::{ Device, ManagedTensor};
+use crate::ffi::ManagedTensor;
 
 pub trait IntoDlpack {
     fn into_dlpack(self) -> Box<ManagedTensor>;
