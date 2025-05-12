@@ -15,8 +15,10 @@ exclude = [".github/"]
 
 [dependencies]
 bitflags = "2.9.0"
-half = { version = "2.3", optional = true }
-pyo3 = { version = "0.24", optional = true }
+candle-core = { workspace = true, optional = true }
+half = { workspace = true, optional = true }
+ndarray = { workspace = true, optional = true }
+pyo3 = { workspace = true, optional = true }
 
 [workspace]
 members = [
@@ -25,12 +27,22 @@ members = [
     "examples/dlparkimg",
     "examples/ndarray-candle",
 ]
+resolver = "2"
+
+[workspace.dependencies]
+candle-core = "0.9"
+half = "2.3"
+ndarray = "0.16"
+pyo3 = "0.24"
 
 [features]
 default = []
 
 pyo3 = ["dep:pyo3"]
-half = ["dep:half"] # support f16 and bf16
+half = ["dep:half"]          # support f16 and bf16
+ndarray = ["dep:ndarray"]
+candle = ["dep:candle-core"]
+
 
 # for examples/dlparkimg
 [profile.dev.package."image"]

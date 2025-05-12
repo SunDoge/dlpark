@@ -12,6 +12,12 @@ bitflags! {
     }
 }
 
+impl Default for Flags {
+    fn default() -> Self {
+        Flags::READ_ONLY
+    }
+}
+
 /// A versioned and managed C Tensor object, manage memory of DLTensor.
 /// This data structure is intended to facilitate the borrowing of DLTensor by
 /// another framework. It is not meant to transfer the tensor. When the
