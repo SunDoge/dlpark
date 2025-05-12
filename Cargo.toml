@@ -1,7 +1,7 @@
 [package]
 name = "dlpark"
 version = "0.5.0"
-edition = "2021"
+edition = "2024"
 authors = ["SunDoge"]
 license = "Apache-2.0"
 description = "dlpack Rust binding for Python"
@@ -14,11 +14,17 @@ exclude = [".github/"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+bitflags = "2.9.0"
 half = { version = "2.3", optional = true }
 pyo3 = { version = "0.24", optional = true }
 
 [workspace]
-members = ["examples/from_numpy", "examples/with_pyo3", "examples/dlparkimg"]
+members = [
+    "examples/from_numpy",
+    "examples/with_pyo3",
+    "examples/dlparkimg",
+    "examples/ndarray-candle",
+]
 
 [features]
 default = []

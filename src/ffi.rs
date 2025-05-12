@@ -1,10 +1,11 @@
 /// This is raw unsafe dlpack code.
 /// Please use the safe wrapper provided by dlpark.
-use std::ffi::c_void;
+use std::{ffi::c_void, marker::PhantomData};
 
-pub const DLPACK_MAJOR_VERSION: u32 = 1;
-pub const DLPACK_MINOR_VERSION: u32 = 0;
-pub const DLPACK_FLAG_BITMASK_READ_ONLY: u64 = 1 << 0;
+use bitflags::bitflags;
+
+pub const MAJOR_VERSION: u32 = 1;
+pub const MINOR_VERSION: u32 = 1;
 
 /// The DLPack version.
 #[repr(C)]
@@ -51,12 +52,8 @@ pub enum DeviceType {
     WebGpu      = 15,
     /// Qualcomm Hexagon DSP
     Hexagon     = 16,
-}
-
-impl From<i32> for DeviceType {
-    fn from(code: i32) -> Self {
-        unsafe { std::mem::transmute(code) }
-    }
+    /// Microsoft MAIA devices
+    Maia        = 17,
 }
 
 /// A Device for Tensor and operator.
@@ -71,51 +68,12 @@ pub struct Device {
     pub device_id: i32,
 }
 
-#[repr(u8)]
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum DataTypeCode {
-    /// signed integer
-    Int          = 0,
-    /// unsigned integer
-    UInt         = 1,
-    /// IEEE floating point
-    Float        = 2,
-    /// Opaque handle type, reserved for testing purposes.
-    /// Frameworks need to agree on the handle data type for the exchange to be
-    /// well-defined.
-    OpaqueHandle = 3,
-    /// bfloat16
-    Bfloat       = 4,
-    /// complex number
-    /// (C/C++/Python layout: compact struct per complex number)
-    Complex      = 5,
-    /// boolean
-    Bool         = 6,
-}
 
-/// The data type the tensor can hold. The data type is assumed to follow the
-/// native endian-ness. An explicit error message should be raised when
-/// attempting to export an array with non-native endianness
-/// Examples
-/// - float: type_code = 2, bits = 32, lanes=1
-/// - float4(vectorized 4 float): type_code = 2, bits = 32, lanes=4
-/// - int8: type_code = 0, bits = 8, lanes=1
-/// - `std::complex<float>`: type_code = 5, bits = 64, lanes = 1
-#[repr(C)]
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct DataType {
-    /// Type code of base types.
-    pub code: DataTypeCode,
-    /// Number of bits, common choices are 8, 16, 32.
-    pub bits: u8,
-    /// Number of lanes in the type, used for vector types.
-    pub lanes: u16,
-}
 
 /// Plain C Tensor object, does not manage memory.
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
-pub struct DLTensor {
+pub struct Tensor {
     /// The data pointer points to the allocated data. This will be CUDA
     /// device pointer or cl_mem handle in OpenCL. It may be opaque on some
     /// device types. This pointer is always aligned to 256 bytes as in
@@ -146,7 +104,7 @@ pub struct DLTensor {
     /// Number of dimensions
     pub ndim: i32,
     /// The data type of the pointer
-    pub dtype: DataType,
+    // pub dtype: DataType,
     /// The shape of the tensor
     pub shape: *mut i64,
     /// strides of the tensor (in number of elements, not bytes)
@@ -163,10 +121,18 @@ pub struct DLTensor {
 /// is no longer needed.
 #[repr(C)]
 #[derive(Debug)]
-pub struct DLManagedTensor {
-    pub dl_tensor: DLTensor,
+pub struct ManagedTensor {
+    pub dl_tensor: Tensor,
     pub manager_ctx: *mut c_void,
     pub deleter: Option<unsafe extern "C" fn(*mut Self)>,
+}
+
+bitflags! {
+    pub struct Flags: u64 {
+        const READ_ONLY = 1 << 0;
+        const IS_COPIED = 1 << 1;
+        const IS_SUBBYTE_TYPE_PADDED = 1 << 2;
+    }
 }
 
 /// A versioned and managed C Tensor object, manage memory of DLTensor.
@@ -178,7 +144,7 @@ pub struct DLManagedTensor {
 /// This is the current standard DLPack exchange data structure.
 #[repr(C)]
 #[derive(Debug)]
-pub struct DLManagedTensorVersioned {
+pub struct ManagedTensorVersioned {
     /// The API and ABI version of the current managed Tensor
     pub version: PackVersion,
     /// The context of the original host framework.
@@ -199,6 +165,6 @@ pub struct DLManagedTensorVersioned {
     /// Default: `DLPACK_FLAG_BITMASK_READ_ONLY`
     pub flags: u64,
 
-    /// DLTensor which is being memory managed
-    pub dl_tensor: DLTensor,
+    // DLTensor which is being memory managed
+    pub dl_tensor: Tensor,
 }
