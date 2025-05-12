@@ -14,12 +14,16 @@
 /// Raw bindings for DLPack.
 pub mod ffi;
 pub mod ffi_impl;
+pub mod manager_context;
 pub mod traits;
 pub mod utils;
-pub mod manager_context;
+
+// dlpack
 pub mod data_type;
-pub mod pack_version;
 pub mod device;
+pub mod managed_tensor;
+pub mod pack_version;
+pub mod tensor;
 
 // pub mod prelude;
 
@@ -27,7 +31,7 @@ pub mod device;
 //     manager_ctx::ManagerCtx,
 //     shape_and_strides::ShapeAndStrides,
 //     tensor::{
-//         traits::{DLPack, FromDLPack, InferDtype, IntoDLPack, TensorView, ToTensor},
-//         ManagedTensor,
+//         traits::{DLPack, FromDLPack, InferDtype, IntoDLPack, TensorView,
+// ToTensor},         ManagedTensor,
 //     },
 // };

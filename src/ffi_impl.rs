@@ -1,31 +1,21 @@
 use std::sync::Arc;
+use crate::managed_tensor::ManagedTensor;
 
-use crate::{
-    ffi::{ManagedTensor, ManagedTensorVersioned, Tensor},
-    traits::IntoDlpack,
-};
+// use crate::{
+//     traits::IntoDlpack,
+// };
 
-impl Drop for ManagedTensor {
-    fn drop(&mut self) {
-        // SAFETY: The pointer is valid and the memory is managed by the DLPack library.
-        if let Some(deleter) = self.deleter {
-            unsafe {
-                deleter(self);
-            }
-        }
-    }
-}
 
-impl Drop for ManagedTensorVersioned {
-    fn drop(&mut self) {
-        // SAFETY: The pointer is valid and the memory is managed by the DLPack library.
-        if let Some(deleter) = self.deleter {
-            unsafe {
-                deleter(self);
-            }
-        }
-    }
-}
+// impl Drop for ManagedTensorVersioned {
+//     fn drop(&mut self) {
+//         // SAFETY: The pointer is valid and the memory is managed by the DLPack library.
+//         if let Some(deleter) = self.deleter {
+//             unsafe {
+//                 deleter(self);
+//             }
+//         }
+//     }
+// }
 
 unsafe extern "C" fn box_deleter<T>(managed_tensor: *mut ManagedTensor) {
     let ctx = unsafe { (*managed_tensor).manager_ctx } as *mut T;
