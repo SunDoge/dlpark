@@ -12,7 +12,6 @@
 // mod python;
 
 /// Raw bindings for DLPack.
-pub mod ffi;
 pub mod ffi_impl;
 pub mod manager_context;
 pub mod traits;
@@ -22,6 +21,7 @@ pub mod utils;
 pub mod data_type;
 pub mod device;
 pub mod managed_tensor;
+pub mod managed_tensor_versioned;
 pub mod pack_version;
 pub mod tensor;
 

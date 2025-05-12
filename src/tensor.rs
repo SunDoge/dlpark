@@ -45,3 +45,66 @@ pub struct Tensor {
     /// The offset in bytes to the beginning pointer to data
     pub byte_offset: u64,
 }
+
+impl Tensor {
+    pub fn get_shape(&self) -> &[i64] {
+        unsafe { std::slice::from_raw_parts(self.shape, self.num_dimensions()) }
+    }
+
+    pub fn get_strides(&self) -> Option<&[i64]> {
+        if self.strides.is_null() {
+            None
+        } else {
+            Some(unsafe { std::slice::from_raw_parts(self.strides, self.num_dimensions()) })
+        }
+    }
+
+    pub fn num_dimensions(&self) -> usize {
+        self.ndim as usize
+    }
+
+    pub fn num_elements(&self) -> usize {
+        self.get_shape().iter().product::<i64>() as usize
+    }
+
+    pub fn as_slice_untyped(&self) -> &[u8] {
+        let length = self.num_elements() * self.dtype.size();
+        unsafe {
+            std::slice::from_raw_parts(self.data.add(self.byte_offset as usize).cast(), length)
+        }
+    }
+
+    pub fn as_slice<A>(&self) -> &[A] {
+        assert_eq!(
+            std::mem::size_of::<A>(),
+            self.dtype.size(),
+            "dtype and A size mismatch"
+        );
+        unsafe {
+            std::slice::from_raw_parts(
+                self.data.add(self.byte_offset as usize).cast(),
+                self.num_elements(),
+            )
+        }
+    }
+}
+
+// pub trait TensorLike {
+//     fn data_ptr(&self) -> *mut c_void;
+//     fn shape(&self) -> &[i64];
+//     fn strides(&self) -> Option<&[i64]>;
+//     fn device(&self) -> Device;
+//     fn dtype(&self) -> DataType;
+//     fn byte_offset(&self) -> u64;
+
+//     fn ndim(&self) -> i32 {
+//         self.shape().len() as i32
+//     }
+// }
+
+// impl<T> From<&T> for Tensor
+// where
+//     T: TensorLike,
+// {
+//     fn from(value: &T) -> Self {}
+// }

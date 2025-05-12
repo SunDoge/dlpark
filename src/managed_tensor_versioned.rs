@@ -1,13 +1,8 @@
-/// This is raw unsafe dlpack code.
-/// Please use the safe wrapper provided by dlpark.
 use std::ffi::c_void;
 
 use bitflags::bitflags;
 
-
-
-
-
+use crate::{pack_version::PackVersion, tensor::Tensor};
 
 bitflags! {
     pub struct Flags: u64 {
@@ -28,7 +23,7 @@ bitflags! {
 #[derive(Debug)]
 pub struct ManagedTensorVersioned {
     /// The API and ABI version of the current managed Tensor
-    // pub version: PackVersion,
+    pub version: PackVersion,
     /// The context of the original host framework.
     /// Stores DLManagedTensorVersioned is used in the
     /// framework. It can also be NULL.
@@ -46,7 +41,6 @@ pub struct ManagedTensorVersioned {
     /// stable, to ensure that deleter can be correctly called.
     /// Default: `DLPACK_FLAG_BITMASK_READ_ONLY`
     pub flags: u64,
-
     // DLTensor which is being memory managed
-    // pub dl_tensor: Tensor,
+    pub dl_tensor: Tensor,
 }
