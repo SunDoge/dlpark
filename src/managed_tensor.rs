@@ -15,11 +15,16 @@ pub struct ManagedTensor {
     pub deleter: Option<unsafe extern "C" fn(*mut Self)>,
 }
 
-impl Drop for ManagedTensor {
-    fn drop(&mut self) {
-        // SAFETY: The pointer is valid and the memory is managed by the DLPack library.
-        if let Some(deleter) = self.deleter {
-            unsafe { deleter(self) }
+impl Default for ManagedTensor {
+    fn default() -> Self {
+        Self {
+            dl_tensor: Tensor::default(),
+            manager_ctx: std::ptr::null_mut(),
+            deleter: None,
         }
     }
+}
+
+pub trait IntoDlpack {
+    fn into_dlpack(self) -> *mut ManagedTensor;
 }

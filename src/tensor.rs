@@ -1,6 +1,8 @@
 use std::ffi::c_void;
 
-use crate::{data_type::DataType, device::Device};
+use crate::{
+    data_type::DataType, device::Device, manager_context::TensorLike, memory_layout::MemoryLayout,
+};
 
 /// Plain C Tensor object, does not manage memory.
 #[repr(C)]
@@ -87,6 +89,34 @@ impl Tensor {
             )
         }
     }
+
+    pub fn update<T, L>(&mut self, t: &T, layout: &L)
+    where
+        T: TensorLike<L>,
+        L: MemoryLayout,
+    {
+        self.data = t.data_ptr();
+        self.device = t.device();
+        self.dtype = t.data_type();
+        self.byte_offset = t.byte_offset();
+        self.ndim = layout.ndim();
+        self.shape = layout.shape_ptr();
+        self.strides = layout.strides_ptr();
+    }
+}
+
+impl Default for Tensor {
+    fn default() -> Self {
+        Self {
+            data: std::ptr::null_mut(),
+            device: Device::CPU,
+            ndim: 0,
+            dtype: DataType::F32,
+            shape: std::ptr::null_mut(),
+            strides: std::ptr::null_mut(),
+            byte_offset: 0,
+        }
+    }
 }
 
 // pub trait TensorLike {
@@ -108,3 +138,28 @@ impl Tensor {
 // {
 //     fn from(value: &T) -> Self {}
 // }
+
+pub trait ToTensor {
+    fn data_ptr(&self) -> *mut c_void;
+    fn shape(&self) -> &[i64];
+    fn strides(&self) -> Option<&[i64]>;
+    fn device(&self) -> Device;
+    fn dtype(&self) -> DataType;
+    fn byte_offset(&self) -> u64;
+
+    fn to_tensor(&self) -> Tensor {
+        let shape = self.shape();
+        Tensor {
+            data: self.data_ptr(),
+            shape: shape.as_ptr() as *mut _,
+            strides: match self.strides() {
+                Some(s) => s.as_ptr() as *mut _,
+                None => std::ptr::null_mut(),
+            },
+            device: self.device(),
+            dtype: self.dtype(),
+            byte_offset: self.byte_offset(),
+            ndim: shape.len() as i32,
+        }
+    }
+}
