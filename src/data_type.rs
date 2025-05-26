@@ -152,7 +152,10 @@ impl DataType {
         bits: 8,
         lanes: 1,
     };
+}
 
+
+impl DataType {
     /// Calculate `DataType` size as (bits * lanes + 7) // 8
     pub fn size(&self) -> usize {
         ((self.bits as u32 * self.lanes as u32 + 7) / 8) as usize

@@ -1,3 +1,5 @@
+use std::ptr::NonNull;
+
 use crate::{
     data_type::DataType,
     device::Device,
@@ -51,7 +53,7 @@ where
     T: TensorLike<L>,
     L: MemoryLayout,
 {
-    fn into_dlpack(mut self) -> *mut ManagedTensor {
+    fn into_dlpack(mut self) -> NonNull<ManagedTensor> {
         self.managed_tensor
             .dl_tensor
             .update(&self.inner, &self.memory_layout);
@@ -59,7 +61,7 @@ where
         let ptr = Box::into_raw(self);
         unsafe {
             (*ptr).managed_tensor.manager_ctx = ptr as *mut _;
-            (&mut (*ptr).managed_tensor) as *mut _
+            NonNull::new_unchecked(&mut (*ptr).managed_tensor)
         }
     }
 }

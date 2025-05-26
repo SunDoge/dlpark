@@ -1,4 +1,4 @@
-use std::ffi::c_void;
+use std::{ffi::c_void, ptr::NonNull};
 
 use crate::tensor::Tensor;
 
@@ -26,5 +26,9 @@ impl Default for ManagedTensor {
 }
 
 pub trait IntoDlpack {
-    fn into_dlpack(self) -> *mut ManagedTensor;
+    fn into_dlpack(self) -> NonNull<ManagedTensor>;
+}
+
+pub trait FromDlpack: Sized {
+    fn from_dlpack(pack: NonNull<ManagedTensor>) -> Self;
 }
