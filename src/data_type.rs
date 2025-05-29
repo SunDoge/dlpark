@@ -154,7 +154,6 @@ impl DataType {
     };
 }
 
-
 impl DataType {
     /// Calculate `DataType` size as (bits * lanes + 7) // 8
     pub fn size(&self) -> usize {

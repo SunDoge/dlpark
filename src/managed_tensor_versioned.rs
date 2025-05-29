@@ -52,6 +52,18 @@ pub struct ManagedTensorVersioned {
     pub dl_tensor: Tensor,
 }
 
+impl Default for ManagedTensorVersioned {
+    fn default() -> Self {
+        Self {
+            version: PackVersion::default(),
+            manager_ctx: std::ptr::null_mut(),
+            deleter: None,
+            flags: Flags::default().bits(),
+            dl_tensor: Tensor::default(),
+        }
+    }
+}
+
 pub trait IntoDlpackVersioned {
     fn into_dlpack_versioned(self, flags: Flags) -> NonNull<ManagedTensorVersioned>;
 }

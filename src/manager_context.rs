@@ -60,8 +60,9 @@ where
         self.managed_tensor.deleter.replace(deleter::<Self>);
         let ptr = Box::into_raw(self);
         unsafe {
-            (*ptr).managed_tensor.manager_ctx = ptr as *mut _;
-            NonNull::new_unchecked(&mut (*ptr).managed_tensor)
+            let managed_tensor = &mut (*ptr).managed_tensor;
+            managed_tensor.manager_ctx = ptr as *mut _;
+            NonNull::new_unchecked(managed_tensor)
         }
     }
 }
