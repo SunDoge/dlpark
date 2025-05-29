@@ -20,7 +20,7 @@ where
     }
 
     fn memory_layout(&self) -> StridedLayout {
-        let mut layout = StridedLayout::new(self.ndim());
+        let mut layout = StridedLayout::new_with_ndim(self.ndim());
         for i in 0..self.ndim() {
             layout.shape_mut()[i] = self.shape()[i] as i64;
             layout.strides_mut()[i] = self.strides()[i] as i64;

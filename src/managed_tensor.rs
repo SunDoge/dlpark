@@ -29,6 +29,6 @@ pub trait IntoDlpack {
     fn into_dlpack(self) -> NonNull<ManagedTensor>;
 }
 
-pub trait FromDlpack: Sized {
+pub trait FromDlpack {
     fn from_dlpack(pack: NonNull<ManagedTensor>) -> Self;
 }

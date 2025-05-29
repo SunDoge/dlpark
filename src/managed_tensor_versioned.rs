@@ -1,4 +1,5 @@
 use std::ffi::c_void;
+use std::ptr::NonNull;
 
 use bitflags::bitflags;
 
@@ -49,4 +50,12 @@ pub struct ManagedTensorVersioned {
     pub flags: u64,
     // DLTensor which is being memory managed
     pub dl_tensor: Tensor,
+}
+
+pub trait IntoDlpackVersioned {
+    fn into_dlpack_versioned(self, flags: Flags) -> NonNull<ManagedTensorVersioned>;
+}
+
+pub trait FromDlpackVersioned {
+    fn from_dlpack_versioned(pack: NonNull<ManagedTensorVersioned>) -> Self;
 }

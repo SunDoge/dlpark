@@ -27,9 +27,12 @@ impl MemoryLayout for ContiguousLayout {
 }
 
 impl ContiguousLayout {
-    pub fn new(num_dimensions: usize) -> Self {
-        let buf = vec![0; num_dimensions];
-        Self(buf.into_boxed_slice())
+    pub fn new(shape: Vec<i64>) -> Self {
+        Self(shape.into_boxed_slice())
+    }
+
+    pub fn new_with_ndim(ndim: usize) -> Self {
+        Self(Vec::with_capacity(ndim).into_boxed_slice())
     }
 
     pub fn shape_mut(&mut self) -> &mut [i64] {
@@ -52,9 +55,12 @@ impl MemoryLayout for StridedLayout {
 }
 
 impl StridedLayout {
-    pub fn new(num_dimensions: usize) -> Self {
-        let buf = Vec::with_capacity(num_dimensions * 2);
-        Self(buf.into_boxed_slice())
+    pub fn new(shape_and_strides: Vec<i64>) -> Self {
+        Self(shape_and_strides.into_boxed_slice())
+    }
+
+    pub fn new_with_ndim(ndim: usize) -> Self {
+        Self(Vec::with_capacity(ndim * 2).into_boxed_slice())
     }
 
     pub fn shape_mut(&mut self) -> &mut [i64] {

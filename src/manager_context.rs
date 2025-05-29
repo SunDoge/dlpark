@@ -24,7 +24,7 @@ pub struct ManagerContext<T, L> {
     managed_tensor: ManagedTensor,
 }
 
-unsafe extern "C" fn deleter_fn<T>(managed_tensor: *mut ManagedTensor) {
+unsafe extern "C" fn deleter<T>(managed_tensor: *mut ManagedTensor) {
     // https://doc.rust-lang.org/std/boxed/struct.Box.html#method.into_raw
     // Use from_raw to clean it.
     unsafe {
@@ -57,7 +57,7 @@ where
         self.managed_tensor
             .dl_tensor
             .update(&self.inner, &self.memory_layout);
-        self.managed_tensor.deleter.replace(deleter_fn::<Self>);
+        self.managed_tensor.deleter.replace(deleter::<Self>);
         let ptr = Box::into_raw(self);
         unsafe {
             (*ptr).managed_tensor.manager_ctx = ptr as *mut _;
