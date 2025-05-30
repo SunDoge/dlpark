@@ -13,12 +13,16 @@ pub fn is_contiguous(shape: &[i64], strides: &[i64]) -> bool {
         strides.len(),
         "shape and strides should have same length"
     );
-    let mut expected_stride = 1;
-    for (&dim, &stride) in shape.iter().rev().zip(strides.iter().rev()) {
-        if stride != expected_stride {
-            return false;
+    let mut expected = 1;
+    for (&dim_size, &stride) in shape.iter().rev().zip(strides.iter().rev()) {
+        if dim_size != 1 {
+            if stride != expected {
+                return false;
+            }
+            expected = expected
+                .checked_mul(dim_size)
+                .expect("overflow in stride calc");
         }
-        expected_stride *= dim;
     }
     true
 }

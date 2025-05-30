@@ -1,6 +1,6 @@
 use crate::error::Error;
 
-use crate::safe::managed_tensor_versioned::SafeManagedTensorVersioned;
+use crate::safe_managed_tensor::SafeManagedTensorVersioned;
 use crate::{
     data_type::{DataType, InferDataType},
     device::Device,

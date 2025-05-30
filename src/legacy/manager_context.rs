@@ -1,22 +1,9 @@
 use std::ptr::NonNull;
 
-use crate::{
-    data_type::DataType,
-    device::Device,
-    managed_tensor::{IntoDlpack, ManagedTensor},
-    memory_layout::MemoryLayout,
-};
+use crate::memory_layout::MemoryLayout;
 
-pub trait TensorLike<L>
-where
-    L: MemoryLayout,
-{
-    fn data_ptr(&self) -> *mut std::ffi::c_void;
-    fn memory_layout(&self) -> L;
-    fn device(&self) -> Device;
-    fn data_type(&self) -> DataType;
-    fn byte_offset(&self) -> u64;
-}
+use super::managed_tensor::{IntoDlpack, ManagedTensor};
+use crate::manager_context::TensorLike;
 
 pub struct ManagerContext<T, L> {
     inner: T,

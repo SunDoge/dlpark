@@ -1,6 +1,6 @@
 use std::{ffi::c_void, ptr::NonNull};
 
-use crate::tensor::Tensor;
+use super::tensor::Tensor;
 
 /// C Tensor object, manage memory of DLTensor. This data structure is
 /// intended to facilitate the borrowing of DLTensor by another framework. It is
@@ -26,14 +26,6 @@ impl Default for ManagedTensor {
 }
 
 pub type Dlpack = NonNull<ManagedTensor>;
-
-pub trait IntoDlpack {
-    fn into_dlpack(self) -> NonNull<ManagedTensor>;
-}
-
-pub trait FromDlpack {
-    fn from_dlpack(pack: NonNull<ManagedTensor>) -> Self;
-}
 
 // pub trait TryIntoDlpack: Sized {
 //     fn try_into_dlpack(self) -> NonNull<ManagedTensor>

@@ -1,11 +1,10 @@
 use std::ffi::c_void;
 
+use super::{data_type::DataType, device::Device};
+
 use crate::{
-    data_type::DataType,
-    device::Device,
-    error::{DataTypeSizeMismatchSnafu, Error, Result},
-    manager_context::TensorLike,
-    memory_layout::MemoryLayout,
+    error::{DataTypeSizeMismatchSnafu, Result},
+    utils,
 };
 
 use snafu::ensure;
@@ -84,12 +83,10 @@ impl Tensor {
 
     pub unsafe fn as_slice<A>(&self) -> Result<&[A]> {
         let size = std::mem::size_of::<A>();
+        let expected = self.dtype.size();
         ensure!(
-            size == self.dtype.bits as usize,
-            DataTypeSizeMismatchSnafu {
-                size,
-                expected: self.dtype.bits
-            }
+            size == expected,
+            DataTypeSizeMismatchSnafu { size, expected }
         );
 
         let s = unsafe {
@@ -101,18 +98,11 @@ impl Tensor {
         Ok(s)
     }
 
-    pub fn update<T, L>(&mut self, t: &T, layout: &L)
-    where
-        T: TensorLike<L>,
-        L: MemoryLayout,
-    {
-        self.data = t.data_ptr();
-        self.device = t.device();
-        self.dtype = t.data_type();
-        self.byte_offset = t.byte_offset();
-        self.ndim = layout.ndim();
-        self.shape = layout.shape_ptr();
-        self.strides = layout.strides_ptr();
+    pub fn is_contiguous(&self) -> bool {
+        match (self.get_shape(), self.get_strides()) {
+            (_shape, None) => true,
+            (shape, Some(strides)) => utils::is_contiguous(shape, strides),
+        }
     }
 }
 
