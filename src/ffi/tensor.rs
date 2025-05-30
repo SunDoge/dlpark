@@ -3,7 +3,7 @@ use std::ffi::c_void;
 use super::{data_type::DataType, device::Device};
 
 use crate::{
-    error::{DataTypeSizeMismatchSnafu, Result},
+    error::{DataTypeSizeMismatchSnafu, NonContiguousSnafu, Result},
     utils,
 };
 
@@ -53,37 +53,53 @@ pub struct Tensor {
     pub byte_offset: u64,
 }
 
-impl Tensor {
-    pub fn get_shape(&self) -> &[i64] {
-        unsafe { std::slice::from_raw_parts(self.shape, self.num_dimensions()) }
+pub trait TensorView {
+    fn dl_tensor(&self) -> &Tensor;
+
+    fn data_ptr(&self) -> *mut c_void {
+        self.dl_tensor().data
     }
 
-    pub fn get_strides(&self) -> Option<&[i64]> {
-        if self.strides.is_null() {
+    fn shape(&self) -> &[i64] {
+        unsafe { std::slice::from_raw_parts(self.dl_tensor().shape, self.num_dimensions()) }
+    }
+
+    fn strides(&self) -> Option<&[i64]> {
+        if self.dl_tensor().strides.is_null() {
             None
         } else {
-            Some(unsafe { std::slice::from_raw_parts(self.strides, self.num_dimensions()) })
+            Some(unsafe {
+                std::slice::from_raw_parts(self.dl_tensor().strides, self.num_dimensions())
+            })
         }
     }
 
-    pub fn num_dimensions(&self) -> usize {
-        self.ndim as usize
+    fn num_dimensions(&self) -> usize {
+        self.dl_tensor().ndim as usize
     }
 
-    pub fn num_elements(&self) -> usize {
-        self.get_shape().iter().product::<i64>() as usize
+    fn num_elements(&self) -> usize {
+        self.shape().iter().product::<i64>() as usize
     }
 
-    pub fn as_slice_untyped(&self) -> &[u8] {
-        let length = self.num_elements() * self.dtype.size();
+    fn data_type(&self) -> &DataType {
+        &self.dl_tensor().dtype
+    }
+
+    fn byte_offset(&self) -> usize {
+        self.dl_tensor().byte_offset as usize
+    }
+
+    fn as_slice_untyped(&self) -> &[u8] {
+        let length = self.num_elements() * self.data_type().size();
         unsafe {
-            std::slice::from_raw_parts(self.data.add(self.byte_offset as usize).cast(), length)
+            std::slice::from_raw_parts(self.data_ptr().add(self.byte_offset()).cast(), length)
         }
     }
 
-    pub unsafe fn as_slice<A>(&self) -> Result<&[A]> {
+    unsafe fn as_slice<A>(&self) -> Result<&[A]> {
         let size = std::mem::size_of::<A>();
-        let expected = self.dtype.size();
+        let expected = self.data_type().size();
         ensure!(
             size == expected,
             DataTypeSizeMismatchSnafu { size, expected }
@@ -91,18 +107,35 @@ impl Tensor {
 
         let s = unsafe {
             std::slice::from_raw_parts(
-                self.data.add(self.byte_offset as usize).cast(),
+                self.data_ptr().add(self.byte_offset()).cast(),
                 self.num_elements(),
             )
         };
         Ok(s)
     }
 
-    pub fn is_contiguous(&self) -> bool {
-        match (self.get_shape(), self.get_strides()) {
+    fn is_contiguous(&self) -> bool {
+        match (self.shape(), self.strides()) {
             (_shape, None) => true,
             (shape, Some(strides)) => utils::is_contiguous(shape, strides),
         }
+    }
+
+    fn as_slice_contiguous<A>(&self) -> Result<&[A]> {
+        ensure!(
+            self.is_contiguous(),
+            NonContiguousSnafu {
+                shape: self.shape(),
+                strides: self.strides().expect("must have strides")
+            }
+        );
+        unsafe { self.as_slice::<A>() }
+    }
+}
+
+impl TensorView for Tensor {
+    fn dl_tensor(&self) -> &Tensor {
+        self
     }
 }
 

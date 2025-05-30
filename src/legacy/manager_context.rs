@@ -1,17 +1,16 @@
 use std::ptr::NonNull;
 
-use crate::memory_layout::MemoryLayout;
+use crate::traits::{MemoryLayout, TensorLike};
 
-use super::managed_tensor::{IntoDlpack, ManagedTensor};
-use crate::manager_context::TensorLike;
+use crate::ffi;
 
 pub struct ManagerContext<T, L> {
     inner: T,
     memory_layout: L,
-    managed_tensor: ManagedTensor,
+    managed_tensor: ffi::ManagedTensor,
 }
 
-unsafe extern "C" fn deleter<T>(managed_tensor: *mut ManagedTensor) {
+unsafe extern "C" fn deleter<T>(managed_tensor: *mut ffi::ManagedTensor) {
     // https://doc.rust-lang.org/std/boxed/struct.Box.html#method.into_raw
     // Use from_raw to clean it.
     unsafe {
@@ -30,17 +29,11 @@ where
         Box::new(Self {
             inner: tensor,
             memory_layout,
-            managed_tensor: ManagedTensor::default(),
+            managed_tensor: ffi::ManagedTensor::default(),
         })
     }
-}
 
-impl<T, L> IntoDlpack for Box<ManagerContext<T, L>>
-where
-    T: TensorLike<L>,
-    L: MemoryLayout,
-{
-    fn into_dlpack(mut self) -> NonNull<ManagedTensor> {
+    pub fn into_dlpack(mut self: Box<Self>) -> ffi::Dlpack {
         self.managed_tensor
             .dl_tensor
             .update(&self.inner, &self.memory_layout);

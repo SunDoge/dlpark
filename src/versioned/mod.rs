@@ -2,4 +2,4 @@ mod manager_context;
 mod safe_managed_tensor;
 
 pub use manager_context::ManagerContext;
-pub use safe_managed_tensor::SafeManagedTensor;
+pub use safe_managed_tensor::SafeManagedTensorVersioned;

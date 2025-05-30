@@ -1,9 +1,7 @@
 use std::ptr::NonNull;
 
-use crate::error::Result;
 use crate::ffi::{self, DlpackVersioned, Flags};
 use crate::traits::{MemoryLayout, TensorLike};
-use snafu::ensure;
 
 pub struct ManagerContext<T, L> {
     inner: T,

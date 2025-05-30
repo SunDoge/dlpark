@@ -11,4 +11,4 @@ pub use managed_tensor_versioned::{
     DLPACK_MAJOR_VERSION, DLPACK_MINOR_VERSION, DlpackVersioned, Flags, ManagedTensorVersioned,
     PackVersion,
 };
-pub use tensor::Tensor;
+pub use tensor::{Tensor, TensorView};

@@ -1,16 +1,13 @@
 use std::ptr::NonNull;
 
-use crate::ffi::{self, DataType, Device, Flags};
-use crate::{
-    error::Result,
-    traits::{MemoryLayout, TensorLike},
-};
+use crate::ffi::{self, Flags, TensorView};
+use crate::traits::{MemoryLayout, TensorLike};
 
 use super::ManagerContext;
 
-pub struct SafeManagedTensor(ffi::DlpackVersioned);
+pub struct SafeManagedTensorVersioned(ffi::DlpackVersioned);
 
-impl Drop for SafeManagedTensor {
+impl Drop for SafeManagedTensorVersioned {
     fn drop(&mut self) {
         unsafe {
             if let Some(deleter) = self.0.as_ref().deleter {
@@ -20,7 +17,7 @@ impl Drop for SafeManagedTensor {
     }
 }
 
-impl SafeManagedTensor {
+impl SafeManagedTensorVersioned {
     pub unsafe fn from_raw(ptr: *mut ffi::ManagedTensorVersioned) -> Self {
         unsafe { Self(NonNull::new_unchecked(ptr)) }
     }
@@ -35,7 +32,7 @@ impl SafeManagedTensor {
         ptr
     }
 
-    pub fn into_non_null(self) -> NonNull<ffi::ManagedTensorVersioned> {
+    pub fn into_non_null(self) -> ffi::DlpackVersioned {
         let ptr = self.0;
         std::mem::forget(self);
         ptr
@@ -82,32 +79,10 @@ impl SafeManagedTensor {
         self.flags_truncate()
             .contains(Flags::IS_SUBBYTE_TYPE_PADDED)
     }
+}
 
-    pub fn shape(&self) -> &[i64] {
-        unsafe { self.0.as_ref().dl_tensor.get_shape() }
-    }
-
-    pub fn strides(&self) -> Option<&[i64]> {
-        unsafe { self.0.as_ref().dl_tensor.get_strides() }
-    }
-
-    pub fn data_type(&self) -> &DataType {
-        unsafe { &self.0.as_ref().dl_tensor.dtype }
-    }
-
-    pub fn device(&self) -> &Device {
-        unsafe { &self.0.as_ref().dl_tensor.device }
-    }
-
-    pub fn as_slice_untyped(&self) -> &[u8] {
-        unsafe { self.0.as_ref().dl_tensor.as_slice_untyped() }
-    }
-
-    pub unsafe fn as_slice<A>(&self) -> Result<&[A]> {
-        unsafe { self.0.as_ref().dl_tensor.as_slice() }
-    }
-
-    pub fn is_contiguous(&self) -> bool {
-        unsafe { self.0.as_ref().dl_tensor.is_contiguous() }
+impl TensorView for SafeManagedTensorVersioned {
+    fn dl_tensor(&self) -> &ffi::Tensor {
+        unsafe { &self.0.as_ref().dl_tensor }
     }
 }
