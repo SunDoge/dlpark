@@ -17,15 +17,10 @@ pub trait MemoryLayout {
     fn ndim(&self) -> i32;
 }
 
-pub struct ContiguousLayout(Box<[i64]>);
-pub struct StridedLayout(Box<[i64]>);
-pub struct BorrowedLayout {
-    shape: *mut i64,
-    strides: *mut i64,
-    ndim: i32,
-}
+/// Row major contigous layout with no strides
+pub struct RowMajorContiguousLayout(Box<[i64]>);
 
-impl MemoryLayout for ContiguousLayout {
+impl MemoryLayout for RowMajorContiguousLayout {
     fn shape_ptr(&self) -> *mut i64 {
         self.0.as_ptr() as *mut i64
     }
@@ -39,7 +34,7 @@ impl MemoryLayout for ContiguousLayout {
     }
 }
 
-impl ContiguousLayout {
+impl RowMajorContiguousLayout {
     pub fn new(shape: Vec<i64>) -> Self {
         Self(shape.into_boxed_slice())
     }
@@ -52,6 +47,8 @@ impl ContiguousLayout {
         &mut self.0
     }
 }
+
+pub struct StridedLayout(Box<[i64]>);
 
 impl MemoryLayout for StridedLayout {
     fn shape_ptr(&self) -> *mut i64 {
@@ -85,6 +82,14 @@ impl StridedLayout {
         let num_dimensions = self.0.len() / 2;
         &mut self.0[num_dimensions..]
     }
+}
+
+/// Reuse shape and strides from tensor.
+/// Must be i64.
+pub struct BorrowedLayout {
+    shape: *mut i64,
+    strides: *mut i64,
+    ndim: i32,
 }
 
 impl MemoryLayout for BorrowedLayout {

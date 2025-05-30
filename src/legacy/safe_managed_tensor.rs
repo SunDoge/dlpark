@@ -52,3 +52,11 @@ impl TensorView for SafeManagedTensor {
         unsafe { &self.0.as_ref().dl_tensor }
     }
 }
+
+impl std::ops::Deref for SafeManagedTensor {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        self.as_slice_untyped()
+    }
+}

@@ -157,16 +157,16 @@ impl DataType {
 impl DataType {
     /// Calculate `DataType` size as (bits * lanes + 7) // 8
     pub fn size(&self) -> usize {
-        ((self.bits as u32 * self.lanes as u32 + 7) / 8) as usize
+        (self.bits as u32 * self.lanes as u32).div_ceil(8) as usize
     }
 }
 
 pub trait InferDataType {
-    fn infer_dtype() -> DataType;
+    fn data_type() -> DataType;
 }
 
 impl InferDataType for f32 {
-    fn infer_dtype() -> DataType {
+    fn data_type() -> DataType {
         DataType::F32
     }
 }

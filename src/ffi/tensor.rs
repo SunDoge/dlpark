@@ -4,7 +4,7 @@ use super::{data_type::DataType, device::Device};
 
 use crate::{
     error::{DataTypeSizeMismatchSnafu, NonContiguousSnafu, Result},
-    utils,
+    utils::MemoryOrder,
 };
 
 use snafu::ensure;
@@ -114,16 +114,16 @@ pub trait TensorView {
         Ok(s)
     }
 
-    fn is_contiguous(&self) -> bool {
+    fn memory_order(&self) -> MemoryOrder {
         match (self.shape(), self.strides()) {
-            (_shape, None) => true,
-            (shape, Some(strides)) => utils::is_contiguous(shape, strides),
+            (_, None) => MemoryOrder::RowMajorContiguous,
+            (shape, Some(strides)) => MemoryOrder::new(shape, strides),
         }
     }
 
     fn as_slice_contiguous<A>(&self) -> Result<&[A]> {
         ensure!(
-            self.is_contiguous(),
+            self.memory_order().is_contiguous(),
             NonContiguousSnafu {
                 shape: self.shape(),
                 strides: self.strides().expect("must have strides")
