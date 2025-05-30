@@ -1,8 +1,14 @@
 use std::ffi::c_void;
 
 use crate::{
-    data_type::DataType, device::Device, manager_context::TensorLike, memory_layout::MemoryLayout,
+    data_type::DataType,
+    device::Device,
+    error::{DataTypeSizeMismatchSnafu, Error, Result},
+    manager_context::TensorLike,
+    memory_layout::MemoryLayout,
 };
+
+use snafu::ensure;
 
 /// Plain C Tensor object, does not manage memory.
 #[repr(C)]
@@ -76,18 +82,23 @@ impl Tensor {
         }
     }
 
-    pub fn as_slice<A>(&self) -> &[A] {
-        assert_eq!(
-            std::mem::size_of::<A>(),
-            self.dtype.size(),
-            "dtype and A size mismatch"
+    pub unsafe fn as_slice<A>(&self) -> Result<&[A]> {
+        let size = std::mem::size_of::<A>();
+        ensure!(
+            size == self.dtype.bits as usize,
+            DataTypeSizeMismatchSnafu {
+                size,
+                expected: self.dtype.bits
+            }
         );
-        unsafe {
+
+        let s = unsafe {
             std::slice::from_raw_parts(
                 self.data.add(self.byte_offset as usize).cast(),
                 self.num_elements(),
             )
-        }
+        };
+        Ok(s)
     }
 
     pub fn update<T, L>(&mut self, t: &T, layout: &L)

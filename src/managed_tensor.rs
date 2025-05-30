@@ -25,6 +25,8 @@ impl Default for ManagedTensor {
     }
 }
 
+pub type Dlpack = NonNull<ManagedTensor>;
+
 pub trait IntoDlpack {
     fn into_dlpack(self) -> NonNull<ManagedTensor>;
 }
@@ -32,3 +34,7 @@ pub trait IntoDlpack {
 pub trait FromDlpack {
     fn from_dlpack(pack: NonNull<ManagedTensor>) -> Self;
 }
+
+// pub trait TryIntoDlpack: Sized {
+//     fn try_into_dlpack(self) -> NonNull<ManagedTensor>
+// }

@@ -64,6 +64,8 @@ impl Default for ManagedTensorVersioned {
     }
 }
 
+pub type DlpackVersioned = NonNull<ManagedTensorVersioned>;
+
 pub trait IntoDlpackVersioned {
     fn into_dlpack_versioned(self, flags: Flags) -> NonNull<ManagedTensorVersioned>;
 }

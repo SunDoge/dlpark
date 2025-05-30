@@ -3,7 +3,6 @@ use crate::{
     device::Device,
     manager_context::TensorLike,
     memory_layout::StridedLayout,
-    owned_tensor::OwnedTensor,
     utils::make_contiguous_strides,
 };
 
@@ -41,23 +40,23 @@ where
     }
 }
 
-impl<'a, A> From<&'a OwnedTensor> for ArrayViewD<'a, A> {
-    // TODO: The data type is not checked, it's unsafe.
-    fn from(tensor: &'a OwnedTensor) -> Self {
-        let shape: Vec<usize> = tensor.shape().iter().map(|x| *x as usize).collect();
-        let shape = match tensor.strides() {
-            Some(s) => {
-                let strides: Vec<usize> = s.iter().map(|x| *x as usize).collect();
-                shape.strides(strides)
-            }
-            None => {
-                let strides = make_contiguous_strides(tensor.shape())
-                    .into_iter()
-                    .map(|x| x as usize)
-                    .collect();
-                shape.strides(strides)
-            }
-        };
-        unsafe { ArrayViewD::from_shape_ptr(shape, tensor.as_ptr()) }
-    }
-}
+// impl<'a, A> From<&'a OwnedTensor> for ArrayViewD<'a, A> {
+//     // TODO: The data type is not checked, it's unsafe.
+//     fn from(tensor: &'a OwnedTensor) -> Self {
+//         let shape: Vec<usize> = tensor.shape().iter().map(|x| *x as usize).collect();
+//         let shape = match tensor.strides() {
+//             Some(s) => {
+//                 let strides: Vec<usize> = s.iter().map(|x| *x as usize).collect();
+//                 shape.strides(strides)
+//             }
+//             None => {
+//                 let strides = make_contiguous_strides(tensor.shape())
+//                     .into_iter()
+//                     .map(|x| x as usize)
+//                     .collect();
+//                 shape.strides(strides)
+//             }
+//         };
+//         unsafe { ArrayViewD::from_shape_ptr(shape, tensor.as_ptr()) }
+//     }
+// }

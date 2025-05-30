@@ -19,6 +19,7 @@ candle-core = { workspace = true, optional = true }
 half = { workspace = true, optional = true }
 ndarray = { workspace = true, optional = true }
 pyo3 = { workspace = true, optional = true }
+snafu = "0.8.6"
 
 [workspace]
 members = [
