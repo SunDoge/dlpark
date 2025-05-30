@@ -1,3 +1,6 @@
+use crate::error::Error;
+
+use crate::safe::managed_tensor_versioned::SafeManagedTensorVersioned;
 use crate::{
     data_type::{DataType, InferDataType},
     device::Device,
@@ -40,23 +43,29 @@ where
     }
 }
 
-// impl<'a, A> From<&'a OwnedTensor> for ArrayViewD<'a, A> {
-//     // TODO: The data type is not checked, it's unsafe.
-//     fn from(tensor: &'a OwnedTensor) -> Self {
-//         let shape: Vec<usize> = tensor.shape().iter().map(|x| *x as usize).collect();
-//         let shape = match tensor.strides() {
-//             Some(s) => {
-//                 let strides: Vec<usize> = s.iter().map(|x| *x as usize).collect();
-//                 shape.strides(strides)
-//             }
-//             None => {
-//                 let strides = make_contiguous_strides(tensor.shape())
-//                     .into_iter()
-//                     .map(|x| x as usize)
-//                     .collect();
-//                 shape.strides(strides)
-//             }
-//         };
-//         unsafe { ArrayViewD::from_shape_ptr(shape, tensor.as_ptr()) }
-//     }
-// }
+impl<'a, A> TryFrom<&'a SafeManagedTensorVersioned> for ArrayViewD<'a, A> {
+    type Error = Error;
+
+    fn try_from(value: &'a SafeManagedTensorVersioned) -> Result<Self, Self::Error> {
+        let shape: Vec<usize> = value.shape().iter().map(|x| *x as usize).collect();
+        let shape = match value.strides() {
+            Some(s) => {
+                let strides: Vec<usize> = s.iter().map(|x| *x as usize).collect();
+                shape.strides(strides)
+            }
+            None => {
+                let strides = make_contiguous_strides(value.shape())
+                    .into_iter()
+                    .map(|x| x as usize)
+                    .collect();
+                shape.strides(strides)
+            }
+        };
+        unsafe {
+            Ok(ArrayViewD::from_shape_ptr(
+                shape,
+                value.as_slice::<A>()?.as_ptr(),
+            ))
+        }
+    }
+}
