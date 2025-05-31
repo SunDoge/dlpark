@@ -10,6 +10,6 @@ name = "mylib"
 
 
 [dependencies]
-pyo3 = { version = "0.24", features = ["extension-module"] }
+pyo3 = { version = "*", features = ["extension-module"] }
 dlpark = { path = "../../", features = ["pyo3"] }
-ndarray = "0.16.1"
+ndarray = "0.16"
