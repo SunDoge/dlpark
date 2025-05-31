@@ -39,7 +39,7 @@ pyo3 = "0.25"
 image=  "0.25.6"
 
 [features]
-default = ["ndarray", "image"]
+default = ["ndarray", "image", "pyo3"]
 
 pyo3 = ["dep:pyo3"]
 half = ["dep:half"]          # support f16 and bf16
