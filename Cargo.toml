@@ -17,7 +17,7 @@ exclude = [".github/"]
 bitflags = "2.9.0"
 candle-core = { workspace = true, optional = true }
 half = { workspace = true, optional = true }
-image = {workspace=true, optional=true}
+image = { workspace = true, optional = true }
 ndarray = { workspace = true, optional = true }
 pyo3 = { workspace = true, optional = true }
 snafu = "0.8.6"
@@ -36,10 +36,12 @@ candle-core = "0.9"
 half = "2.3"
 ndarray = "0.16"
 pyo3 = "0.25"
-image=  "0.25.6"
+image = "0.25.6"
 
 [features]
-default = ["ndarray", "image", "pyo3"]
+default = ["full"]
+
+full = ["ndarray", "image", "pyo3"]
 
 pyo3 = ["dep:pyo3"]
 half = ["dep:half"]          # support f16 and bf16

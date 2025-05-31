@@ -130,6 +130,6 @@ mod tests {
     fn test_is_contiguous() {
         let shape = vec![1, 2, 3];
         let strides = vec![6, 3, 1];
-        assert_eq!(is_contiguous(&shape, &strides), true);
+        assert!(is_contiguous(&shape, &strides));
     }
 }
