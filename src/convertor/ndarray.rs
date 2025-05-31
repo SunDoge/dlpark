@@ -1,13 +1,19 @@
-use crate::error::Error;
+// use crate::error::Error;
 
-use crate::safe_managed_tensor::SafeManagedTensorVersioned;
-use crate::{
-    data_type::{DataType, InferDataType},
-    device::Device,
-    manager_context::TensorLike,
-    memory_layout::StridedLayout,
-    utils::make_contiguous_strides,
-};
+// use crate::safe_managed_tensor::SafeManagedTensorVersioned;
+// use crate::{
+//     data_type::{DataType, InferDataType},
+//     device::Device,
+//     manager_context::TensorLike,
+//     memory_layout::StridedLayout,
+//     utils::make_contiguous_strides,
+// };
+
+use crate::ffi;
+use crate::ffi::{InferDataType, TensorView};
+use crate::traits::{StridedLayout, TensorLike};
+use crate::utils::make_row_major_strides;
+use crate::{SafeManagedTensor, SafeManagedTensorVersioned};
 
 use ndarray::{ArrayBase, ArrayViewD, Dimension, RawData, ShapeBuilder};
 
@@ -30,12 +36,12 @@ where
         layout
     }
 
-    fn device(&self) -> Device {
-        Device::CPU
+    fn device(&self) -> ffi::Device {
+        ffi::Device::CPU
     }
 
-    fn data_type(&self) -> DataType {
-        S::Elem::infer_dtype()
+    fn data_type(&self) -> ffi::DataType {
+        S::Elem::data_type()
     }
 
     fn byte_offset(&self) -> u64 {
@@ -44,7 +50,7 @@ where
 }
 
 impl<'a, A> TryFrom<&'a SafeManagedTensorVersioned> for ArrayViewD<'a, A> {
-    type Error = Error;
+    type Error = crate::Error;
 
     fn try_from(value: &'a SafeManagedTensorVersioned) -> Result<Self, Self::Error> {
         let shape: Vec<usize> = value.shape().iter().map(|x| *x as usize).collect();
@@ -54,7 +60,34 @@ impl<'a, A> TryFrom<&'a SafeManagedTensorVersioned> for ArrayViewD<'a, A> {
                 shape.strides(strides)
             }
             None => {
-                let strides = make_contiguous_strides(value.shape())
+                let strides = make_row_major_strides(value.shape())
+                    .into_iter()
+                    .map(|x| x as usize)
+                    .collect();
+                shape.strides(strides)
+            }
+        };
+        unsafe {
+            Ok(ArrayViewD::from_shape_ptr(
+                shape,
+                value.as_slice::<A>()?.as_ptr(),
+            ))
+        }
+    }
+}
+
+impl<'a, A> TryFrom<&'a SafeManagedTensor> for ArrayViewD<'a, A> {
+    type Error = crate::Error;
+
+    fn try_from(value: &'a SafeManagedTensor) -> Result<Self, Self::Error> {
+        let shape: Vec<usize> = value.shape().iter().map(|x| *x as usize).collect();
+        let shape = match value.strides() {
+            Some(s) => {
+                let strides: Vec<usize> = s.iter().map(|x| *x as usize).collect();
+                shape.strides(strides)
+            }
+            None => {
+                let strides = make_row_major_strides(value.shape())
                     .into_iter()
                     .map(|x| x as usize)
                     .collect();

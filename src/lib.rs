@@ -9,3 +9,4 @@ pub mod versioned;
 
 pub use legacy::SafeManagedTensor;
 pub use versioned::SafeManagedTensorVersioned;
+pub use error::Error;

@@ -41,13 +41,15 @@ image = "0.25.6"
 [features]
 default = ["full"]
 
-full = ["ndarray", "image", "pyo3"]
+full = ["ndarray", "image", "pyo3", "candle-cpu", "std-container"]
 
 pyo3 = ["dep:pyo3"]
 half = ["dep:half"]          # support f16 and bf16
 ndarray = ["dep:ndarray"]
-candle = ["dep:candle-core"]
 image = ["dep:image"]
+candle-cpu = ["dep:candle-core"]
+candle-cuda = ["dep:candle-core", "candle-core/cuda"]
+std-container = []
 
 
 # for examples/dlparkimg
