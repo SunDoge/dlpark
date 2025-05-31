@@ -99,3 +99,9 @@ impl std::ops::Deref for SafeManagedTensor {
         self.as_slice_untyped()
     }
 }
+
+impl AsRef<SafeManagedTensor> for SafeManagedTensor {
+    fn as_ref(&self) -> &Self {
+        self
+    }
+}

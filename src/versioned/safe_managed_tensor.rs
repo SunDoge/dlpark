@@ -6,7 +6,7 @@ use crate::traits::{MemoryLayout, TensorLike, TensorView};
 use super::ManagerContext;
 
 /// A safe wrapper around a versioned DLPack tensor that manages its memory lifecycle.
-/// 
+///
 /// This struct provides a safe interface to work with DLPack tensors while ensuring proper
 /// memory management through RAII. It wraps a `ffi::DlpackVersioned` pointer and handles
 /// cleanup when the tensor is dropped.
@@ -26,7 +26,7 @@ impl Drop for SafeManagedTensorVersioned {
 
 impl SafeManagedTensorVersioned {
     /// Creates a new `SafeManagedTensorVersioned` from a raw pointer.
-    /// 
+    ///
     /// # Safety
     /// The caller must ensure that:
     /// - The pointer is valid and points to a properly initialized `ManagedTensorVersioned`
@@ -37,7 +37,7 @@ impl SafeManagedTensorVersioned {
     }
 
     /// Creates a new `SafeManagedTensorVersioned` from a `NonNull` pointer.
-    /// 
+    ///
     /// # Safety
     /// The caller must ensure that:
     /// - The pointer is valid and points to a properly initialized `ManagedTensorVersioned`
@@ -47,7 +47,7 @@ impl SafeManagedTensorVersioned {
     }
 
     /// Converts the safe wrapper into a raw pointer, transferring ownership.
-    /// 
+    ///
     /// # Safety
     /// The caller takes responsibility for managing the tensor's memory after this call.
     /// The original wrapper is forgotten to prevent double-free.
@@ -58,7 +58,7 @@ impl SafeManagedTensorVersioned {
     }
 
     /// Converts the safe wrapper into a `NonNull` pointer, transferring ownership.
-    /// 
+    ///
     /// The original wrapper is forgotten to prevent double-free.
     pub fn into_non_null(self) -> ffi::DlpackVersioned {
         let ptr = self.0;
@@ -67,10 +67,10 @@ impl SafeManagedTensorVersioned {
     }
 
     /// Creates a new `SafeManagedTensorVersioned` from a tensor-like type.
-    /// 
+    ///
     /// # Arguments
     /// * `t` - A type that implements `TensorLike` and has a valid `MemoryLayout`
-    /// 
+    ///
     /// # Returns
     /// A new `SafeManagedTensorVersioned` with default flags
     pub fn new<T, L>(t: T) -> Self
@@ -82,11 +82,11 @@ impl SafeManagedTensorVersioned {
     }
 
     /// Creates a new `SafeManagedTensorVersioned` from a tensor-like type with specified flags.
-    /// 
+    ///
     /// # Arguments
     /// * `t` - A type that implements `TensorLike` and has a valid `MemoryLayout`
     /// * `flags` - Flags to set on the managed tensor
-    /// 
+    ///
     /// # Returns
     /// A new `SafeManagedTensorVersioned` with the specified flags
     pub fn with_flags<T, L>(t: T, flags: Flags) -> Self
@@ -144,10 +144,16 @@ impl std::ops::Deref for SafeManagedTensorVersioned {
     type Target = [u8];
 
     /// Dereferences the tensor to a byte slice.
-    /// 
+    ///
     /// This allows the tensor to be used in contexts that expect a byte slice,
     /// such as reading or writing the tensor's data.
     fn deref(&self) -> &Self::Target {
         self.as_slice_untyped()
+    }
+}
+
+impl AsRef<SafeManagedTensorVersioned> for SafeManagedTensorVersioned {
+    fn as_ref(&self) -> &Self {
+        self
     }
 }
