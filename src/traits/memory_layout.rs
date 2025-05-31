@@ -1,16 +1,3 @@
-use crate::ffi::{self, Tensor};
-
-pub trait TensorLike<L>
-where
-    L: MemoryLayout,
-{
-    fn data_ptr(&self) -> *mut std::ffi::c_void;
-    fn memory_layout(&self) -> L;
-    fn device(&self) -> ffi::Device;
-    fn data_type(&self) -> ffi::DataType;
-    fn byte_offset(&self) -> u64;
-}
-
 pub trait MemoryLayout {
     fn shape_ptr(&self) -> *mut i64;
     fn strides_ptr(&self) -> *mut i64;
@@ -18,9 +5,9 @@ pub trait MemoryLayout {
 }
 
 /// Row major contigous layout with no strides
-pub struct RowMajorContiguousLayout(Box<[i64]>);
+pub struct RowMajorCompactLayout(Box<[i64]>);
 
-impl MemoryLayout for RowMajorContiguousLayout {
+impl MemoryLayout for RowMajorCompactLayout {
     fn shape_ptr(&self) -> *mut i64 {
         self.0.as_ptr() as *mut i64
     }
@@ -34,7 +21,7 @@ impl MemoryLayout for RowMajorContiguousLayout {
     }
 }
 
-impl RowMajorContiguousLayout {
+impl RowMajorCompactLayout {
     pub fn new(shape: Vec<i64>) -> Self {
         Self(shape.into_boxed_slice())
     }
@@ -124,21 +111,5 @@ impl BorrowedLayout {
                 .unwrap_or(std::ptr::null_mut()),
             ndim: num_dimensions as i32,
         }
-    }
-}
-
-impl Tensor {
-    pub fn update<T, L>(&mut self, t: &T, layout: &L)
-    where
-        T: TensorLike<L>,
-        L: MemoryLayout,
-    {
-        self.data = t.data_ptr();
-        self.device = t.device();
-        self.dtype = t.data_type();
-        self.byte_offset = t.byte_offset();
-        self.ndim = layout.ndim();
-        self.shape = layout.shape_ptr();
-        self.strides = layout.strides_ptr();
     }
 }

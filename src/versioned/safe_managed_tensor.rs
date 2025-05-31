@@ -1,7 +1,7 @@
 use std::ptr::NonNull;
 
-use crate::ffi::{self, Flags, TensorView};
-use crate::traits::{MemoryLayout, TensorLike};
+use crate::ffi::{self, Flags};
+use crate::traits::{MemoryLayout, TensorLike, TensorView};
 
 use super::ManagerContext;
 

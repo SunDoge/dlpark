@@ -1,4 +1,9 @@
-use std::fmt::Display;
+#[derive(Debug, Eq, PartialEq)]
+pub enum MemoryOrder {
+    RowMajorContiguous,
+    ColumnMajorContiguous,
+    NonContiguous,
+}
 
 pub fn make_row_major_strides(shape: &[i64]) -> Vec<i64> {
     let rank = shape.len();
@@ -18,34 +23,7 @@ pub fn make_column_major_strides(shape: &[i64]) -> Vec<i64> {
     strides
 }
 
-pub fn is_contiguous(shape: &[i64], strides: &[i64]) -> bool {
-    assert_eq!(
-        shape.len(),
-        strides.len(),
-        "shape and strides should have same length"
-    );
-    let mut expected = 1;
-    for (&dim_size, &stride) in shape.iter().rev().zip(strides.iter().rev()) {
-        if dim_size != 1 {
-            if stride != expected {
-                return false;
-            }
-            expected = expected
-                .checked_mul(dim_size)
-                .expect("overflow in stride calc");
-        }
-    }
-    true
-}
-
-#[derive(Debug, Eq, PartialEq)]
-pub enum MemoryOrder {
-    RowMajorContiguous,
-    ColumnMajorContiguous,
-    NonContiguous,
-}
-
-impl Display for MemoryOrder {
+impl std::fmt::Display for MemoryOrder {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             MemoryOrder::RowMajorContiguous => write!(f, "RowMajorContiguous"),
@@ -123,13 +101,5 @@ mod tests {
         let strides = make_column_major_strides(&shape);
         assert_eq!(strides, vec![1, 1, 2]);
         assert!(is_column_major_contiguous(&shape, &strides));
-    }
-
-    // test is_contiguous
-    #[test]
-    fn test_is_contiguous() {
-        let shape = vec![1, 2, 3];
-        let strides = vec![6, 3, 1];
-        assert!(is_contiguous(&shape, &strides));
     }
 }

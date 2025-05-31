@@ -10,8 +10,7 @@
 // };
 
 use crate::ffi;
-use crate::ffi::{InferDataType, TensorView};
-use crate::traits::{StridedLayout, TensorLike};
+use crate::traits::{InferDataType, StridedLayout, TensorLike, TensorView};
 use crate::utils::make_row_major_strides;
 use crate::{SafeManagedTensor, SafeManagedTensorVersioned};
 

@@ -1,11 +1,10 @@
 use super::ManagerContext;
 use crate::ffi;
-use crate::ffi::TensorView;
-use crate::traits::{MemoryLayout, TensorLike};
+use crate::traits::{MemoryLayout, TensorLike, TensorView};
 use std::ptr::NonNull;
 
 /// A safe wrapper around DLPack tensor that manages its lifetime.
-/// 
+///
 /// This struct provides safe memory management for DLPack tensors by ensuring
 /// proper cleanup when the tensor is dropped. It wraps a raw DLPack tensor pointer
 /// and calls the appropriate deleter function when the tensor is no longer needed.
@@ -26,7 +25,7 @@ impl Drop for SafeManagedTensor {
 
 impl SafeManagedTensor {
     /// Creates a new SafeManagedTensor from a raw pointer to a ManagedTensor.
-    /// 
+    ///
     /// # Safety
     /// The caller must ensure that:
     /// - The pointer is valid and points to a properly initialized ManagedTensor
@@ -37,7 +36,7 @@ impl SafeManagedTensor {
     }
 
     /// Creates a new SafeManagedTensor from a NonNull DLPack pointer.
-    /// 
+    ///
     /// # Safety
     /// The caller must ensure that the NonNull pointer is valid and points to
     /// a properly initialized DLPack tensor.
@@ -46,7 +45,7 @@ impl SafeManagedTensor {
     }
 
     /// Converts the SafeManagedTensor into a raw pointer.
-    /// 
+    ///
     /// # Safety
     /// The caller takes ownership of the tensor and is responsible for
     /// calling the appropriate deleter function when done.
@@ -57,7 +56,7 @@ impl SafeManagedTensor {
     }
 
     /// Converts the SafeManagedTensor into a NonNull DLPack pointer.
-    /// 
+    ///
     /// The caller takes ownership of the tensor and is responsible for
     /// proper cleanup.
     pub fn into_non_null(self) -> ffi::Dlpack {
@@ -67,10 +66,10 @@ impl SafeManagedTensor {
     }
 
     /// Creates a new SafeManagedTensor from any type that implements TensorLike.
-    /// 
+    ///
     /// This is the safe way to create a new tensor, as it handles all the
     /// memory management internally.
-    /// 
+    ///
     /// # Type Parameters
     /// - T: The tensor type that implements TensorLike
     /// - L: The memory layout type that implements MemoryLayout

@@ -3,14 +3,12 @@ use crate::error::InvalidChannelsSnafu;
 use crate::error::InvalidDimensionsSnafu;
 use crate::error::NotSupportedMemoryOrderSnafu;
 use crate::ffi;
-use crate::ffi::InferDataType;
-use crate::ffi::TensorView;
-use crate::traits::{RowMajorContiguousLayout, TensorLike};
+use crate::traits::{InferDataType, RowMajorCompactLayout, TensorLike, TensorView};
 use crate::utils::MemoryOrder;
 use image::{ImageBuffer, Pixel};
 use snafu::ensure;
 
-impl<P> TensorLike<RowMajorContiguousLayout> for ImageBuffer<P, Vec<P::Subpixel>>
+impl<P> TensorLike<RowMajorCompactLayout> for ImageBuffer<P, Vec<P::Subpixel>>
 where
     P: Pixel,
     <P as Pixel>::Subpixel: InferDataType,
@@ -23,8 +21,8 @@ where
         ffi::Device::CPU
     }
 
-    fn memory_layout(&self) -> RowMajorContiguousLayout {
-        RowMajorContiguousLayout::new(vec![
+    fn memory_layout(&self) -> RowMajorCompactLayout {
+        RowMajorCompactLayout::new(vec![
             self.height() as i64,
             self.width() as i64,
             P::CHANNEL_COUNT as i64,
