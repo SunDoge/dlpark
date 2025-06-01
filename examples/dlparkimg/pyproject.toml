@@ -1,16 +1,30 @@
-[build-system]
-requires = ["maturin>=1.1,<2.0"]
-build-backend = "maturin"
-
 [project]
 name = "dlparkimg"
-requires-python = ">=3.7"
-classifiers = [
-    "Programming Language :: Rust",
-    "Programming Language :: Python :: Implementation :: CPython",
-    "Programming Language :: Python :: Implementation :: PyPy",
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "SunDoge", email = "triplez0@outlook.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "loguru>=0.7.3",
+    "torch>=2.7.0",
 ]
 
+[project.scripts]
+dlparkimg = "dlparkimg:main"
 
 [tool.maturin]
-features = ["pyo3/extension-module"]
+module-name = "dlparkimg._core"
+python-packages = ["dlparkimg"]
+python-source = "src"
+
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[dependency-groups]
+dev = [
+    "maturin>=1.8.6",
+]

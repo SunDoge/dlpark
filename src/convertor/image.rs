@@ -1,10 +1,10 @@
-use crate::SafeManagedTensorVersioned;
 use crate::error::InvalidChannelsSnafu;
 use crate::error::InvalidDimensionsSnafu;
 use crate::error::NotSupportedMemoryOrderSnafu;
 use crate::ffi;
 use crate::traits::{InferDataType, RowMajorCompactLayout, TensorLike, TensorView};
 use crate::utils::MemoryOrder;
+use crate::{SafeManagedTensor, SafeManagedTensorVersioned};
 use image::{ImageBuffer, Pixel};
 use snafu::ensure;
 
@@ -65,6 +65,55 @@ where
     type Error = crate::error::Error;
 
     fn try_from(value: SafeManagedTensorVersioned) -> Result<Self, Self::Error> {
+        ensure!(
+            value.num_dimensions() == 3,
+            InvalidDimensionsSnafu {
+                expected: 3usize,
+                actual: value.num_dimensions()
+            }
+        );
+        let shape = value.shape();
+        let width = shape[1] as u32;
+        let height = shape[0] as u32;
+        let channel = shape[2] as u8;
+        ensure!(
+            channel == P::CHANNEL_COUNT,
+            InvalidChannelsSnafu {
+                expected: P::CHANNEL_COUNT as i64,
+                actual: channel as i64
+            }
+        );
+        Ok(ImageBuffer::from_raw(width, height, value).expect("fuck"))
+    }
+}
+
+impl<'a, P> TryFrom<&'a SafeManagedTensor> for ImageBuffer<P, &'a [P::Subpixel]>
+where
+    P: Pixel,
+{
+    type Error = crate::error::Error;
+
+    fn try_from(value: &'a SafeManagedTensor) -> Result<Self, Self::Error> {
+        ensure!(
+            value.memory_order() == MemoryOrder::RowMajorContiguous,
+            NotSupportedMemoryOrderSnafu {
+                order: value.memory_order(),
+                expected: MemoryOrder::RowMajorContiguous
+            }
+        );
+        let shape = value.shape();
+        let s = unsafe { value.as_slice::<P::Subpixel>()? };
+        Ok(ImageBuffer::from_raw(shape[1] as u32, shape[0] as u32, s).expect("fuck"))
+    }
+}
+
+impl<P> TryFrom<SafeManagedTensor> for ImageBuffer<P, SafeManagedTensor>
+where
+    P: Pixel<Subpixel = u8>,
+{
+    type Error = crate::error::Error;
+
+    fn try_from(value: SafeManagedTensor) -> Result<Self, Self::Error> {
         ensure!(
             value.num_dimensions() == 3,
             InvalidDimensionsSnafu {

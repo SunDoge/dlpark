@@ -5,10 +5,7 @@ This is an example of how to transfer `image::RgbImage` to Python and how to tra
 ## Usage
 
 ```shell
-pip install maturin
-maturin develop
-pip install torch matplotlib
-python main.py
+uv run main.py
 ```
 
 | Input RGB Image     | Output BGR Image |
