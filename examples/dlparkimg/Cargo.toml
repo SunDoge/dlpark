@@ -9,6 +9,9 @@ name = "dlparkimg"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = "0.24"
-dlpark = { path = "../../", features = ["pyo3"] }
-image = "0.25.0"
+pyo3 = { workspace = true }
+dlpark = { workspace = true, default-features = false, features = [
+    "pyo3",
+    "image",
+] }
+image = { workspace = true }

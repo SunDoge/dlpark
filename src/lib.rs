@@ -1,29 +1,13 @@
-mod data_type;
-mod device;
-mod dl_managed_tensor;
-mod dl_managed_tensor_versioned;
-mod dl_tensor;
-mod manager_ctx;
-mod pack_version;
-mod shape_and_strides;
-mod tensor;
+pub mod convertor;
 
-#[cfg(feature = "pyo3")]
-mod python;
-
-/// Raw bindings for DLPack.
+pub mod error;
 pub mod ffi;
-pub mod utils;
-
-/// Imports the structs and traits for you to implement [`IntoDLPack`] and
-/// [`FromDLPack`].
+pub mod legacy;
 pub mod prelude;
+pub mod traits;
+pub mod utils;
+pub mod versioned;
 
-pub use crate::{
-    manager_ctx::ManagerCtx,
-    shape_and_strides::ShapeAndStrides,
-    tensor::{
-        traits::{DLPack, FromDLPack, InferDtype, IntoDLPack, TensorView, ToTensor},
-        ManagedTensor,
-    },
-};
+pub use error::{Error, Result};
+pub use legacy::SafeManagedTensor;
+pub use versioned::SafeManagedTensorVersioned;
