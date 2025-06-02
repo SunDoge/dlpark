@@ -1,8 +1,8 @@
-use crate::{ffi::InferDataType, traits::RowMajorContiguousLayout, traits::TensorLike};
+use crate::traits::{InferDataType, RowMajorCompactLayout, TensorLike};
 
 use crate::ffi;
 
-impl<A> TensorLike<RowMajorContiguousLayout> for Vec<A>
+impl<A> TensorLike<RowMajorCompactLayout> for Vec<A>
 where
     A: InferDataType,
 {
@@ -14,8 +14,8 @@ where
         A::data_type()
     }
 
-    fn memory_layout(&self) -> RowMajorContiguousLayout {
-        RowMajorContiguousLayout::new(vec![self.len() as i64])
+    fn memory_layout(&self) -> RowMajorCompactLayout {
+        RowMajorCompactLayout::new(vec![self.len() as i64])
     }
 
     fn device(&self) -> ffi::Device {
@@ -27,7 +27,7 @@ where
     }
 }
 
-impl<A> TensorLike<RowMajorContiguousLayout> for Box<[A]>
+impl<A> TensorLike<RowMajorCompactLayout> for Box<[A]>
 where
     A: InferDataType,
 {
@@ -39,8 +39,8 @@ where
         A::data_type()
     }
 
-    fn memory_layout(&self) -> RowMajorContiguousLayout {
-        RowMajorContiguousLayout::new(vec![self.len() as i64])
+    fn memory_layout(&self) -> RowMajorCompactLayout {
+        RowMajorCompactLayout::new(vec![self.len() as i64])
     }
 
     fn device(&self) -> ffi::Device {
@@ -54,8 +54,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::SafeManagedTensorVersioned;
-    use crate::ffi::TensorView;
+    use crate::prelude::*;
 
     #[test]
     fn test_vec() {
