@@ -156,8 +156,18 @@ impl DataType {
 
 impl DataType {
     /// Calculate `DataType` size as (bits * lanes + 7) // 8
-    pub fn size(&self) -> usize {
+    pub const fn size(&self) -> usize {
         (self.bits as u32 * self.lanes as u32).div_ceil(8) as usize
     }
 }
 
+#[cfg(test)]
+mod tests {
+    pub use super::*;
+
+    #[test]
+    fn test_size() {
+        assert_eq!(DataType::F32.size(), 4);
+        assert_eq!(DataType::BOOL.size(), 1);
+    }
+}

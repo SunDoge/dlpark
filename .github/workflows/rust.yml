@@ -2,23 +2,20 @@ name: Rust
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v3
-    - name: Rust cache
-      uses: Swatinem/rust-cache@v2
-    - name: Build
-      run: cargo build --verbose --features pyo3
-    - name: Run tests
-      run: cargo test --verbose --features pyo3
+      - uses: actions/checkout@v4
+      - name: Build
+        run: cargo build --verbose
+      - name: Run tests
+        run: cargo test --verbose
