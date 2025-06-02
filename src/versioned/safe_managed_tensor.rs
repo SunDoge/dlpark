@@ -98,36 +98,25 @@ impl SafeManagedTensorVersioned {
         Self(ctx.into_dlpack_versioned(flags))
     }
 
-    /// Returns the raw bits of the tensor's flags.
-    pub fn flags_bits(&self) -> u64 {
-        unsafe { self.0.as_ref().flags }
-    }
-
     /// Returns the tensor's flags as an `Option<Flags>`.
     /// Returns `None` if the flags contain invalid bits.
-    pub fn flags(&self) -> Option<Flags> {
-        Flags::from_bits(self.flags_bits())
-    }
-
-    /// Returns the tensor's flags, truncating any invalid bits.
-    pub fn flags_truncate(&self) -> Flags {
-        Flags::from_bits_truncate(self.flags_bits())
+    pub fn flags(&self) -> &Flags {
+        unsafe { &self.0.as_ref().flags }
     }
 
     /// Returns whether the tensor is marked as read-only.
     pub fn read_only(&self) -> bool {
-        self.flags_truncate().contains(Flags::READ_ONLY)
+        self.flags().contains(Flags::READ_ONLY)
     }
 
     /// Returns whether the tensor is a copy of another tensor.
     pub fn is_copied(&self) -> bool {
-        self.flags_truncate().contains(Flags::IS_COPIED)
+        self.flags().contains(Flags::IS_COPIED)
     }
 
     /// Returns whether the tensor's sub-byte type is padded.
     pub fn is_subbtype_type_padded(&self) -> bool {
-        self.flags_truncate()
-            .contains(Flags::IS_SUBBYTE_TYPE_PADDED)
+        self.flags().contains(Flags::IS_SUBBYTE_TYPE_PADDED)
     }
 }
 

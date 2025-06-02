@@ -35,6 +35,8 @@ impl PackVersion {
 }
 
 bitflags! {
+    #[repr(transparent)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     pub struct Flags: u64 {
         const READ_ONLY = 1 << 0;
         const IS_COPIED = 1 << 1;
@@ -76,7 +78,7 @@ pub struct ManagedTensorVersioned {
     /// Future ABI changes should keep everything until this field
     /// stable, to ensure that deleter can be correctly called.
     /// Default: `DLPACK_FLAG_BITMASK_READ_ONLY`
-    pub flags: u64,
+    pub flags: Flags,
     // DLTensor which is being memory managed
     pub dl_tensor: Tensor,
 }
@@ -87,7 +89,7 @@ impl Default for ManagedTensorVersioned {
             version: PackVersion::default(),
             manager_ctx: std::ptr::null_mut(),
             deleter: None,
-            flags: Flags::default().bits(),
+            flags: Flags::default(),
             dl_tensor: Tensor::default(),
         }
     }

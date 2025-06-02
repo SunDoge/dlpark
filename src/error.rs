@@ -20,10 +20,13 @@ pub enum Error {
     NonContiguous { shape: Vec<i64>, strides: Vec<i64> },
 
     #[snafu(display("not supported memory order {order}, expected {expected}"))]
-    NotSupportedMemoryOrder {
+    UnsupportedMemoryOrder {
         order: MemoryOrder,
         expected: MemoryOrder,
     },
+
+    #[snafu(display("unsupported data type {name}"))]
+    UnsupportedDataType { name: String },
 
     #[snafu(display("invalid dimensions, expected {expected}, actual {actual}"))]
     InvalidDimensions { expected: usize, actual: usize },

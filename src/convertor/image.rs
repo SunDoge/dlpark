@@ -1,6 +1,6 @@
 use crate::error::InvalidChannelsSnafu;
 use crate::error::InvalidDimensionsSnafu;
-use crate::error::NotSupportedMemoryOrderSnafu;
+use crate::error::UnsupportedMemoryOrderSnafu;
 use crate::ffi;
 use crate::traits::{InferDataType, RowMajorCompactLayout, TensorLike, TensorView};
 use crate::utils::MemoryOrder;
@@ -47,7 +47,7 @@ where
     fn try_from(value: &'a SafeManagedTensorVersioned) -> Result<Self, Self::Error> {
         ensure!(
             value.memory_order() == MemoryOrder::RowMajorContiguous,
-            NotSupportedMemoryOrderSnafu {
+            UnsupportedMemoryOrderSnafu {
                 order: value.memory_order(),
                 expected: MemoryOrder::RowMajorContiguous
             }
@@ -96,7 +96,7 @@ where
     fn try_from(value: &'a SafeManagedTensor) -> Result<Self, Self::Error> {
         ensure!(
             value.memory_order() == MemoryOrder::RowMajorContiguous,
-            NotSupportedMemoryOrderSnafu {
+            UnsupportedMemoryOrderSnafu {
                 order: value.memory_order(),
                 expected: MemoryOrder::RowMajorContiguous
             }

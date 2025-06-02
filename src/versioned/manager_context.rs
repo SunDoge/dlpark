@@ -31,7 +31,7 @@ where
             .deleter
             .replace(deleter::<Self>);
 
-        self.managed_tensor_versioned.flags = flags.bits();
+        self.managed_tensor_versioned.flags = flags;
 
         let ptr = Box::into_raw(self);
         unsafe {
