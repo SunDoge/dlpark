@@ -56,7 +56,9 @@ where
         );
         let shape = value.shape();
         let s = unsafe { value.as_slice::<P::Subpixel>()? };
-        Ok(ImageBuffer::from_raw(shape[1] as u32, shape[0] as u32, s).expect("fuck"))
+        let img = ImageBuffer::from_raw(shape[1] as u32, shape[0] as u32, s)
+            .expect("container is not big enough");
+        Ok(img)
     }
 }
 
@@ -85,7 +87,8 @@ where
                 actual: channel as i64
             }
         );
-        Ok(ImageBuffer::from_raw(width, height, value).expect("fuck"))
+        let img = ImageBuffer::from_raw(width, height, value).expect("container is not big enough");
+        Ok(img)
     }
 }
 
@@ -105,7 +108,9 @@ where
         );
         let shape = value.shape();
         let s = unsafe { value.as_slice::<P::Subpixel>()? };
-        Ok(ImageBuffer::from_raw(shape[1] as u32, shape[0] as u32, s).expect("fuck"))
+        let img = ImageBuffer::from_raw(shape[1] as u32, shape[0] as u32, s)
+            .expect("container is not big enough");
+        Ok(img)
     }
 }
 
@@ -134,6 +139,34 @@ where
                 actual: channel as i64
             }
         );
-        Ok(ImageBuffer::from_raw(width, height, value).expect("fuck"))
+        let img = ImageBuffer::from_raw(width, height, value).expect("container is not big enough");
+        Ok(img)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use image::Rgb;
+
+    use super::*;
+
+    #[test]
+    fn test_dlpack() {
+        let img = ImageBuffer::<Rgb<u8>, _>::from_vec(100, 100, vec![0; 100 * 100 * 3])
+            .expect("container is not big enough");
+        let mt = SafeManagedTensor::new(img).unwrap();
+        let img2 = ImageBuffer::<Rgb<u8>, _>::try_from(&mt).unwrap();
+        assert_eq!(img2.width(), 100);
+        assert_eq!(img2.height(), 100);
+    }
+
+    #[test]
+    fn test_dlpack_versioned() {
+        let img = ImageBuffer::<Rgb<u8>, _>::from_vec(100, 100, vec![0; 100 * 100 * 3])
+            .expect("container is not big enough");
+        let mt = SafeManagedTensorVersioned::new(img).unwrap();
+        let img2 = ImageBuffer::<Rgb<u8>, _>::try_from(&mt).unwrap();
+        assert_eq!(img2.width(), 100);
+        assert_eq!(img2.height(), 100);
     }
 }

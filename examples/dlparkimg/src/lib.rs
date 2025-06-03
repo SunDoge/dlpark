@@ -6,7 +6,7 @@ use pyo3::prelude::*;
 fn read_image(filename: &str) -> SafeManagedTensor {
     let img = image::open(filename).unwrap();
     let rgb_img = img.to_rgb8();
-    SafeManagedTensor::new(rgb_img)
+    SafeManagedTensor::new(rgb_img).expect("fuck")
 }
 
 #[pyfunction]

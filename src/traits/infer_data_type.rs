@@ -6,8 +6,8 @@ pub trait InferDataType {
 
 // impl_infer_data_type!(f32, DataType::F32)
 macro_rules! impl_infer_data_type {
-    ($ty:ident, $data_type:expr) => {
-        impl InferDataType for $ty {
+    ($t:ty, $data_type:expr) => {
+        impl InferDataType for $t {
             fn data_type() -> DataType {
                 $data_type
             }

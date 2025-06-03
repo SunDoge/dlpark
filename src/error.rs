@@ -33,4 +33,5 @@ pub enum Error {
 
     #[snafu(display("invalid channels, expected {expected}, actual {actual}"))]
     InvalidChannels { expected: i64, actual: i64 },
+
 }

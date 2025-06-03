@@ -56,8 +56,9 @@ impl StridedLayout {
         Self(shape_and_strides.into_boxed_slice())
     }
 
-    pub fn new_with_ndim(ndim: usize) -> Self {
-        Self(Vec::with_capacity(ndim * 2).into_boxed_slice())
+    pub fn with_ndim(ndim: usize) -> Self {
+        let buf = vec![0; ndim * 2];
+        Self(buf.into_boxed_slice())
     }
 
     pub fn shape_mut(&mut self) -> &mut [i64] {

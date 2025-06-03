@@ -1,4 +1,4 @@
-pub mod convertor;
+pub(crate) mod convertor;
 
 pub mod error;
 pub mod ffi;
