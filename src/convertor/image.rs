@@ -1,3 +1,4 @@
+use crate::Result;
 use crate::error::InvalidChannelsSnafu;
 use crate::error::InvalidDimensionsSnafu;
 use crate::error::UnsupportedMemoryOrderSnafu;
@@ -13,12 +14,13 @@ where
     P: Pixel,
     <P as Pixel>::Subpixel: InferDataType,
 {
+    type Error = crate::Error;
     fn data_ptr(&self) -> *mut std::ffi::c_void {
         self.as_ptr() as *mut P::Subpixel as *mut _
     }
 
-    fn device(&self) -> ffi::Device {
-        ffi::Device::CPU
+    fn device(&self) -> Result<ffi::Device> {
+        Ok(ffi::Device::CPU)
     }
 
     fn memory_layout(&self) -> RowMajorCompactLayout {
@@ -33,8 +35,8 @@ where
         0
     }
 
-    fn data_type(&self) -> ffi::DataType {
-        P::Subpixel::data_type()
+    fn data_type(&self) -> Result<ffi::DataType> {
+        Ok(P::Subpixel::data_type())
     }
 }
 
@@ -42,9 +44,9 @@ impl<'a, P> TryFrom<&'a SafeManagedTensorVersioned> for ImageBuffer<P, &'a [P::S
 where
     P: Pixel,
 {
-    type Error = crate::error::Error;
+    type Error = crate::Error;
 
-    fn try_from(value: &'a SafeManagedTensorVersioned) -> Result<Self, Self::Error> {
+    fn try_from(value: &'a SafeManagedTensorVersioned) -> Result<Self> {
         ensure!(
             value.memory_order() == MemoryOrder::RowMajorContiguous,
             UnsupportedMemoryOrderSnafu {
@@ -62,9 +64,9 @@ impl<P> TryFrom<SafeManagedTensorVersioned> for ImageBuffer<P, SafeManagedTensor
 where
     P: Pixel<Subpixel = u8>,
 {
-    type Error = crate::error::Error;
+    type Error = crate::Error;
 
-    fn try_from(value: SafeManagedTensorVersioned) -> Result<Self, Self::Error> {
+    fn try_from(value: SafeManagedTensorVersioned) -> Result<Self> {
         ensure!(
             value.num_dimensions() == 3,
             InvalidDimensionsSnafu {
@@ -91,9 +93,9 @@ impl<'a, P> TryFrom<&'a SafeManagedTensor> for ImageBuffer<P, &'a [P::Subpixel]>
 where
     P: Pixel,
 {
-    type Error = crate::error::Error;
+    type Error = crate::Error;
 
-    fn try_from(value: &'a SafeManagedTensor) -> Result<Self, Self::Error> {
+    fn try_from(value: &'a SafeManagedTensor) -> Result<Self> {
         ensure!(
             value.memory_order() == MemoryOrder::RowMajorContiguous,
             UnsupportedMemoryOrderSnafu {
@@ -111,9 +113,9 @@ impl<P> TryFrom<SafeManagedTensor> for ImageBuffer<P, SafeManagedTensor>
 where
     P: Pixel<Subpixel = u8>,
 {
-    type Error = crate::error::Error;
+    type Error = crate::Error;
 
-    fn try_from(value: SafeManagedTensor) -> Result<Self, Self::Error> {
+    fn try_from(value: SafeManagedTensor) -> Result<Self> {
         ensure!(
             value.num_dimensions() == 3,
             InvalidDimensionsSnafu {

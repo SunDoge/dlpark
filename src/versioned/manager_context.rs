@@ -22,10 +22,13 @@ where
         })
     }
 
-    pub fn into_dlpack_versioned(mut self: Box<Self>, flags: Flags) -> DlpackVersioned {
+    pub fn into_dlpack_versioned(
+        mut self: Box<Self>,
+        flags: Flags,
+    ) -> std::result::Result<DlpackVersioned, T::Error> {
         self.managed_tensor_versioned
             .dl_tensor
-            .update(&self.inner, &self.memory_layout);
+            .update(&self.inner, &self.memory_layout)?;
 
         self.managed_tensor_versioned
             .deleter
@@ -37,7 +40,7 @@ where
         unsafe {
             let managed_tensor_versioned = &mut (*ptr).managed_tensor_versioned;
             managed_tensor_versioned.manager_ctx = ptr as *mut _;
-            NonNull::new_unchecked(managed_tensor_versioned)
+            Ok(NonNull::new_unchecked(managed_tensor_versioned))
         }
     }
 }

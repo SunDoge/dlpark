@@ -73,13 +73,13 @@ impl SafeManagedTensor {
     /// # Type Parameters
     /// - T: The tensor type that implements TensorLike
     /// - L: The memory layout type that implements MemoryLayout
-    pub fn new<T, L>(t: T) -> Self
+    pub fn new<T, L>(t: T) -> std::result::Result<Self, T::Error>
     where
         T: TensorLike<L>,
         L: MemoryLayout,
     {
         let ctx = ManagerContext::new(t);
-        Self(ctx.into_dlpack())
+        ctx.into_dlpack().map(Self)
     }
 }
 

@@ -73,7 +73,7 @@ impl SafeManagedTensorVersioned {
     ///
     /// # Returns
     /// A new `SafeManagedTensorVersioned` with default flags
-    pub fn new<T, L>(t: T) -> Self
+    pub fn new<T, L>(t: T) -> std::result::Result<Self, T::Error>
     where
         T: TensorLike<L>,
         L: MemoryLayout,
@@ -89,13 +89,13 @@ impl SafeManagedTensorVersioned {
     ///
     /// # Returns
     /// A new `SafeManagedTensorVersioned` with the specified flags
-    pub fn with_flags<T, L>(t: T, flags: Flags) -> Self
+    pub fn with_flags<T, L>(t: T, flags: Flags) -> std::result::Result<Self, T::Error>
     where
         T: TensorLike<L>,
         L: MemoryLayout,
     {
         let ctx = ManagerContext::new(t);
-        Self(ctx.into_dlpack_versioned(flags))
+        ctx.into_dlpack_versioned(flags).map(Self)
     }
 
     /// Returns the tensor's flags as an `Option<Flags>`.

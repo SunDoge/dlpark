@@ -1,8 +1,7 @@
 use std::ptr::NonNull;
 
-use crate::traits::{MemoryLayout, TensorLike};
-
 use crate::ffi;
+use crate::traits::{MemoryLayout, TensorLike};
 
 pub struct ManagerContext<T, L> {
     inner: T,
@@ -33,16 +32,16 @@ where
         })
     }
 
-    pub fn into_dlpack(mut self: Box<Self>) -> ffi::Dlpack {
+    pub fn into_dlpack(mut self: Box<Self>) -> std::result::Result<ffi::Dlpack, T::Error> {
         self.managed_tensor
             .dl_tensor
-            .update(&self.inner, &self.memory_layout);
+            .update(&self.inner, &self.memory_layout)?;
         self.managed_tensor.deleter.replace(deleter::<Self>);
         let ptr = Box::into_raw(self);
         unsafe {
             let managed_tensor = &mut (*ptr).managed_tensor;
             managed_tensor.manager_ctx = ptr as *mut _;
-            NonNull::new_unchecked(managed_tensor)
+            Ok(NonNull::new_unchecked(managed_tensor))
         }
     }
 }

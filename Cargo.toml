@@ -40,9 +40,9 @@ image = "0.25.6"
 dlpark = { path = ".", default-features = false } # Add dlpark as a workspace dependency
 
 [features]
-default = ["pyo3"]
+default = ["pyo3", "image"]
 
-full = ["ndarray", "image", "pyo3", "candle-cpu", "std-container"]
+full = ["ndarray", "image", "pyo3", "candle-cpu"]
 
 pyo3 = ["dep:pyo3"]
 half = ["dep:half"]                                   # support f16 and bf16
