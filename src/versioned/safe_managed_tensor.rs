@@ -25,6 +25,38 @@ impl Drop for SafeManagedTensorVersioned {
 }
 
 impl SafeManagedTensorVersioned {
+    /// Creates a new `SafeManagedTensorVersioned` from a tensor-like type.
+    ///
+    /// # Arguments
+    /// * `t` - A type that implements `TensorLike` and has a valid `MemoryLayout`
+    ///
+    /// # Returns
+    /// A new `SafeManagedTensorVersioned` with default flags
+    pub fn new<T, L>(t: T) -> std::result::Result<Self, T::Error>
+    where
+        T: TensorLike<L>,
+        L: MemoryLayout,
+    {
+        Self::with_flags(t, Flags::default())
+    }
+
+    /// Creates a new `SafeManagedTensorVersioned` from a tensor-like type with specified flags.
+    ///
+    /// # Arguments
+    /// * `t` - A type that implements `TensorLike` and has a valid `MemoryLayout`
+    /// * `flags` - Flags to set on the managed tensor
+    ///
+    /// # Returns
+    /// A new `SafeManagedTensorVersioned` with the specified flags
+    pub fn with_flags<T, L>(t: T, flags: Flags) -> std::result::Result<Self, T::Error>
+    where
+        T: TensorLike<L>,
+        L: MemoryLayout,
+    {
+        let ctx = ManagerContext::new(t);
+        ctx.into_dlpack_versioned(flags).map(Self)
+    }
+
     /// Creates a new `SafeManagedTensorVersioned` from a raw pointer.
     ///
     /// # Safety
@@ -64,38 +96,6 @@ impl SafeManagedTensorVersioned {
         let ptr = self.0;
         std::mem::forget(self);
         ptr
-    }
-
-    /// Creates a new `SafeManagedTensorVersioned` from a tensor-like type.
-    ///
-    /// # Arguments
-    /// * `t` - A type that implements `TensorLike` and has a valid `MemoryLayout`
-    ///
-    /// # Returns
-    /// A new `SafeManagedTensorVersioned` with default flags
-    pub fn new<T, L>(t: T) -> std::result::Result<Self, T::Error>
-    where
-        T: TensorLike<L>,
-        L: MemoryLayout,
-    {
-        Self::with_flags(t, Flags::default())
-    }
-
-    /// Creates a new `SafeManagedTensorVersioned` from a tensor-like type with specified flags.
-    ///
-    /// # Arguments
-    /// * `t` - A type that implements `TensorLike` and has a valid `MemoryLayout`
-    /// * `flags` - Flags to set on the managed tensor
-    ///
-    /// # Returns
-    /// A new `SafeManagedTensorVersioned` with the specified flags
-    pub fn with_flags<T, L>(t: T, flags: Flags) -> std::result::Result<Self, T::Error>
-    where
-        T: TensorLike<L>,
-        L: MemoryLayout,
-    {
-        let ctx = ManagerContext::new(t);
-        ctx.into_dlpack_versioned(flags).map(Self)
     }
 
     /// Returns the tensor's flags as an `Option<Flags>`.

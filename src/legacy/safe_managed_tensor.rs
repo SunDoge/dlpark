@@ -24,6 +24,23 @@ impl Drop for SafeManagedTensor {
 }
 
 impl SafeManagedTensor {
+    /// Creates a new SafeManagedTensor from any type that implements TensorLike.
+    ///
+    /// This is the safe way to create a new tensor, as it handles all the
+    /// memory management internally.
+    ///
+    /// # Type Parameters
+    /// - T: The tensor type that implements TensorLike
+    /// - L: The memory layout type that implements MemoryLayout
+    pub fn new<T, L>(t: T) -> std::result::Result<Self, T::Error>
+    where
+        T: TensorLike<L>,
+        L: MemoryLayout,
+    {
+        let ctx = ManagerContext::new(t);
+        ctx.into_dlpack().map(Self)
+    }
+
     /// Creates a new SafeManagedTensor from a raw pointer to a ManagedTensor.
     ///
     /// # Safety
@@ -63,23 +80,6 @@ impl SafeManagedTensor {
         let ptr = self.0;
         std::mem::forget(self);
         ptr
-    }
-
-    /// Creates a new SafeManagedTensor from any type that implements TensorLike.
-    ///
-    /// This is the safe way to create a new tensor, as it handles all the
-    /// memory management internally.
-    ///
-    /// # Type Parameters
-    /// - T: The tensor type that implements TensorLike
-    /// - L: The memory layout type that implements MemoryLayout
-    pub fn new<T, L>(t: T) -> std::result::Result<Self, T::Error>
-    where
-        T: TensorLike<L>,
-        L: MemoryLayout,
-    {
-        let ctx = ManagerContext::new(t);
-        ctx.into_dlpack().map(Self)
     }
 }
 

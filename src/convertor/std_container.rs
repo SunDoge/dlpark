@@ -65,7 +65,7 @@ mod tests {
         assert_eq!(t.shape(), &[3]);
         assert_eq!(t.strides(), None);
 
-        let s: &[f32] = t.as_slice_contiguous().expect("fuck");
+        let s: &[f32] = t.as_slice_contiguous().unwrap();
         assert_eq!(s, &[1.0f32, 2., 3.]);
     }
 
@@ -76,7 +76,7 @@ mod tests {
         assert_eq!(t.shape(), &[3]);
         assert_eq!(t.strides(), None);
 
-        let s: &[f32] = t.as_slice_contiguous().expect("fuck");
+        let s: &[f32] = t.as_slice_contiguous().unwrap();
         assert_eq!(s, &[1.0f32, 2., 3.]);
     }
 }

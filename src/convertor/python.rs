@@ -109,3 +109,38 @@ impl<'py> IntoPyObject<'py> for SafeManagedTensorVersioned {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::traits::TensorView;
+    use pyo3::Python;
+
+    use super::*;
+
+    #[test]
+    fn test_dlpack() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let mt =
+                SafeManagedTensor::new(vec![1i32, 2, 3]).expect("fail to make safe managed tensor");
+            let ptr = mt.data_ptr();
+            let capsule = mt.into_pyobject(py).expect("fail to convert to pyobject");
+            let mt2 = SafeManagedTensor::extract_bound(&capsule).expect("fail to extract bound");
+            assert_eq!(ptr, mt2.data_ptr());
+        });
+    }
+
+    #[test]
+    fn test_dlpack_versioned() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let mt = SafeManagedTensorVersioned::new(vec![1i32, 2, 3])
+                .expect("fail to make safe managed tensor");
+            let ptr = mt.data_ptr();
+            let capsule = mt.into_pyobject(py).expect("fail to convert to pyobject");
+            let mt2 =
+                SafeManagedTensorVersioned::extract_bound(&capsule).expect("fail to extract bound");
+            assert_eq!(ptr, mt2.data_ptr());
+        });
+    }
+}
