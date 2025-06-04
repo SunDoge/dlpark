@@ -16,6 +16,7 @@ exclude = [".github/"]
 [dependencies]
 bitflags = "2.9"
 candle-core = { workspace = true, optional = true }
+cudarc = { workspace = true, optional = true }
 half = { workspace = true, optional = true }
 image = { workspace = true, optional = true }
 ndarray = { workspace = true, optional = true }
@@ -33,9 +34,10 @@ ndarray = "0.16"
 pyo3 = "0.25"
 image = "0.25"
 dlpark = { path = ".", default-features = false } # Add dlpark as a workspace dependency
+cudarc = "0.16.4"
 
 [features]
-default = []
+default = ["cuda", "cudarc/cuda-12090"]
 
 pyo3 = ["dep:pyo3"]
 
@@ -44,10 +46,12 @@ half = ["dep:half"]
 ndarray = ["dep:ndarray"]
 image = ["dep:image"]
 
+
+cuda = ["dep:cudarc"]
+
 # Not supported yet
 # candle-cpu = ["dep:candle-core"]
 # candle-cuda = ["dep:candle-core", "candle-core/cuda"]
-
 
 
 # for examples/dlparkimg

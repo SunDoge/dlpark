@@ -1,6 +1,6 @@
 use snafu::prelude::*;
 
-use crate::utils::MemoryOrder;
+use crate::{ffi, utils::MemoryOrder};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -28,9 +28,15 @@ pub enum Error {
     #[snafu(display("unsupported data type {name}"))]
     UnsupportedDataType { name: String },
 
+    #[snafu(display("unsupported device {device:?}"))]
+    UnsupportedDevice { device: ffi::DeviceType },
+
     #[snafu(display("invalid dimensions, expected {expected}, actual {actual}"))]
     InvalidDimensions { expected: usize, actual: usize },
 
     #[snafu(display("invalid channels, expected {expected}, actual {actual}"))]
     InvalidChannels { expected: i64, actual: i64 },
+    // Cuda {
+    //     source: cudarc::
+    // }
 }

@@ -1,7 +1,7 @@
 use crate::Result;
 use crate::error::{DataTypeSizeMismatchSnafu, NonContiguousSnafu};
-use crate::ffi::DataType;
 use crate::ffi::Tensor;
+use crate::ffi::{DataType, Device};
 use crate::utils::MemoryOrder;
 use snafu::ensure;
 use std::ffi::c_void;
@@ -81,16 +81,29 @@ pub trait TensorView {
         self.dl_tensor().byte_offset as usize
     }
 
+    /// Returns a reference to the tensor's device.
+    ///
+    /// This is the device on which the tensor is allocated.
+    fn device(&self) -> &Device {
+        &self.dl_tensor().device
+    }
+
     /// Returns a byte slice view of the tensor's data.
     ///
     /// This provides raw access to the tensor's memory as a byte slice,
     /// regardless of the actual data type. The length is calculated based
     /// on the number of elements and the size of each element.
     fn as_slice_untyped(&self) -> &[u8] {
-        let length = self.num_elements() * self.data_type().size();
         unsafe {
-            std::slice::from_raw_parts(self.data_ptr().add(self.byte_offset()).cast(), length)
+            std::slice::from_raw_parts(
+                self.data_ptr().add(self.byte_offset()).cast(),
+                self.num_bytes(),
+            )
         }
+    }
+
+    fn num_bytes(&self) -> usize {
+        self.num_elements() * self.data_type().size()
     }
 
     /// Returns a typed slice view of the tensor's data.

@@ -114,36 +114,6 @@ where
     }
 }
 
-impl<P> TryFrom<SafeManagedTensor> for ImageBuffer<P, SafeManagedTensor>
-where
-    P: Pixel<Subpixel = u8>,
-{
-    type Error = crate::Error;
-
-    fn try_from(value: SafeManagedTensor) -> Result<Self> {
-        ensure!(
-            value.num_dimensions() == 3,
-            InvalidDimensionsSnafu {
-                expected: 3usize,
-                actual: value.num_dimensions()
-            }
-        );
-        let shape = value.shape();
-        let width = shape[1] as u32;
-        let height = shape[0] as u32;
-        let channel = shape[2] as u8;
-        ensure!(
-            channel == P::CHANNEL_COUNT,
-            InvalidChannelsSnafu {
-                expected: P::CHANNEL_COUNT as i64,
-                actual: channel as i64
-            }
-        );
-        let img = ImageBuffer::from_raw(width, height, value).expect("container is not big enough");
-        Ok(img)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use image::Rgb;

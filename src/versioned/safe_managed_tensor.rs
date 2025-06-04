@@ -128,19 +128,6 @@ impl TensorView for SafeManagedTensorVersioned {
     }
 }
 
-/// Implements `Deref` to allow treating the tensor as a byte slice.
-impl std::ops::Deref for SafeManagedTensorVersioned {
-    type Target = [u8];
-
-    /// Dereferences the tensor to a byte slice.
-    ///
-    /// This allows the tensor to be used in contexts that expect a byte slice,
-    /// such as reading or writing the tensor's data.
-    fn deref(&self) -> &Self::Target {
-        self.as_slice_untyped()
-    }
-}
-
 impl AsRef<SafeManagedTensorVersioned> for SafeManagedTensorVersioned {
     fn as_ref(&self) -> &Self {
         self
