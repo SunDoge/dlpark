@@ -21,7 +21,7 @@ half = { workspace = true, optional = true }
 image = { workspace = true, optional = true }
 ndarray = { workspace = true, optional = true }
 pyo3 = { workspace = true, optional = true }
-snafu = "0.8.6"
+snafu = "0.8"
 
 [workspace]
 members = ["examples/dlparkimg"]
@@ -34,10 +34,10 @@ ndarray = "0.16"
 pyo3 = "0.25"
 image = "0.25"
 dlpark = { path = ".", default-features = false } # Add dlpark as a workspace dependency
-cudarc = "0.16.4"
+cudarc = "0.17.0"
 
 [features]
-default = ["cuda", "cudarc/cuda-12090"]
+default = []
 
 pyo3 = ["dep:pyo3"]
 

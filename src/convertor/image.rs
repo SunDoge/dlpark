@@ -1,13 +1,10 @@
-use crate::Result;
-use crate::error::InvalidChannelsSnafu;
-use crate::error::InvalidDimensionsSnafu;
-use crate::error::UnsupportedMemoryOrderSnafu;
-use crate::ffi;
-use crate::traits::{InferDataType, RowMajorCompactLayout, TensorLike, TensorView};
-use crate::utils::MemoryOrder;
-use crate::{SafeManagedTensor, SafeManagedTensorVersioned};
 use image::{ImageBuffer, Pixel};
 use snafu::ensure;
+
+use crate::error::UnsupportedMemoryOrderSnafu;
+use crate::traits::{InferDataType, RowMajorCompactLayout, TensorLike, TensorView};
+use crate::utils::MemoryOrder;
+use crate::{Result, SafeManagedTensor, SafeManagedTensorVersioned, ffi};
 
 impl<P> TensorLike<RowMajorCompactLayout> for ImageBuffer<P, Vec<P::Subpixel>>
 where
@@ -58,36 +55,6 @@ where
         let s = unsafe { value.as_slice::<P::Subpixel>()? };
         let img = ImageBuffer::from_raw(shape[1] as u32, shape[0] as u32, s)
             .expect("container is not big enough");
-        Ok(img)
-    }
-}
-
-impl<P> TryFrom<SafeManagedTensorVersioned> for ImageBuffer<P, SafeManagedTensorVersioned>
-where
-    P: Pixel<Subpixel = u8>,
-{
-    type Error = crate::Error;
-
-    fn try_from(value: SafeManagedTensorVersioned) -> Result<Self> {
-        ensure!(
-            value.num_dimensions() == 3,
-            InvalidDimensionsSnafu {
-                expected: 3usize,
-                actual: value.num_dimensions()
-            }
-        );
-        let shape = value.shape();
-        let width = shape[1] as u32;
-        let height = shape[0] as u32;
-        let channel = shape[2] as u8;
-        ensure!(
-            channel == P::CHANNEL_COUNT,
-            InvalidChannelsSnafu {
-                expected: P::CHANNEL_COUNT as i64,
-                actual: channel as i64
-            }
-        );
-        let img = ImageBuffer::from_raw(width, height, value).expect("container is not big enough");
         Ok(img)
     }
 }
