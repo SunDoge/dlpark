@@ -119,8 +119,8 @@ mod tests {
 
     #[test]
     fn test_dlpack() {
-        pyo3::prepare_freethreaded_python();
-        Python::with_gil(|py| {
+        Python::initialize();
+        Python::attach(|py| {
             let mt =
                 SafeManagedTensor::new(vec![1i32, 2, 3]).expect("fail to make safe managed tensor");
             let ptr = mt.data_ptr();
@@ -132,8 +132,8 @@ mod tests {
 
     #[test]
     fn test_dlpack_versioned() {
-        pyo3::prepare_freethreaded_python();
-        Python::with_gil(|py| {
+        Python::initialize();
+        Python::attach(|py| {
             let mt = SafeManagedTensorVersioned::new(vec![1i32, 2, 3])
                 .expect("fail to make safe managed tensor");
             let ptr = mt.data_ptr();
