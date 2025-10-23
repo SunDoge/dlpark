@@ -52,8 +52,7 @@ where
     }
 
     fn device(&self) -> crate::Result<crate::ffi::Device> {
-        // Ok(crate::ffi::Device::cuda(self.ordinal()))
-        Ok(crate::ffi::Device::cuda(0))
+        Ok(crate::ffi::Device::cuda(self.stream().context().ordinal()))
     }
 
     fn data_type(&self) -> crate::Result<crate::ffi::DataType> {
