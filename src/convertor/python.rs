@@ -1,10 +1,9 @@
-use pyo3::{
-    Bound, PyAny,
-    conversion::{FromPyObject, IntoPyObject},
-};
+use std::ffi::CStr;
+
+use pyo3::conversion::{FromPyObject, IntoPyObject};
+use pyo3::{Borrowed, Bound, PyAny, PyErr};
 
 use crate::{SafeManagedTensor, SafeManagedTensorVersioned, ffi};
-use std::ffi::CStr;
 
 const DLTENSOR: &CStr = c"dltensor";
 const USED_DLTENSOR: &CStr = c"used_dltensor";
@@ -65,8 +64,9 @@ fn raw_dlpack_to_capsule(
     unsafe { pyo3::ffi::PyCapsule_New(ptr, name.as_ptr(), Some(deleter)) }
 }
 
-impl<'py> FromPyObject<'py> for SafeManagedTensor {
-    fn extract_bound(ob: &pyo3::Bound<'py, pyo3::PyAny>) -> pyo3::PyResult<Self> {
+impl<'py> FromPyObject<'_, 'py> for SafeManagedTensor {
+    type Error = PyErr;
+    fn extract(ob: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
         let ptr = capsule_to_raw_dlpack(ob.as_ptr(), DLTENSOR, USED_DLTENSOR);
         unsafe { Ok(SafeManagedTensor::from_raw(ptr as *mut _)) }
     }
@@ -86,8 +86,9 @@ impl<'py> IntoPyObject<'py> for SafeManagedTensor {
     }
 }
 
-impl<'py> FromPyObject<'py> for SafeManagedTensorVersioned {
-    fn extract_bound(ob: &pyo3::Bound<'py, pyo3::PyAny>) -> pyo3::PyResult<Self> {
+impl<'py> FromPyObject<'_, 'py> for SafeManagedTensorVersioned {
+    type Error = PyErr;
+    fn extract(ob: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
         let ptr = capsule_to_raw_dlpack(ob.as_ptr(), DLTENSOR_VERSIONED, USED_DLTENSOR_VERSIONED);
         unsafe { Ok(SafeManagedTensorVersioned::from_raw(ptr as *mut _)) }
     }
@@ -112,10 +113,10 @@ impl<'py> IntoPyObject<'py> for SafeManagedTensorVersioned {
 
 #[cfg(test)]
 mod tests {
-    use crate::traits::TensorView;
     use pyo3::Python;
 
     use super::*;
+    use crate::traits::TensorView;
 
     #[test]
     fn test_dlpack() {
@@ -125,7 +126,7 @@ mod tests {
                 SafeManagedTensor::new(vec![1i32, 2, 3]).expect("fail to make safe managed tensor");
             let ptr = mt.data_ptr();
             let capsule = mt.into_pyobject(py).expect("fail to convert to pyobject");
-            let mt2 = SafeManagedTensor::extract_bound(&capsule).expect("fail to extract bound");
+            let mt2 = SafeManagedTensor::extract((&capsule).into()).expect("fail to extract bound");
             assert_eq!(ptr, mt2.data_ptr());
         });
     }
@@ -138,8 +139,8 @@ mod tests {
                 .expect("fail to make safe managed tensor");
             let ptr = mt.data_ptr();
             let capsule = mt.into_pyobject(py).expect("fail to convert to pyobject");
-            let mt2 =
-                SafeManagedTensorVersioned::extract_bound(&capsule).expect("fail to extract bound");
+            let mt2 = SafeManagedTensorVersioned::extract((&capsule).into())
+                .expect("fail to extract bound");
             assert_eq!(ptr, mt2.data_ptr());
         });
     }
