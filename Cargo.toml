@@ -30,7 +30,7 @@ resolver = "2"
 [workspace.dependencies]
 candle-core = "0.9"
 half = "2.6"
-ndarray = "0.16"
+ndarray = "0.17"
 pyo3 = "0.27"
 image = "0.25"
 dlpark = { path = ".", default-features = false } # Add dlpark as a workspace dependency
