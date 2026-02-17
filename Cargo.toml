@@ -34,7 +34,7 @@ ndarray = "0.17"
 pyo3 = "0.28"
 image = "0.25"
 dlpark = { path = ".", default-features = false } # Add dlpark as a workspace dependency
-cudarc = "0.18.2"
+cudarc = "0.19.2"
 
 [features]
 default = []
