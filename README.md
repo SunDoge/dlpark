@@ -53,6 +53,7 @@ The library provides safe Rust abstractions over the C-style `DLPack` structures
 | `pyo3`    | Enable Python bindings with [pyo3] | ✅      |
 | `image`   | Enable [image] support             | ✅      |
 | `ndarray` | Enable [ndarray] support           | ✅      |
+| `cuda`    | Enable [cuda] support              | 🚧     |
 
 ## Quick Start
 
@@ -104,6 +105,24 @@ let tensor = SafeManagedTensorVersioned::new(img)?;
 let img2 = ImageBuffer::<Rgb<u8>, _>::try_from(&tensor)?;
 ```
 
+### CUDA GPU data streams
+
+```rust
+use std::sync::Arc;
+
+use cudarc::driver::{CudaContext, CudaSlice, CudaStream, CudaView};
+use dlpark::SafeManagedTensorVersioned;
+use 
+
+let ctx: Arc<CudaContext> = CudaContext::new(0)?; // Set on GPU:0
+let stream: Arc<CudaStream> = ctx.per_thread_stream();
+
+let slice: CudaSlice<f32> = stream.alloc_zeros::<f32>(10)?;
+let tensor = SafeManagedTensorVersioned::new(slice)?;
+let view = CudaView::<f32>::try_from(&tensor)?;
+```
+
 [pyo3]: https://github.com/PyO3/pyo3
 [image]: https://github.com/image-rs/image 
 [ndarray]: https://github.com/rust-ndarray/ndarray
+[cuda]: https://github.com/chelsea0x3b/cudarc
