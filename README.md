@@ -112,7 +112,6 @@ use std::sync::Arc;
 
 use cudarc::driver::{CudaContext, CudaSlice, CudaStream, CudaView};
 use dlpark::SafeManagedTensorVersioned;
-use 
 
 let ctx: Arc<CudaContext> = CudaContext::new(0)?; // Set on GPU:0
 let stream: Arc<CudaStream> = ctx.per_thread_stream();
