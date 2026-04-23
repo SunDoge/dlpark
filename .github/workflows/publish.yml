@@ -1,10 +1,12 @@
-name: Publish
+name: Publish to crates.io
 
 on:
   push:
     tags:
       - "*"
   workflow_dispatch:
+
+permissions: {}
 
 env:
   CARGO_TERM_COLOR: always
@@ -13,11 +15,22 @@ jobs:
   publish:
     name: "Publish"
     runs-on: ubuntu-latest
+    environment: release # Optional: for enhanced security
+    permissions:
+      id-token: write # Required for OIDC token exchange
+      contents: read # Required to checkout repository
+
     steps:
       - name: Checkout source
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Authenticate with registry
+        uses: rust-lang/crates-io-auth-action@bbd81622f20ce9e2dd9622e3218b975523e45bbe # v1.0.4
+        id: auth
 
       - name: Publish
-        run: cargo publish --token ${CRATES_TOKEN}
+        run: cargo publish
         env:
-          CRATES_TOKEN: ${{ secrets.CRATES_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
