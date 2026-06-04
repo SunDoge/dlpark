@@ -21,7 +21,7 @@ half = { workspace = true, optional = true }
 image = { workspace = true, optional = true }
 ndarray = { workspace = true, optional = true }
 pyo3 = { workspace = true, optional = true }
-snafu = "0.8"
+snafu = "0.9"
 
 [workspace]
 members = ["examples/dlparkimg"]
