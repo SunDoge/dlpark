@@ -1,7 +1,8 @@
 #[repr(C)]
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
 pub enum DeviceType {
     /// CPU device
+    #[default]
     Cpu = 1,
     /// CUDA GPU device
     Cuda = 2,
@@ -55,12 +56,6 @@ impl From<(DeviceType, i32)> for Device {
             device_type: value.0,
             device_id: value.1,
         }
-    }
-}
-
-impl Default for DeviceType {
-    fn default() -> Self {
-        Self::Cpu
     }
 }
 
