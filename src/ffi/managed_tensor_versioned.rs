@@ -46,7 +46,7 @@ bitflags! {
 
 impl Default for Flags {
     fn default() -> Self {
-        Flags::READ_ONLY
+        Flags::empty()
     }
 }
 

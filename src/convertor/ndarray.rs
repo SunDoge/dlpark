@@ -1,22 +1,11 @@
-// use crate::error::Error;
-
-// use crate::safe_managed_tensor::SafeManagedTensorVersioned;
-// use crate::{
-//     data_type::{DataType, InferDataType},
-//     device::Device,
-//     manager_context::TensorLike,
-//     memory_layout::StridedLayout,
-//     utils::make_contiguous_strides,
-// };
-
-use crate::traits::{InferDataType, StridedLayout, TensorLike, TensorView};
+use crate::traits::{InferDataType, TensorLike, TensorView};
 use crate::utils::make_row_major_strides;
 use crate::{Result, ffi};
 use crate::{SafeManagedTensor, SafeManagedTensorVersioned};
 
 use ndarray::{ArrayBase, ArrayViewD, Dimension, RawData, ShapeBuilder};
 
-impl<S, D> TensorLike<StridedLayout> for ArrayBase<S, D>
+impl<S, D> TensorLike for ArrayBase<S, D>
 where
     S: RawData,
     S::Elem: InferDataType,
@@ -28,13 +17,12 @@ where
         self.as_ptr() as *mut S::Elem as *mut std::ffi::c_void
     }
 
-    fn memory_layout(&self) -> StridedLayout {
-        let mut layout = StridedLayout::with_ndim(self.ndim());
-        for i in 0..self.ndim() {
-            layout.shape_mut()[i] = self.shape()[i] as i64;
-            layout.strides_mut()[i] = self.strides()[i] as i64;
-        }
-        layout
+    fn shape(&self) -> Vec<i64> {
+        self.shape().iter().map(|&x| x as i64).collect()
+    }
+
+    fn strides(&self) -> Option<Vec<i64>> {
+        Some(self.strides().iter().map(|&x| x as i64).collect())
     }
 
     fn device(&self) -> Result<ffi::Device> {

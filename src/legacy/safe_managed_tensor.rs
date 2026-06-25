@@ -1,19 +1,12 @@
-use super::ManagerContext;
+use super::manager_context::{TensorLikeContext, into_dlpack};
 use crate::ffi;
-use crate::traits::{MemoryLayout, TensorLike, TensorView};
+use crate::traits::{TensorLike, TensorView};
 use std::ptr::NonNull;
 
-/// A safe wrapper around DLPack tensor that manages its lifetime.
-///
-/// This struct provides safe memory management for DLPack tensors by ensuring
-/// proper cleanup when the tensor is dropped. It wraps a raw DLPack tensor pointer
-/// and calls the appropriate deleter function when the tensor is no longer needed.
+/// A safe wrapper around a legacy DLPack tensor that manages its memory lifecycle.
 pub struct SafeManagedTensor(ffi::Dlpack);
 
 impl Drop for SafeManagedTensor {
-    /// Implements the Drop trait to ensure proper cleanup of the tensor.
-    /// When this struct is dropped, it calls the deleter function if one exists
-    /// to free the underlying tensor memory.
     fn drop(&mut self) {
         unsafe {
             if let Some(deleter) = self.0.as_ref().deleter {
@@ -24,58 +17,41 @@ impl Drop for SafeManagedTensor {
 }
 
 impl SafeManagedTensor {
-    /// Creates a new SafeManagedTensor from any type that implements TensorLike.
-    ///
-    /// This is the safe way to create a new tensor, as it handles all the
-    /// memory management internally.
-    ///
-    /// # Type Parameters
-    /// - T: The tensor type that implements TensorLike
-    /// - L: The memory layout type that implements MemoryLayout
-    pub fn new<T, L>(t: T) -> std::result::Result<Self, T::Error>
+    /// Creates a new `SafeManagedTensor` from a tensor-like type.
+    pub fn new<T>(t: T) -> std::result::Result<Self, T::Error>
     where
-        T: TensorLike<L>,
-        L: MemoryLayout,
+        T: TensorLike,
     {
-        let ctx = ManagerContext::new(t);
-        ctx.into_dlpack().map(Self)
+        let ctx = TensorLikeContext::new(t)?;
+        Ok(Self(into_dlpack(ctx)))
     }
 
-    /// Creates a new SafeManagedTensor from a raw pointer to a ManagedTensor.
+    /// Creates from a raw pointer (transfers ownership).
     ///
     /// # Safety
-    /// The caller must ensure that:
-    /// - The pointer is valid and points to a properly initialized ManagedTensor
-    /// - The tensor's memory is managed by a valid deleter function
-    /// - The pointer is not used after being wrapped in SafeManagedTensor
+    /// The pointer must be valid, non-null, and point to a properly initialized
+    /// `ManagedTensor` with a valid deleter.
     pub unsafe fn from_raw(ptr: *mut ffi::ManagedTensor) -> Self {
         unsafe { Self(NonNull::new_unchecked(ptr)) }
     }
 
-    /// Creates a new SafeManagedTensor from a NonNull DLPack pointer.
+    /// Creates from a `NonNull` pointer (transfers ownership).
     ///
     /// # Safety
-    /// The caller must ensure that the NonNull pointer is valid and points to
-    /// a properly initialized DLPack tensor.
+    /// The pointer must be valid and point to a properly initialized
+    /// `ManagedTensor` with a valid deleter.
     pub unsafe fn from_non_null(ptr: ffi::Dlpack) -> Self {
         Self(ptr)
     }
 
-    /// Converts the SafeManagedTensor into a raw pointer.
-    ///
-    /// # Safety
-    /// The caller takes ownership of the tensor and is responsible for
-    /// calling the appropriate deleter function when done.
-    pub unsafe fn into_raw(self) -> *mut ffi::ManagedTensor {
+    /// Converts into a raw pointer, transferring ownership to the caller.
+    pub fn into_raw(self) -> *mut ffi::ManagedTensor {
         let ptr = self.0.as_ptr();
         std::mem::forget(self);
         ptr
     }
 
-    /// Converts the SafeManagedTensor into a NonNull DLPack pointer.
-    ///
-    /// The caller takes ownership of the tensor and is responsible for
-    /// proper cleanup.
+    /// Converts into a `NonNull` pointer, transferring ownership to the caller.
     pub fn into_non_null(self) -> ffi::Dlpack {
         let ptr = self.0;
         std::mem::forget(self);
@@ -84,14 +60,11 @@ impl SafeManagedTensor {
 }
 
 impl TensorView for SafeManagedTensor {
-    /// Returns a reference to the underlying DLPack tensor.
     fn dl_tensor(&self) -> &ffi::Tensor {
         unsafe { &self.0.as_ref().dl_tensor }
     }
 }
 
 impl AsRef<SafeManagedTensor> for SafeManagedTensor {
-    fn as_ref(&self) -> &Self {
-        self
-    }
+    fn as_ref(&self) -> &Self { self }
 }

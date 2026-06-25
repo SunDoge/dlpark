@@ -4,9 +4,9 @@ use snafu::ensure;
 use crate::error::UnsupportedDeviceSnafu;
 use crate::ffi::DeviceType;
 use crate::prelude::*;
-use crate::traits::{InferDataType, RowMajorCompactLayout, TensorLike};
+use crate::traits::{InferDataType, TensorLike};
 
-impl<T> TensorLike<RowMajorCompactLayout> for CudaSlice<T>
+impl<T> TensorLike for CudaSlice<T>
 where
     T: InferDataType,
 {
@@ -18,8 +18,12 @@ where
         ptr as *mut T as *mut _
     }
 
-    fn memory_layout(&self) -> RowMajorCompactLayout {
-        RowMajorCompactLayout::new(vec![self.len() as i64])
+    fn shape(&self) -> Vec<i64> {
+        vec![self.len() as i64]
+    }
+
+    fn strides(&self) -> Option<Vec<i64>> {
+        None
     }
 
     fn device(&self) -> crate::Result<crate::ffi::Device> {
@@ -35,7 +39,7 @@ where
     }
 }
 
-impl<T> TensorLike<RowMajorCompactLayout> for CudaView<'_, T>
+impl<T> TensorLike for CudaView<'_, T>
 where
     T: InferDataType,
 {
@@ -47,8 +51,12 @@ where
         ptr as *mut T as *mut _
     }
 
-    fn memory_layout(&self) -> RowMajorCompactLayout {
-        RowMajorCompactLayout::new(vec![self.len() as i64])
+    fn shape(&self) -> Vec<i64> {
+        vec![self.len() as i64]
+    }
+
+    fn strides(&self) -> Option<Vec<i64>> {
+        None
     }
 
     fn device(&self) -> crate::Result<crate::ffi::Device> {

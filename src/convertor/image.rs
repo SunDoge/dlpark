@@ -2,11 +2,11 @@ use image::{ImageBuffer, Pixel};
 use snafu::ensure;
 
 use crate::error::UnsupportedMemoryOrderSnafu;
-use crate::traits::{InferDataType, RowMajorCompactLayout, TensorLike, TensorView};
+use crate::traits::{InferDataType, TensorLike, TensorView};
 use crate::utils::MemoryOrder;
 use crate::{Result, SafeManagedTensor, SafeManagedTensorVersioned, ffi};
 
-impl<P> TensorLike<RowMajorCompactLayout> for ImageBuffer<P, Vec<P::Subpixel>>
+impl<P> TensorLike for ImageBuffer<P, Vec<P::Subpixel>>
 where
     P: Pixel,
     <P as Pixel>::Subpixel: InferDataType,
@@ -20,12 +20,16 @@ where
         Ok(ffi::Device::CPU)
     }
 
-    fn memory_layout(&self) -> RowMajorCompactLayout {
-        RowMajorCompactLayout::new(vec![
+    fn shape(&self) -> Vec<i64> {
+        vec![
             self.height() as i64,
             self.width() as i64,
             P::CHANNEL_COUNT as i64,
-        ])
+        ]
+    }
+
+    fn strides(&self) -> Option<Vec<i64>> {
+        None
     }
 
     fn byte_offset(&self) -> u64 {

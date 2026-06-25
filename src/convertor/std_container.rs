@@ -1,8 +1,8 @@
 use crate::Result;
 use crate::ffi;
-use crate::traits::{InferDataType, RowMajorCompactLayout, TensorLike};
+use crate::traits::{InferDataType, TensorLike};
 
-impl<A> TensorLike<RowMajorCompactLayout> for Vec<A>
+impl<A> TensorLike for Vec<A>
 where
     A: InferDataType,
 {
@@ -15,8 +15,12 @@ where
         Ok(A::data_type())
     }
 
-    fn memory_layout(&self) -> RowMajorCompactLayout {
-        RowMajorCompactLayout::new(vec![self.len() as i64])
+    fn shape(&self) -> Vec<i64> {
+        vec![self.len() as i64]
+    }
+
+    fn strides(&self) -> Option<Vec<i64>> {
+        None
     }
 
     fn device(&self) -> Result<ffi::Device> {
@@ -28,7 +32,7 @@ where
     }
 }
 
-impl<A> TensorLike<RowMajorCompactLayout> for Box<[A]>
+impl<A> TensorLike for Box<[A]>
 where
     A: InferDataType,
 {
@@ -41,8 +45,12 @@ where
         Ok(A::data_type())
     }
 
-    fn memory_layout(&self) -> RowMajorCompactLayout {
-        RowMajorCompactLayout::new(vec![self.len() as i64])
+    fn shape(&self) -> Vec<i64> {
+        vec![self.len() as i64]
+    }
+
+    fn strides(&self) -> Option<Vec<i64>> {
+        None
     }
 
     fn device(&self) -> Result<ffi::Device> {
