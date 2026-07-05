@@ -43,6 +43,24 @@ where
         self.dl_tensor().strides()
     }
 
+    /// Returns the total number of elements in the tensor (product of all shape dimensions).
+    ///
+    /// # Errors
+    ///
+    /// See [`crate::ffi::DLTensor::num_elements`] for error conditions.
+    pub fn num_elements(&self) -> Result<usize, crate::tensor::Error> {
+        self.dl_tensor().num_elements()
+    }
+
+    /// Returns the total size of the tensor data in bytes.
+    ///
+    /// # Errors
+    ///
+    /// See [`crate::ffi::DLTensor::num_bytes`] for error conditions.
+    pub fn num_bytes(&self) -> Result<usize, crate::tensor::Error> {
+        self.dl_tensor().num_bytes()
+    }
+
     /// Consumes the `Dlpack`, returning the wrapped raw pointer.
     ///
     /// The caller takes ownership of the memory and is responsible for calling the FFI deleter later.

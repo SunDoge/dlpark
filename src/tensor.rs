@@ -59,4 +59,24 @@ impl DLTensor {
             std::slice::from_raw_parts(self.strides, self.ndim as usize)
         }))
     }
+
+    /// Returns the total number of elements in the tensor (product of all shape dimensions).
+    ///
+    /// # Errors
+    ///
+    /// Propagates errors from [`Self::shape`].
+    pub fn num_elements(&self) -> Result<usize, Error> {
+        Ok(self.shape()?.iter().product::<i64>() as usize)
+    }
+
+    /// Returns the total size of the tensor data in bytes.
+    ///
+    /// Computed as `num_elements × dtype.element_size()`.
+    ///
+    /// # Errors
+    ///
+    /// Propagates errors from [`Self::num_elements`].
+    pub fn num_bytes(&self) -> Result<usize, Error> {
+        Ok(self.num_elements()? * self.dtype.element_size())
+    }
 }
