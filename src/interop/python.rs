@@ -1,7 +1,11 @@
-use crate::{SafeManagedTensor, SafeManagedTensorVersioned};
 use pyo3::conversion::{FromPyObject, IntoPyObject};
 use pyo3::{Borrowed, Bound, PyAny, PyErr};
 use std::ffi::CStr;
+
+use crate::{
+    Dlpack,
+    ffi::{DLManagedTensor, DLManagedTensorVersioned},
+};
 
 const DLTENSOR: &CStr = c"dltensor";
 const USED_DLTENSOR: &CStr = c"used_dltensor";
@@ -21,7 +25,7 @@ unsafe extern "C" fn dlpack_capsule_deleter(capsule: *mut pyo3::ffi::PyObject) {
             return;
         }
 
-        let _ = SafeManagedTensor::new_unchecked(ptr as *mut _);
+        let _ = Dlpack::<DLManagedTensor>::new_unchecked(ptr as *mut _);
     }
 }
 
@@ -38,7 +42,7 @@ unsafe extern "C" fn dlpack_capsule_deleter_versioned(capsule: *mut pyo3::ffi::P
             return;
         }
 
-        let _ = SafeManagedTensorVersioned::new_unchecked(ptr as *mut _);
+        let _ = Dlpack::<DLManagedTensorVersioned>::new_unchecked(ptr as *mut _);
     }
 }
 
@@ -62,15 +66,15 @@ fn raw_dlpack_to_capsule(
     unsafe { pyo3::ffi::PyCapsule_New(ptr, name.as_ptr(), Some(deleter)) }
 }
 
-impl<'py> FromPyObject<'_, 'py> for SafeManagedTensor {
+impl<'py> FromPyObject<'_, 'py> for Dlpack<DLManagedTensor> {
     type Error = PyErr;
     fn extract(ob: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
         let ptr = capsule_to_raw_dlpack(ob.as_ptr(), DLTENSOR, USED_DLTENSOR);
-        unsafe { Ok(SafeManagedTensor::new_unchecked(ptr as *mut _)) }
+        unsafe { Ok(Self::new_unchecked(ptr as *mut _)) }
     }
 }
 
-impl<'py> IntoPyObject<'py> for SafeManagedTensor {
+impl<'py> IntoPyObject<'py> for Dlpack<DLManagedTensor> {
     type Target = PyAny;
     type Output = Bound<'py, PyAny>;
     type Error = pyo3::PyErr;
@@ -84,15 +88,15 @@ impl<'py> IntoPyObject<'py> for SafeManagedTensor {
     }
 }
 
-impl<'py> FromPyObject<'_, 'py> for SafeManagedTensorVersioned {
+impl<'py> FromPyObject<'_, 'py> for Dlpack<DLManagedTensorVersioned> {
     type Error = PyErr;
     fn extract(ob: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
         let ptr = capsule_to_raw_dlpack(ob.as_ptr(), DLTENSOR_VERSIONED, USED_DLTENSOR_VERSIONED);
-        unsafe { Ok(SafeManagedTensorVersioned::new_unchecked(ptr as *mut _)) }
+        unsafe { Ok(Self::new_unchecked(ptr as *mut _)) }
     }
 }
 
-impl<'py> IntoPyObject<'py> for SafeManagedTensorVersioned {
+impl<'py> IntoPyObject<'py> for Dlpack<DLManagedTensorVersioned> {
     type Target = PyAny;
     type Output = Bound<'py, PyAny>;
     type Error = pyo3::PyErr;

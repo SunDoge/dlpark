@@ -530,8 +530,6 @@ mod tests {
     }
 
     impl OpaqueContext for TestContext {
-        type Target = Arc<AtomicUsize>;
-
         fn into_raw(self) -> *mut c_void {
             let boxed = Box::new(self);
             Box::into_raw(boxed) as *mut c_void
@@ -542,11 +540,6 @@ mod tests {
                 let boxed = unsafe { Box::from_raw(raw as *mut TestContext) };
                 boxed.drop_count.fetch_add(1, Ordering::SeqCst);
             }
-        }
-
-        unsafe fn as_ref<'a>(raw: *mut c_void) -> &'a Self::Target {
-            let r = unsafe { &*(raw as *mut TestContext) };
-            &r.drop_count
         }
     }
 

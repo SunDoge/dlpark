@@ -41,11 +41,10 @@ impl ImageSubpixel for f32 {
     }
 }
 
+#[allow(dead_code)] // Vec<T> must be kept alive to back the FFI raw pointer
 pub struct ImageContext<T>(Vec<T>);
 
 impl<T> crate::context::OpaqueContext for ImageContext<T> {
-    type Target = Vec<T>;
-
     fn into_raw(self) -> *mut c_void {
         let boxed = Box::new(self);
         Box::into_raw(boxed) as *mut c_void
@@ -55,11 +54,6 @@ impl<T> crate::context::OpaqueContext for ImageContext<T> {
         if !raw.is_null() {
             let _ = unsafe { Box::from_raw(raw as *mut ImageContext<T>) };
         }
-    }
-
-    unsafe fn as_ref<'a>(raw: *mut c_void) -> &'a Self::Target {
-        let ctx = unsafe { &*(raw as *mut ImageContext<T>) };
-        &ctx.0
     }
 }
 
