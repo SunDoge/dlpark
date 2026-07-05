@@ -7,8 +7,18 @@ pub trait OpaqueContext {
 
     fn into_raw(self) -> *mut c_void;
 
+    /// Drops the raw context pointer and deallocates the underlying resources.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that `raw` was obtained from `into_raw` and has not been dropped yet.
     unsafe fn drop_raw(raw: *mut c_void);
 
+    /// Borrow the target from the raw context pointer.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that `raw` is a valid pointer obtained from `into_raw` and points to a valid alive target.
     unsafe fn as_ref<'a>(raw: *mut c_void) -> &'a Self::Target;
 }
 

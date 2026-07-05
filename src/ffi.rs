@@ -203,7 +203,7 @@ pub struct DLManagedTensorVersioned {
     #[doc = " \\brief Destructor.\n\n This should be called to destruct manager_ctx which holds the DLManagedTensorVersioned.\n It can be NULL if there is no way for the caller to provide a reasonable\n destructor. The destructor deletes the argument self as well."]
     pub deleter: ::std::option::Option<unsafe extern "C" fn(self_: *mut DLManagedTensorVersioned)>,
     #[doc = " \\brief Additional bitmask flags information about the tensor.\n\n By default the flags should be set to 0.\n\n \\note Future ABI changes should keep everything until this field\n       stable, to ensure that deleter can be correctly called.\n\n \\sa DLPACK_FLAG_BITMASK_READ_ONLY\n \\sa DLPACK_FLAG_BITMASK_IS_COPIED"]
-    pub flags: crate::DLPackFlags,
+    pub flags: crate::DlpackFlags,
     #[doc = " \\brief DLTensor which is being memory managed"]
     pub dl_tensor: DLTensor,
 }

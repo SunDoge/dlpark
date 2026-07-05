@@ -1,8 +1,8 @@
 use crate::{
-    DLPackFlags,
+    DlpackFlags,
     context::OpaqueContext,
     ffi::{DLDataType, DLDevice, DLManagedTensor, DLManagedTensorVersioned, DLTensor},
-    managed_tensor::AsManagedTensor,
+    managed_tensor::ManagedTensor,
 };
 use snafu::{ResultExt, Snafu, ensure};
 use std::{alloc::Layout, os::raw::c_void, ptr::NonNull};
@@ -32,7 +32,7 @@ pub struct DlpackBox<M, const N: usize> {
     strides: [i64; N],
 }
 
-unsafe extern "C" fn static_deleter<const N: usize, C: OpaqueContext, M: AsManagedTensor>(
+unsafe extern "C" fn static_deleter<const N: usize, C: OpaqueContext, M: ManagedTensor>(
     dlmt: *mut M,
 ) {
     if dlmt.is_null() {
@@ -45,7 +45,7 @@ unsafe extern "C" fn static_deleter<const N: usize, C: OpaqueContext, M: AsManag
     }
 }
 
-unsafe extern "C" fn dynamic_deleter<C: OpaqueContext, M: AsManagedTensor>(dlmt: *mut M) {
+unsafe extern "C" fn dynamic_deleter<C: OpaqueContext, M: ManagedTensor>(dlmt: *mut M) {
     if dlmt.is_null() {
         return;
     }
@@ -62,7 +62,7 @@ unsafe extern "C" fn dynamic_deleter<C: OpaqueContext, M: AsManagedTensor>(dlmt:
     };
 }
 
-impl<M: AsManagedTensor, const N: usize> DlpackBox<M, N> {
+impl<M: ManagedTensor, const N: usize> DlpackBox<M, N> {
     pub fn data(mut self, ptr: *mut c_void) -> Self {
         self.managed_tensor.get_dltensor_mut().data = ptr;
         self
@@ -197,7 +197,7 @@ impl<const N: usize> DlpackBox<DLManagedTensorVersioned, N> {
             version: crate::ffi::DLPackVersion::default(),
             manager_ctx: ctx.into_raw(),
             deleter: Some(static_deleter::<N, C, _>),
-            flags: DLPackFlags::empty(),
+            flags: DlpackFlags::empty(),
             dl_tensor: DLTensor {
                 data: std::ptr::null_mut(),
                 device: DLDevice::CPU,
@@ -232,7 +232,7 @@ impl<const N: usize> DlpackBox<DLManagedTensorVersioned, N> {
             version: crate::ffi::DLPackVersion::default(),
             manager_ctx: ctx.into_raw(),
             deleter: Some(static_deleter::<N, C, _>),
-            flags: DLPackFlags::empty(),
+            flags: DlpackFlags::empty(),
             dl_tensor: DLTensor {
                 data: std::ptr::null_mut(),
                 device: DLDevice::CPU,
@@ -247,7 +247,7 @@ impl<const N: usize> DlpackBox<DLManagedTensorVersioned, N> {
         boxed
     }
 
-    pub fn flags(mut self, flags: DLPackFlags) -> Self {
+    pub fn flags(mut self, flags: DlpackFlags) -> Self {
         self.managed_tensor.flags = flags;
         self
     }
@@ -368,7 +368,7 @@ impl DlpackBox<DLManagedTensorVersioned, 0> {
             version: crate::ffi::DLPackVersion::default(),
             manager_ctx: ctx.into_raw(),
             deleter: Some(static_deleter::<0, C, _>),
-            flags: DLPackFlags::empty(),
+            flags: DlpackFlags::empty(),
             dl_tensor: DLTensor {
                 data: std::ptr::null_mut(),
                 device: DLDevice::CPU,
@@ -423,7 +423,7 @@ impl DlpackBox<DLManagedTensorVersioned, 0> {
                 version: crate::ffi::DLPackVersion::default(),
                 manager_ctx: ctx.into_raw(),
                 deleter: Some(dynamic_deleter::<C, _>),
-                flags: DLPackFlags::empty(),
+                flags: DlpackFlags::empty(),
                 dl_tensor: DLTensor {
                     data: std::ptr::null_mut(),
                     device: DLDevice::CPU,
