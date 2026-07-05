@@ -1,13 +1,13 @@
-pub(crate) mod convertor;
-
-pub mod error;
 pub mod ffi;
-pub mod legacy;
-pub mod prelude;
-pub mod traits;
-pub mod utils;
-pub mod versioned;
 
-pub use error::{Error, Result};
-pub use legacy::SafeManagedTensor;
-pub use versioned::SafeManagedTensorVersioned;
+pub mod builder;
+pub mod context;
+
+mod data_type;
+mod device;
+mod managed_tenesor_versioned;
+mod managed_tensor;
+mod pack_version;
+mod tensor;
+
+pub use managed_tenesor_versioned::Flags;

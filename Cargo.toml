@@ -2,16 +2,31 @@
 name = "dlpark"
 version = "0.7.0"
 edition = "2024"
-authors = ["SunDoge"]
-license = "Apache-2.0"
 description = "dlpack Rust binding for Python"
-homepage = "https://crates.io/crates/dlpark"
 documentation = "https://docs.rs/dlpark"
-repository = "https://github.com/SunDoge/dlpark"
 readme = "README.md"
+homepage = "https://crates.io/crates/dlpark"
+repository = "https://github.com/SunDoge/dlpark"
+license = "Apache-2.0"
 exclude = [".github/"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[workspace]
+resolver = "2"
+members = ["crates/dlpark-bindgen", "examples/dlparkimg"]
+
+[workspace.dependencies]
+candle-core = "0.9"
+cudarc = "0.19.2"
+dlpark = {
+  path = ".",
+  default-features = false
+}  # Add dlpark as a workspace dependency
+half = "2.6"
+image = "0.25"
+ndarray = "0.17"
+pyo3 = "0.29"
 
 [dependencies]
 bitflags = "2.9"
@@ -23,19 +38,6 @@ ndarray = { workspace = true, optional = true }
 pyo3 = { workspace = true, optional = true }
 snafu = "0.9"
 
-[workspace]
-members = ["examples/dlparkimg"]
-resolver = "2"
-
-[workspace.dependencies]
-candle-core = "0.9"
-half = "2.6"
-ndarray = "0.17"
-pyo3 = "0.29"
-image = "0.25"
-dlpark = { path = ".", default-features = false } # Add dlpark as a workspace dependency
-cudarc = "0.19.2"
-
 [features]
 default = []
 
@@ -43,16 +45,14 @@ pyo3 = ["dep:pyo3"]
 
 # support f16 and bf16
 half = ["dep:half"]
-ndarray = ["dep:ndarray"]
 image = ["dep:image"]
+ndarray = ["dep:ndarray"]
 
-
-cuda = ["cudarc/fallback-latest", "cudarc/cuda-version-from-build-system"]
+cuda = ["cudarc/cuda-version-from-build-system", "cudarc/fallback-latest"]
 
 # Not supported yet
 # candle-cpu = ["dep:candle-core"]
 # candle-cuda = ["dep:candle-core", "candle-core/cuda"]
-
 
 # for examples/dlparkimg
 [profile.dev.package."image"]
