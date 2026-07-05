@@ -3,7 +3,7 @@ use crate::{
     builder::DlpackBuilder,
     compact_strides_array,
     dlpack::Dlpack,
-    ffi::{DLDevice, DLDeviceType, DLManagedTensor, DLManagedTensorVersioned},
+    ffi::{DLDevice, DLManagedTensor, DLManagedTensorVersioned},
     is_compact_strides,
     managed_tensor::ManagedTensor,
 };
@@ -77,10 +77,7 @@ where
         DlpackBuilder::<DLManagedTensor, 3>::with_array_layout(Box::new(img), shape, strides)
             .data(data_ptr)
             .dtype(P::Subpixel::DTYPE)
-            .device(DLDevice {
-                device_type: DLDeviceType::CPU,
-                device_id: 0,
-            })
+            .device(DLDevice::CPU)
             .build()
     }
 }
@@ -105,10 +102,7 @@ where
         )
         .data(data_ptr)
         .dtype(P::Subpixel::DTYPE)
-        .device(DLDevice {
-            device_type: DLDeviceType::CPU,
-            device_id: 0,
-        })
+        .device(DLDevice::CPU)
         .build()
     }
 }

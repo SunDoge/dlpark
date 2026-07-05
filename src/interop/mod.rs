@@ -3,3 +3,6 @@ pub mod image;
 
 #[cfg(feature = "pyo3")]
 pub mod python;
+
+#[cfg(feature = "pyo3")]
+pub mod python_exchange;
