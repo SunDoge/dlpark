@@ -330,7 +330,10 @@ impl<const N: usize> DlpackBuilder<DLManagedTensorVersioned, N> {
 }
 
 impl DlpackBuilder<DLManagedTensor, 0> {
-    pub fn with_pointer_layout<C>(
+    /// Safety
+    ///
+    /// TODO
+    pub unsafe fn with_pointer_layout<C>(
         ctx: C,
         shape_ptr: *mut i64,
         strides_ptr: *mut i64,
@@ -645,14 +648,16 @@ mod tests {
         let mut shape = [10, 20];
         let mut strides = [20, 1];
 
-        let dlpack = DlpackBuilder::<DLManagedTensor, 0>::with_pointer_layout(
-            ctx,
-            shape.as_mut_ptr(),
-            strides.as_mut_ptr(),
-            2,
-        )
-        .unwrap()
-        .build();
+        let dlpack = unsafe {
+            DlpackBuilder::<DLManagedTensor, 0>::with_pointer_layout(
+                ctx,
+                shape.as_mut_ptr(),
+                strides.as_mut_ptr(),
+                2,
+            )
+            .unwrap()
+            .build()
+        };
 
         assert_eq!(dlpack.dl_tensor().ndim, 2);
         unsafe {

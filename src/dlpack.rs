@@ -8,7 +8,10 @@ impl<M> Dlpack<M>
 where
     M: ManagedTensor,
 {
-    pub fn new(ptr: *mut M) -> Option<Self> {
+    /// # Safety
+    ///
+    /// TODO
+    pub unsafe fn new(ptr: *mut M) -> Option<Self> {
         NonNull::new(ptr).map(Dlpack)
     }
 
