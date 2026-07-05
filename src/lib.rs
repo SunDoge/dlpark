@@ -7,7 +7,6 @@ mod data_type;
 mod device;
 mod managed_tenesor_versioned;
 mod managed_tensor;
-mod pack_version;
 mod tensor;
 
-pub use managed_tenesor_versioned::Flags;
+pub use managed_tenesor_versioned::DLPackFlags;

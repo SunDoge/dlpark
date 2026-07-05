@@ -16,7 +16,7 @@ fn main() -> anyhow::Result<()> {
         )
         .replace("code: u8", "code: DLDataTypeCode")
         .replace("SetError", "set_error")
-        .replace("flags: u64", "flags: crate::Flags");
+        .replace("flags: u64", "flags: crate::DLPackFlags");
 
     std::fs::write("src/ffi.rs", &post_processed)?;
 

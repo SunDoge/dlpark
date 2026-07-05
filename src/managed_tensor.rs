@@ -1,7 +1,7 @@
 use std::{ffi::c_void, ptr::NonNull};
 
 use crate::{
-    Flags,
+    DLPackFlags,
     ffi::{DLManagedTensor, DLManagedTensorVersioned, DLPackVersion, DLTensor},
 };
 
@@ -50,7 +50,7 @@ impl AsManagedTensor for DLManagedTensorVersioned {
             version: DLPackVersion::default(),
             manager_ctx,
             deleter,
-            flags: Flags::empty(),
+            flags: DLPackFlags::empty(),
             dl_tensor: tensor,
         }
     }
