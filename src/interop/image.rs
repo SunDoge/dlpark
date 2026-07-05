@@ -41,22 +41,6 @@ impl ImageSubpixel for f32 {
     }
 }
 
-#[allow(dead_code)] // Vec<T> must be kept alive to back the FFI raw pointer
-pub struct ImageContext<T>(Vec<T>);
-
-impl<T> crate::context::OpaqueContext for ImageContext<T> {
-    fn into_raw(self) -> *mut c_void {
-        let boxed = Box::new(self);
-        Box::into_raw(boxed) as *mut c_void
-    }
-
-    unsafe fn drop_raw(raw: *mut c_void) {
-        if !raw.is_null() {
-            let _ = unsafe { Box::from_raw(raw as *mut ImageContext<T>) };
-        }
-    }
-}
-
 impl<P> TryFrom<ImageBuffer<P, Vec<P::Subpixel>>> for Dlpack<DLManagedTensor>
 where
     P: Pixel,
@@ -71,8 +55,6 @@ where
         let data = img.into_raw();
         let data_ptr = data.as_ptr() as *mut c_void;
 
-        let ctx = ImageContext(data);
-
         let shape = [height as i64, width as i64, channels as i64];
         let strides = [
             (width * channels as u32) as i64,
@@ -80,7 +62,7 @@ where
             1,
         ];
 
-        let builder = DlpackBuilder::<DLManagedTensor, 3>::with_slice_layout(ctx, &shape, &strides);
+        let builder = DlpackBuilder::<DLManagedTensor, 3>::with_slice_layout(data, &shape, &strides);
         let builder = builder
             .data(data_ptr)
             .dtype(P::Subpixel::data_type())
@@ -107,8 +89,6 @@ where
         let data = img.into_raw();
         let data_ptr = data.as_ptr() as *mut c_void;
 
-        let ctx = ImageContext(data);
-
         let shape = [height as i64, width as i64, channels as i64];
         let strides = [
             (width * channels as u32) as i64,
@@ -116,7 +96,7 @@ where
             1,
         ];
 
-        let builder = DlpackBuilder::<DLManagedTensorVersioned, 3>::with_slice_layout(ctx, &shape, &strides);
+        let builder = DlpackBuilder::<DLManagedTensorVersioned, 3>::with_slice_layout(data, &shape, &strides);
         let builder = builder
             .data(data_ptr)
             .dtype(P::Subpixel::data_type())
