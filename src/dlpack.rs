@@ -26,7 +26,11 @@ where
     }
 
     /// Returns the shape of the tensor as a slice.
-    pub fn shape(&self) -> &[i64] {
+    ///
+    /// # Errors
+    ///
+    /// See [`crate::ffi::DLTensor::shape`] for error conditions.
+    pub fn shape(&self) -> Result<&[i64], crate::tensor::Error> {
         self.dl_tensor().shape()
     }
 

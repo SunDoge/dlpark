@@ -1,4 +1,14 @@
 use crate::ffi::{DLDataType, DLDevice, DLTensor};
+use snafu::Snafu;
+
+#[derive(Debug, Snafu)]
+pub enum Error {
+    #[snafu(display("shape pointer is null but ndim is {ndim}"))]
+    NullShapePtr { ndim: i32 },
+
+    #[snafu(display("ndim is negative: {ndim}"))]
+    NegativeNdim { ndim: i32 },
+}
 
 impl Default for DLTensor {
     fn default() -> Self {
@@ -17,18 +27,30 @@ impl Default for DLTensor {
 impl DLTensor {
     /// Returns the shape of the tensor as a slice.
     ///
-    /// Returns an empty slice if `ndim <= 0` or `shape` is null.
-    pub fn shape(&self) -> &[i64] {
-        if self.ndim <= 0 || self.shape.is_null() {
-            return &[];
+    /// Returns an empty slice for 0-dimensional tensors (`ndim == 0`).
+    ///
+    /// # Errors
+    ///
+    /// - [`Error::NegativeNdim`] if `ndim < 0`.
+    /// - [`Error::NullShapePtr`] if `ndim > 0` but `shape` is null.
+    pub fn shape(&self) -> Result<&[i64], Error> {
+        if self.ndim < 0 {
+            return Err(Error::NegativeNdim { ndim: self.ndim });
         }
-        unsafe { std::slice::from_raw_parts(self.shape, self.ndim as usize) }
+        if self.ndim == 0 {
+            return Ok(&[]);
+        }
+        if self.shape.is_null() {
+            return Err(Error::NullShapePtr { ndim: self.ndim });
+        }
+        Ok(unsafe { std::slice::from_raw_parts(self.shape, self.ndim as usize) })
     }
 
     /// Returns the strides of the tensor as a slice, or `None` for compact row-major layout.
     ///
     /// Per the DLPack spec, a null `strides` pointer indicates a compact row-major (C-contiguous)
     /// layout where strides are implicitly derived from the shape.
+    /// Returns `None` if `strides` is null or `ndim <= 0`.
     pub fn strides(&self) -> Option<&[i64]> {
         if self.strides.is_null() || self.ndim <= 0 {
             return None;
