@@ -24,6 +24,22 @@ where
     pub fn dl_tensor(&self) -> &DLTensor {
         unsafe { self.0.as_ref().get_dltensor() }
     }
+
+    /// Consumes the `Dlpack`, returning the wrapped raw pointer.
+    ///
+    /// The caller takes ownership of the memory and is responsible for calling the FFI deleter later.
+    pub fn into_raw(self) -> *mut M {
+        let ptr = self.0.as_ptr();
+        std::mem::forget(self);
+        ptr
+    }
+
+    /// Returns the wrapped raw pointer without consuming the `Dlpack`.
+    ///
+    /// The `Dlpack` still owns the memory and will automatically drop it when it goes out of scope.
+    pub fn as_ptr(&self) -> *mut M {
+        self.0.as_ptr()
+    }
 }
 
 impl<M> Drop for Dlpack<M>
