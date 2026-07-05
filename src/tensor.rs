@@ -1,5 +1,5 @@
 use crate::ffi::{DLDataType, DLDevice, DLTensor};
-use snafu::Snafu;
+use snafu::{Snafu, ensure};
 
 #[derive(Debug, Snafu)]
 pub enum Error {
@@ -16,7 +16,7 @@ impl Default for DLTensor {
             data: std::ptr::null_mut(),
             device: DLDevice::CPU,
             ndim: 0,
-            dtype: DLDataType::FLOAT32,
+            dtype: DLDataType::default(),
             shape: std::ptr::null_mut(),
             strides: std::ptr::null_mut(),
             byte_offset: 0,
@@ -34,15 +34,11 @@ impl DLTensor {
     /// - [`Error::NegativeNdim`] if `ndim < 0`.
     /// - [`Error::NullShapePtr`] if `ndim > 0` but `shape` is null.
     pub fn shape(&self) -> Result<&[i64], Error> {
-        if self.ndim < 0 {
-            return Err(Error::NegativeNdim { ndim: self.ndim });
-        }
+        ensure!(self.ndim >= 0, NegativeNdimSnafu { ndim: self.ndim });
         if self.ndim == 0 {
             return Ok(&[]);
         }
-        if self.shape.is_null() {
-            return Err(Error::NullShapePtr { ndim: self.ndim });
-        }
+        ensure!(!self.shape.is_null(), NullShapePtrSnafu { ndim: self.ndim });
         Ok(unsafe { std::slice::from_raw_parts(self.shape, self.ndim as usize) })
     }
 
