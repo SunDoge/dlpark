@@ -13,7 +13,7 @@ pub trait OpaqueContext {
     unsafe fn drop_raw(raw: *mut c_void);
 }
 
-impl<T> OpaqueContext for Box<T> {
+impl<T: Sized> OpaqueContext for Box<T> {
     fn into_raw(self) -> *mut c_void {
         Box::into_raw(self) as *mut _
     }
@@ -27,7 +27,7 @@ impl<T> OpaqueContext for Box<T> {
     }
 }
 
-impl<T> OpaqueContext for Arc<T> {
+impl<T: Sized> OpaqueContext for Arc<T> {
     fn into_raw(self) -> *mut c_void {
         Arc::into_raw(self) as *mut c_void
     }
@@ -40,7 +40,7 @@ impl<T> OpaqueContext for Arc<T> {
     }
 }
 
-impl<T> OpaqueContext for NonNull<T> {
+impl<T: Sized> OpaqueContext for NonNull<T> {
     fn into_raw(self) -> *mut c_void {
         self.as_ptr() as *mut c_void
     }
