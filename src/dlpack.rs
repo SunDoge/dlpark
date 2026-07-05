@@ -25,6 +25,16 @@ where
         unsafe { self.0.as_ref().get_dltensor() }
     }
 
+    /// Returns the shape of the tensor as a slice.
+    pub fn shape(&self) -> &[i64] {
+        self.dl_tensor().shape()
+    }
+
+    /// Returns the strides of the tensor as a slice, or `None` for compact row-major layout.
+    pub fn strides(&self) -> Option<&[i64]> {
+        self.dl_tensor().strides()
+    }
+
     /// Consumes the `Dlpack`, returning the wrapped raw pointer.
     ///
     /// The caller takes ownership of the memory and is responsible for calling the FFI deleter later.
