@@ -106,7 +106,7 @@ unsafe extern "C" fn dynamic_deleter<C: OpaqueContext, M: ManagedTensor>(dlmt: *
     }
 }
 
-impl<M: ManagedTensor, const N: usize> DlpackBox<M, N> {
+impl<M: ManagedTensor, const N: usize> DlpackBuilder<M, N> {
     pub fn data(mut self, ptr: *mut c_void) -> Self {
         self.managed_tensor.get_dltensor_mut().data = ptr;
         self

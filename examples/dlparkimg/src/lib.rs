@@ -6,12 +6,12 @@ use pyo3::prelude::*;
 fn read_image(filename: &str) -> SafeManagedTensor {
     let img = image::open(filename).unwrap();
     let rgb_img = img.to_rgb8();
-    SafeManagedTensor::new(rgb_img).unwrap()
+    SafeManagedTensor::try_from(rgb_img).unwrap()
 }
 
 #[pyfunction]
 fn write_image(filename: &str, tensor: SafeManagedTensor) {
-    let rgb_img: ImageBuffer<Rgb<u8>, _> = tensor.as_ref().try_into().unwrap();
+    let rgb_img: ImageBuffer<Rgb<u8>, _> = (&tensor).try_into().unwrap();
     rgb_img.save(filename).unwrap();
 }
 
