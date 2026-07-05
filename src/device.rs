@@ -13,3 +13,12 @@ impl DLDevice {
         }
     }
 }
+
+impl Default for DLDevice {
+    fn default() -> Self {
+        Self {
+            device_type: DLDeviceType(0),
+            device_id: 0,
+        }
+    }
+}

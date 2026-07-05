@@ -129,7 +129,11 @@ impl<M: ManagedTensor, const N: usize> DlpackBuilder<M, N> {
 }
 
 impl<const N: usize> DlpackBuilder<DLManagedTensor, N> {
-    pub fn with_slice_layout<C, T>(ctx: C, shape: &[T], strides: &[T]) -> DlpackBuilder<DLManagedTensor, N>
+    pub fn with_slice_layout<C, T>(
+        ctx: C,
+        shape: &[T],
+        strides: &[T],
+    ) -> DlpackBuilder<DLManagedTensor, N>
     where
         C: OpaqueContext,
         T: Into<i64> + Copy,
@@ -178,7 +182,11 @@ impl<const N: usize> DlpackBuilder<DLManagedTensor, N> {
         }
     }
 
-    pub fn with_array_layout<C, T>(ctx: C, shape: [T; N], strides: [T; N]) -> DlpackBuilder<DLManagedTensor, N>
+    pub fn with_array_layout<C, T>(
+        ctx: C,
+        shape: [T; N],
+        strides: [T; N],
+    ) -> DlpackBuilder<DLManagedTensor, N>
     where
         C: OpaqueContext,
         T: Into<i64> + Copy,
@@ -217,7 +225,11 @@ impl<const N: usize> DlpackBuilder<DLManagedTensor, N> {
 }
 
 impl<const N: usize> DlpackBuilder<DLManagedTensorVersioned, N> {
-    pub fn with_slice_layout<C, T>(ctx: C, shape: &[T], strides: &[T]) -> DlpackBuilder<DLManagedTensorVersioned, N>
+    pub fn with_slice_layout<C, T>(
+        ctx: C,
+        shape: &[T],
+        strides: &[T],
+    ) -> DlpackBuilder<DLManagedTensorVersioned, N>
     where
         C: OpaqueContext,
         T: Into<i64> + Copy,
@@ -268,7 +280,11 @@ impl<const N: usize> DlpackBuilder<DLManagedTensorVersioned, N> {
         }
     }
 
-    pub fn with_array_layout<C, T>(ctx: C, shape: [T; N], strides: [T; N]) -> DlpackBuilder<DLManagedTensorVersioned, N>
+    pub fn with_array_layout<C, T>(
+        ctx: C,
+        shape: [T; N],
+        strides: [T; N],
+    ) -> DlpackBuilder<DLManagedTensorVersioned, N>
     where
         C: OpaqueContext,
         T: Into<i64> + Copy,
@@ -372,7 +388,8 @@ impl DlpackBuilder<DLManagedTensor, 0> {
             .try_into()
             .context(NdimOverflowSnafu { ndim: ndim_usize })?;
 
-        let total_size = size_of::<DlpackBox<DLManagedTensor, 0>>() + 2 * ndim_usize * size_of::<i64>();
+        let total_size =
+            size_of::<DlpackBox<DLManagedTensor, 0>>() + 2 * ndim_usize * size_of::<i64>();
         let layout = std::alloc::Layout::from_size_align(total_size, 8).unwrap();
 
         unsafe {
@@ -381,7 +398,8 @@ impl DlpackBuilder<DLManagedTensor, 0> {
                 std::alloc::handle_alloc_error(layout);
             }
 
-            let shape_ptr = (ptr as *mut u8).add(size_of::<DlpackBox<DLManagedTensor, 0>>()) as *mut i64;
+            let shape_ptr =
+                (ptr as *mut u8).add(size_of::<DlpackBox<DLManagedTensor, 0>>()) as *mut i64;
             let strides_ptr = shape_ptr.add(ndim_usize);
 
             for (i, s) in shape.iter().enumerate() {
@@ -405,7 +423,10 @@ impl DlpackBuilder<DLManagedTensor, 0> {
                 deleter: Some(dynamic_deleter::<C, _>),
             };
 
-            std::ptr::write(std::ptr::addr_of_mut!((*ptr).managed_tensor), managed_tensor);
+            std::ptr::write(
+                std::ptr::addr_of_mut!((*ptr).managed_tensor),
+                managed_tensor,
+            );
 
             Ok(DlpackBuilder::new(NonNull::new_unchecked(ptr)))
         }
@@ -473,7 +494,8 @@ impl DlpackBuilder<DLManagedTensorVersioned, 0> {
             .try_into()
             .context(NdimOverflowSnafu { ndim: ndim_usize })?;
 
-        let total_size = size_of::<DlpackBox<DLManagedTensorVersioned, 0>>() + 2 * ndim_usize * size_of::<i64>();
+        let total_size =
+            size_of::<DlpackBox<DLManagedTensorVersioned, 0>>() + 2 * ndim_usize * size_of::<i64>();
         let layout = std::alloc::Layout::from_size_align(total_size, 8).unwrap();
 
         unsafe {
@@ -482,7 +504,9 @@ impl DlpackBuilder<DLManagedTensorVersioned, 0> {
                 std::alloc::handle_alloc_error(layout);
             }
 
-            let shape_ptr = (ptr as *mut u8).add(size_of::<DlpackBox<DLManagedTensorVersioned, 0>>()) as *mut i64;
+            let shape_ptr = (ptr as *mut u8)
+                .add(size_of::<DlpackBox<DLManagedTensorVersioned, 0>>())
+                as *mut i64;
             let strides_ptr = shape_ptr.add(ndim_usize);
 
             for (i, s) in shape.iter().enumerate() {
@@ -521,8 +545,8 @@ impl DlpackBuilder<DLManagedTensorVersioned, 0> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[derive(Clone)]
     struct TestContext {
@@ -550,8 +574,9 @@ mod tests {
             drop_count: drop_count.clone(),
         };
 
-        let dlpack = DlpackBuilder::<DLManagedTensor, 3>::with_array_layout(ctx, [1, 2, 3], [6, 3, 1])
-            .build();
+        let dlpack =
+            DlpackBuilder::<DLManagedTensor, 3>::with_array_layout(ctx, [1, 2, 3], [6, 3, 1])
+                .build();
 
         assert_eq!(dlpack.dl_tensor().ndim, 3);
         unsafe {
@@ -575,8 +600,9 @@ mod tests {
             drop_count: drop_count.clone(),
         };
 
-        let dlpack = DlpackBuilder::<DLManagedTensor, 3>::with_slice_layout(ctx, &[2, 4, 8], &[32, 8, 1])
-            .build();
+        let dlpack =
+            DlpackBuilder::<DLManagedTensor, 3>::with_slice_layout(ctx, &[2, 4, 8], &[32, 8, 1])
+                .build();
 
         assert_eq!(dlpack.dl_tensor().ndim, 3);
         assert_eq!(drop_count.load(Ordering::SeqCst), 0);
@@ -591,8 +617,10 @@ mod tests {
             drop_count: drop_count.clone(),
         };
 
-        let dlpack = DlpackBuilder::<DLManagedTensor, 0>::with_dynamic_layout(ctx, &[3, 5], &[5, 1]).unwrap()
-            .build();
+        let dlpack =
+            DlpackBuilder::<DLManagedTensor, 0>::with_dynamic_layout(ctx, &[3, 5], &[5, 1])
+                .unwrap()
+                .build();
 
         assert_eq!(dlpack.dl_tensor().ndim, 2);
         unsafe {
@@ -622,8 +650,9 @@ mod tests {
             shape.as_mut_ptr(),
             strides.as_mut_ptr(),
             2,
-        ).unwrap()
-            .build();
+        )
+        .unwrap()
+        .build();
 
         assert_eq!(dlpack.dl_tensor().ndim, 2);
         unsafe {
