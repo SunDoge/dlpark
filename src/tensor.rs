@@ -46,11 +46,17 @@ impl DLTensor {
     ///
     /// Per the DLPack spec, a null `strides` pointer indicates a compact row-major (C-contiguous)
     /// layout where strides are implicitly derived from the shape.
-    /// Returns `None` if `strides` is null or `ndim <= 0`.
-    pub fn strides(&self) -> Option<&[i64]> {
-        if self.strides.is_null() || self.ndim <= 0 {
-            return None;
+    ///
+    /// # Errors
+    ///
+    /// - [`Error::NegativeNdim`] if `ndim < 0`.
+    pub fn strides(&self) -> Result<Option<&[i64]>, Error> {
+        ensure!(self.ndim >= 0, NegativeNdimSnafu { ndim: self.ndim });
+        if self.strides.is_null() || self.ndim == 0 {
+            return Ok(None);
         }
-        Some(unsafe { std::slice::from_raw_parts(self.strides, self.ndim as usize) })
+        Ok(Some(unsafe {
+            std::slice::from_raw_parts(self.strides, self.ndim as usize)
+        }))
     }
 }

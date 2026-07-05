@@ -35,7 +35,11 @@ where
     }
 
     /// Returns the strides of the tensor as a slice, or `None` for compact row-major layout.
-    pub fn strides(&self) -> Option<&[i64]> {
+    ///
+    /// # Errors
+    ///
+    /// See [`crate::ffi::DLTensor::strides`] for error conditions.
+    pub fn strides(&self) -> Result<Option<&[i64]>, crate::tensor::Error> {
         self.dl_tensor().strides()
     }
 
