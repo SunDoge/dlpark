@@ -1,12 +1,14 @@
 use bindgen::callbacks::ParseCallbacks;
+use snafu::{ResultExt, Whatever};
 
-fn main() -> anyhow::Result<()> {
+fn main() -> Result<(), Whatever> {
     let bindings = bindgen::builder()
         .header("dlpack/include/dlpack/dlpack.h")
         .allowlist_item("DL.*")
         .newtype_enum("DL.*")
         .parse_callbacks(Box::new(DlpackCallbacks))
-        .generate()?
+        .generate()
+        .whatever_context("fail to generate bindings")?
         .to_string();
 
     let post_processed = bindings
@@ -18,7 +20,7 @@ fn main() -> anyhow::Result<()> {
         .replace("SetError", "set_error")
         .replace("flags: u64", "flags: crate::DlpackFlags");
 
-    std::fs::write("src/ffi.rs", &post_processed)?;
+    std::fs::write("src/ffi.rs", &post_processed).whatever_context("failed to write file")?;
 
     Ok(())
 }

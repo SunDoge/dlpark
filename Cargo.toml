@@ -10,11 +10,6 @@ repository = "https://github.com/SunDoge/dlpark"
 license = "Apache-2.0"
 exclude = [".github/"]
 
-[lib]
-doctest = false
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [workspace]
 resolver = "2"
 members = ["crates/dlpark-bindgen", "examples/dlparkimg"]
@@ -30,16 +25,23 @@ half = "2.6"
 image = "0.25"
 ndarray = "0.17"
 pyo3 = "0.29"
+snafu = "0.9"
+
+[lib]
+doctest = false
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 bitflags = "2.9"
+snafu = { workspace = true }
+
 candle-core = { workspace = true, optional = true }
 cudarc = { workspace = true, optional = true }
 half = { workspace = true, optional = true }
 image = { workspace = true, optional = true }
 ndarray = { workspace = true, optional = true }
 pyo3 = { workspace = true, optional = true }
-snafu = "0.9"
 
 [features]
 default = []
@@ -51,7 +53,7 @@ half = ["dep:half"]
 image = ["dep:image"]
 ndarray = ["dep:ndarray"]
 
-cuda = ["cudarc/cuda-version-from-build-system", "cudarc/fallback-latest"]
+cudarc = ["dep:cudarc", "cudarc/cuda-version-from-build-system", "cudarc/fallback-latest"]
 
 # Not supported yet
 # candle-cpu = ["dep:candle-core"]

@@ -177,7 +177,7 @@ mod tests {
         _py_object: *mut c_void,
         out: *mut *mut DLManagedTensorVersioned,
     ) -> c_int {
-        let data = vec![7i32, 8, 9];
+        let data = Box::new(vec![7i32, 8, 9]);
         let data_ptr = data.as_ptr() as *mut c_void;
         let dlpack =
             DlpackBuilder::<DLManagedTensorVersioned, 1>::with_array_layout(data, [3i64], [1i64])

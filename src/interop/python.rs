@@ -246,7 +246,7 @@ mod tests {
     use std::ffi::c_void;
 
     fn legacy_tensor() -> Dlpack<DLManagedTensor> {
-        let data = vec![1i32, 2, 3];
+        let data = Box::new(vec![1i32, 2, 3]);
         let data_ptr = data.as_ptr() as *mut c_void;
         DlpackBuilder::<DLManagedTensor, 1>::with_array_layout(data, [3i64], [1i64])
             .data(data_ptr)
@@ -255,7 +255,7 @@ mod tests {
     }
 
     fn versioned_tensor() -> Dlpack<DLManagedTensorVersioned> {
-        let data = vec![4i32, 5, 6];
+        let data = Box::new(vec![4i32, 5, 6]);
         let data_ptr = data.as_ptr() as *mut c_void;
         DlpackBuilder::<DLManagedTensorVersioned, 1>::with_array_layout(data, [3i64], [1i64])
             .data(data_ptr)

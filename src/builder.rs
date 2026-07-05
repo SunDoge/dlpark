@@ -330,7 +330,7 @@ impl<const N: usize> DlpackBuilder<DLManagedTensorVersioned, N> {
 }
 
 impl DlpackBuilder<DLManagedTensor, 0> {
-    /// Safety
+    /// # Safety
     ///
     /// TODO
     pub unsafe fn with_pointer_layout<C>(

@@ -303,7 +303,7 @@ mod tests {
 
     #[test]
     fn test_reverse_conversion_applies_byte_offset() {
-        let data = vec![0u8, 10, 20, 30];
+        let data = Box::new(vec![0u8, 10, 20, 30]);
         let data_ptr = data.as_ptr() as *mut c_void;
         let shape = [1, 1, 3];
         let strides = [3, 3, 1];
@@ -319,7 +319,7 @@ mod tests {
 
     #[test]
     fn test_reverse_conversion_rejects_null_data() {
-        let data = vec![0u8; 3];
+        let data = Box::new(vec![0u8; 3]);
         let shape = [1, 1, 3];
         let strides = [3, 3, 1];
         let dlpack = DlpackBuilder::<DLManagedTensor, 3>::with_array_layout(data, shape, strides)
@@ -337,7 +337,7 @@ mod tests {
 
     #[test]
     fn test_reverse_conversion_rejects_non_compact_strides() {
-        let data = vec![1u8, 2, 3];
+        let data = Box::new(vec![1u8, 2, 3]);
         let data_ptr = data.as_ptr() as *mut c_void;
         let shape = [1, 1, 3];
         let strides = [6, 3, 1];

@@ -27,28 +27,6 @@ impl<T: Sized> OpaqueContext for Box<T> {
     }
 }
 
-/// # Overhead
-///
-/// `Vec<T>` is a fat struct (`ptr + len + capacity`) and cannot be directly cast to a
-/// `*mut c_void`. This implementation boxes the `Vec<T>` itself, incurring **one extra
-/// heap allocation** compared to using `Box<T>` directly.
-///
-/// For performance-critical hot paths, prefer wrapping your data in `Box<T>` upfront to
-/// avoid this overhead.
-impl<T: Sized> OpaqueContext for Vec<T> {
-    fn into_raw(self) -> *mut c_void {
-        Box::into_raw(Box::new(self)) as *mut c_void
-    }
-
-    unsafe fn drop_raw(raw: *mut c_void) {
-        if !raw.is_null() {
-            unsafe {
-                let _ = Box::from_raw(raw as *mut Vec<T>);
-            }
-        }
-    }
-}
-
 impl<T: Sized> OpaqueContext for Arc<T> {
     fn into_raw(self) -> *mut c_void {
         Arc::into_raw(self) as *mut c_void

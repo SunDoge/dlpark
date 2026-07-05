@@ -1,3 +1,6 @@
+#[cfg(feature = "cudarc")]
+pub mod cudarc;
+
 #[cfg(feature = "image")]
 pub mod image;
 
