@@ -1,8 +1,8 @@
 use crate::{
-    DlpackFlags,
     context::OpaqueContext,
-    ffi::{DLDataType, DLDevice, DLManagedTensor, DLManagedTensorVersioned, DLTensor},
+    ffi::{self, DLDataType, DLDevice, DLManagedTensor, DLManagedTensorVersioned, DLTensor},
     managed_tensor::ManagedTensor,
+    DlpackFlags,
 };
 use snafu::{ResultExt, Snafu, ensure};
 use std::{alloc::Layout, os::raw::c_void, ptr::NonNull};
@@ -287,7 +287,11 @@ impl DlpackBox<DLManagedTensor, 0> {
         Ok(boxed)
     }
 
-    pub fn with_dynamic_layout<C, T>(ctx: C, shape: &[T], strides: &[T]) -> Result<Box<Self>, Error>
+    pub fn with_dynamic_layout<C, T>(
+        ctx: C,
+        shape: &[T],
+        strides: &[T],
+    ) -> Result<Box<Self>, Error>
     where
         C: OpaqueContext,
         T: Into<i64> + Copy,
@@ -337,10 +341,7 @@ impl DlpackBox<DLManagedTensor, 0> {
                 deleter: Some(dynamic_deleter::<C, _>),
             };
 
-            std::ptr::write(
-                std::ptr::addr_of_mut!((*ptr).managed_tensor),
-                managed_tensor,
-            );
+            std::ptr::write(std::ptr::addr_of_mut!((*ptr).managed_tensor), managed_tensor);
 
             Ok(Box::from_raw(ptr))
         }
@@ -383,7 +384,11 @@ impl DlpackBox<DLManagedTensorVersioned, 0> {
         Ok(boxed)
     }
 
-    pub fn with_dynamic_layout<C, T>(ctx: C, shape: &[T], strides: &[T]) -> Result<Box<Self>, Error>
+    pub fn with_dynamic_layout<C, T>(
+        ctx: C,
+        shape: &[T],
+        strides: &[T],
+    ) -> Result<Box<Self>, Error>
     where
         C: OpaqueContext,
         T: Into<i64> + Copy,
