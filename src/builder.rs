@@ -5,7 +5,7 @@ use crate::{
     DlpackFlags,
 };
 use snafu::{ResultExt, Snafu, ensure};
-use std::os::raw::c_void;
+use std::{os::raw::c_void, ptr::NonNull};
 
 #[derive(Debug, Snafu)]
 pub enum Error {
@@ -25,11 +25,49 @@ pub enum Error {
     NegativeNdim { ndim: i32 },
 }
 
+pub struct DlpackBoxPtr<M: ManagedTensor, const N: usize>(NonNull<DlpackBox<M, N>>);
+
+unsafe impl<M: ManagedTensor + Send, const N: usize> Send for DlpackBoxPtr<M, N> {}
+unsafe impl<M: ManagedTensor + Sync, const N: usize> Sync for DlpackBoxPtr<M, N> {}
+
+impl<M: ManagedTensor, const N: usize> DlpackBoxPtr<M, N> {
+    pub fn new(ptr: NonNull<DlpackBox<M, N>>) -> Self {
+        Self(ptr)
+    }
+
+    pub fn into_raw(b: Self) -> *mut DlpackBox<M, N> {
+        let ptr = b.0.as_ptr();
+        std::mem::forget(b);
+        ptr
+    }
+}
+
+impl<M: ManagedTensor, const N: usize> std::ops::Deref for DlpackBoxPtr<M, N> {
+    type Target = DlpackBox<M, N>;
+    fn deref(&self) -> &Self::Target {
+        unsafe { self.0.as_ref() }
+    }
+}
+
+impl<M: ManagedTensor, const N: usize> std::ops::DerefMut for DlpackBoxPtr<M, N> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unsafe { self.0.as_mut() }
+    }
+}
+
+impl<M: ManagedTensor, const N: usize> Drop for DlpackBoxPtr<M, N> {
+    fn drop(&mut self) {
+        unsafe {
+            M::call_deleter(self.0.as_ptr() as *mut M);
+        }
+    }
+}
+
 #[repr(C)]
 pub struct DlpackBox<M, const N: usize> {
     managed_tensor: M,
-    shape: Box<[i64]>,
-    strides: Box<[i64]>,
+    shape: [i64; N],
+    strides: [i64; N],
 }
 
 unsafe extern "C" fn static_deleter<const N: usize, C: OpaqueContext, M: ManagedTensor>(
@@ -41,7 +79,24 @@ unsafe extern "C" fn static_deleter<const N: usize, C: OpaqueContext, M: Managed
     unsafe {
         let b = Box::from_raw(dlmt as *mut DlpackBox<M, N>);
         C::drop_raw(b.managed_tensor.manager_ctx_ptr());
-        // Box drop will automatically drop shape and strides heap allocations
+        // Box drop will automatically run drop_in_place and free memory
+    }
+}
+
+unsafe extern "C" fn dynamic_deleter<C: OpaqueContext, M: ManagedTensor>(dlmt: *mut M) {
+    if dlmt.is_null() {
+        return;
+    }
+    unsafe {
+        let b = NonNull::new_unchecked(dlmt as *mut DlpackBox<M, 0>);
+        let ndim = b.as_ref().managed_tensor.get_dltensor().ndim;
+        let ndim_usize = if ndim < 0 { 0 } else { ndim as usize };
+        let total_size = size_of::<DlpackBox<M, 0>>() + 2 * ndim_usize * size_of::<i64>();
+        let layout = std::alloc::Layout::from_size_align_unchecked(total_size, 8);
+        C::drop_raw(b.as_ref().managed_tensor.manager_ctx_ptr());
+        // Defensive drop of any struct fields
+        std::ptr::drop_in_place(b.as_ptr());
+        std::alloc::dealloc(b.as_ptr() as *mut u8, layout);
     }
 }
 
@@ -68,7 +123,7 @@ impl<M: ManagedTensor, const N: usize> DlpackBox<M, N> {
 }
 
 impl<const N: usize> DlpackBox<DLManagedTensor, N> {
-    pub fn with_slice_layout<C, T>(ctx: C, shape: &[T], strides: &[T]) -> Box<Self>
+    pub fn with_slice_layout<C, T>(ctx: C, shape: &[T], strides: &[T]) -> DlpackBoxPtr<DLManagedTensor, N>
     where
         C: OpaqueContext,
         T: Into<i64> + Copy,
@@ -77,74 +132,86 @@ impl<const N: usize> DlpackBox<DLManagedTensor, N> {
         assert_eq!(strides.len(), N, "strides length must match N");
         assert!(N <= i32::MAX as usize, "N must fit in i32");
 
-        let shape_boxed: Box<[i64]> = shape.iter().map(|&s| s.into()).collect();
-        let strides_boxed: Box<[i64]> = strides.iter().map(|&s| s.into()).collect();
+        let mut shape_arr = [0i64; N];
+        for (i, s) in shape.iter().enumerate() {
+            shape_arr[i] = (*s).into();
+        }
 
-        let mut boxed = Box::new(Self {
+        let mut strides_arr = [0i64; N];
+        for (i, s) in strides.iter().enumerate() {
+            strides_arr[i] = (*s).into();
+        }
+
+        let boxed = Box::new(Self {
             managed_tensor: unsafe { std::mem::zeroed() },
-            shape: shape_boxed,
-            strides: strides_boxed,
+            shape: shape_arr,
+            strides: strides_arr,
         });
 
-        let shape_ptr = boxed.shape.as_mut_ptr();
-        let strides_ptr = boxed.strides.as_mut_ptr();
+        let raw_ptr = Box::into_raw(boxed);
 
-        boxed.managed_tensor = DLManagedTensor {
-            dl_tensor: DLTensor {
-                data: std::ptr::null_mut(),
-                device: DLDevice::CPU,
-                ndim: N as i32,
-                dtype: DLDataType::default(),
-                shape: shape_ptr,
-                strides: strides_ptr,
-                byte_offset: 0,
-            },
-            manager_ctx: ctx.into_raw(),
-            deleter: Some(static_deleter::<N, C, _>),
-        };
+        unsafe {
+            let shape_ptr = std::ptr::addr_of_mut!((*raw_ptr).shape) as *mut i64;
+            let strides_ptr = std::ptr::addr_of_mut!((*raw_ptr).strides) as *mut i64;
 
-        boxed
+            (*raw_ptr).managed_tensor = DLManagedTensor {
+                dl_tensor: DLTensor {
+                    data: std::ptr::null_mut(),
+                    device: DLDevice::CPU,
+                    ndim: N as i32,
+                    dtype: DLDataType::default(),
+                    shape: shape_ptr,
+                    strides: strides_ptr,
+                    byte_offset: 0,
+                },
+                manager_ctx: ctx.into_raw(),
+                deleter: Some(static_deleter::<N, C, _>),
+            };
+
+            DlpackBoxPtr::new(NonNull::new_unchecked(raw_ptr))
+        }
     }
 
-    pub fn with_array_layout<C, T>(ctx: C, shape: [T; N], strides: [T; N]) -> Box<Self>
+    pub fn with_array_layout<C, T>(ctx: C, shape: [T; N], strides: [T; N]) -> DlpackBoxPtr<DLManagedTensor, N>
     where
         C: OpaqueContext,
         T: Into<i64> + Copy,
     {
         assert!(N <= i32::MAX as usize, "N must fit in i32");
 
-        let shape_boxed: Box<[i64]> = shape.iter().map(|&s| s.into()).collect();
-        let strides_boxed: Box<[i64]> = strides.iter().map(|&s| s.into()).collect();
-
-        let mut boxed = Box::new(Self {
+        let boxed = Box::new(Self {
             managed_tensor: unsafe { std::mem::zeroed() },
-            shape: shape_boxed,
-            strides: strides_boxed,
+            shape: shape.map(|x| x.into()),
+            strides: strides.map(|x| x.into()),
         });
 
-        let shape_ptr = boxed.shape.as_mut_ptr();
-        let strides_ptr = boxed.strides.as_mut_ptr();
+        let raw_ptr = Box::into_raw(boxed);
 
-        boxed.managed_tensor = DLManagedTensor {
-            dl_tensor: DLTensor {
-                data: std::ptr::null_mut(),
-                device: DLDevice::CPU,
-                ndim: N as i32,
-                dtype: DLDataType::default(),
-                shape: shape_ptr,
-                strides: strides_ptr,
-                byte_offset: 0,
-            },
-            manager_ctx: ctx.into_raw(),
-            deleter: Some(static_deleter::<N, C, _>),
-        };
+        unsafe {
+            let shape_ptr = std::ptr::addr_of_mut!((*raw_ptr).shape) as *mut i64;
+            let strides_ptr = std::ptr::addr_of_mut!((*raw_ptr).strides) as *mut i64;
 
-        boxed
+            (*raw_ptr).managed_tensor = DLManagedTensor {
+                dl_tensor: DLTensor {
+                    data: std::ptr::null_mut(),
+                    device: DLDevice::CPU,
+                    ndim: N as i32,
+                    dtype: DLDataType::default(),
+                    shape: shape_ptr,
+                    strides: strides_ptr,
+                    byte_offset: 0,
+                },
+                manager_ctx: ctx.into_raw(),
+                deleter: Some(static_deleter::<N, C, _>),
+            };
+
+            DlpackBoxPtr::new(NonNull::new_unchecked(raw_ptr))
+        }
     }
 }
 
 impl<const N: usize> DlpackBox<DLManagedTensorVersioned, N> {
-    pub fn with_slice_layout<C, T>(ctx: C, shape: &[T], strides: &[T]) -> Box<Self>
+    pub fn with_slice_layout<C, T>(ctx: C, shape: &[T], strides: &[T]) -> DlpackBoxPtr<DLManagedTensorVersioned, N>
     where
         C: OpaqueContext,
         T: Into<i64> + Copy,
@@ -153,73 +220,85 @@ impl<const N: usize> DlpackBox<DLManagedTensorVersioned, N> {
         assert_eq!(strides.len(), N, "strides length must match N");
         assert!(N <= i32::MAX as usize, "N must fit in i32");
 
-        let shape_boxed: Box<[i64]> = shape.iter().map(|&s| s.into()).collect();
-        let strides_boxed: Box<[i64]> = strides.iter().map(|&s| s.into()).collect();
+        let mut shape_arr = [0i64; N];
+        for (i, s) in shape.iter().enumerate() {
+            shape_arr[i] = (*s).into();
+        }
 
-        let mut boxed = Box::new(Self {
+        let mut strides_arr = [0i64; N];
+        for (i, s) in strides.iter().enumerate() {
+            strides_arr[i] = (*s).into();
+        }
+
+        let boxed = Box::new(Self {
             managed_tensor: unsafe { std::mem::zeroed() },
-            shape: shape_boxed,
-            strides: strides_boxed,
+            shape: shape_arr,
+            strides: strides_arr,
         });
 
-        let shape_ptr = boxed.shape.as_mut_ptr();
-        let strides_ptr = boxed.strides.as_mut_ptr();
+        let raw_ptr = Box::into_raw(boxed);
 
-        boxed.managed_tensor = DLManagedTensorVersioned {
-            version: crate::ffi::DLPackVersion::default(),
-            manager_ctx: ctx.into_raw(),
-            deleter: Some(static_deleter::<N, C, _>),
-            flags: DlpackFlags::empty(),
-            dl_tensor: DLTensor {
-                data: std::ptr::null_mut(),
-                device: DLDevice::CPU,
-                ndim: N as i32,
-                dtype: DLDataType::default(),
-                shape: shape_ptr,
-                strides: strides_ptr,
-                byte_offset: 0,
-            },
-        };
+        unsafe {
+            let shape_ptr = std::ptr::addr_of_mut!((*raw_ptr).shape) as *mut i64;
+            let strides_ptr = std::ptr::addr_of_mut!((*raw_ptr).strides) as *mut i64;
 
-        boxed
+            (*raw_ptr).managed_tensor = DLManagedTensorVersioned {
+                version: crate::ffi::DLPackVersion::default(),
+                manager_ctx: ctx.into_raw(),
+                deleter: Some(static_deleter::<N, C, _>),
+                flags: DlpackFlags::empty(),
+                dl_tensor: DLTensor {
+                    data: std::ptr::null_mut(),
+                    device: DLDevice::CPU,
+                    ndim: N as i32,
+                    dtype: DLDataType::default(),
+                    shape: shape_ptr,
+                    strides: strides_ptr,
+                    byte_offset: 0,
+                },
+            };
+
+            DlpackBoxPtr::new(NonNull::new_unchecked(raw_ptr))
+        }
     }
 
-    pub fn with_array_layout<C, T>(ctx: C, shape: [T; N], strides: [T; N]) -> Box<Self>
+    pub fn with_array_layout<C, T>(ctx: C, shape: [T; N], strides: [T; N]) -> DlpackBoxPtr<DLManagedTensorVersioned, N>
     where
         C: OpaqueContext,
         T: Into<i64> + Copy,
     {
         assert!(N <= i32::MAX as usize, "N must fit in i32");
 
-        let shape_boxed: Box<[i64]> = shape.iter().map(|&s| s.into()).collect();
-        let strides_boxed: Box<[i64]> = strides.iter().map(|&s| s.into()).collect();
-
-        let mut boxed = Box::new(Self {
+        let boxed = Box::new(Self {
             managed_tensor: unsafe { std::mem::zeroed() },
-            shape: shape_boxed,
-            strides: strides_boxed,
+            shape: shape.map(|x| x.into()),
+            strides: strides.map(|x| x.into()),
         });
 
-        let shape_ptr = boxed.shape.as_mut_ptr();
-        let strides_ptr = boxed.strides.as_mut_ptr();
+        let raw_ptr = Box::into_raw(boxed);
 
-        boxed.managed_tensor = DLManagedTensorVersioned {
-            version: crate::ffi::DLPackVersion::default(),
-            manager_ctx: ctx.into_raw(),
-            deleter: Some(static_deleter::<N, C, _>),
-            flags: DlpackFlags::empty(),
-            dl_tensor: DLTensor {
-                data: std::ptr::null_mut(),
-                device: DLDevice::CPU,
-                ndim: N as i32,
-                dtype: DLDataType::default(),
-                shape: shape_ptr,
-                strides: strides_ptr,
-                byte_offset: 0,
-            },
-        };
+        unsafe {
+            let shape_ptr = std::ptr::addr_of_mut!((*raw_ptr).shape) as *mut i64;
+            let strides_ptr = std::ptr::addr_of_mut!((*raw_ptr).strides) as *mut i64;
 
-        boxed
+            (*raw_ptr).managed_tensor = DLManagedTensorVersioned {
+                version: crate::ffi::DLPackVersion::default(),
+                manager_ctx: ctx.into_raw(),
+                deleter: Some(static_deleter::<N, C, _>),
+                flags: DlpackFlags::empty(),
+                dl_tensor: DLTensor {
+                    data: std::ptr::null_mut(),
+                    device: DLDevice::CPU,
+                    ndim: N as i32,
+                    dtype: DLDataType::default(),
+                    shape: shape_ptr,
+                    strides: strides_ptr,
+                    byte_offset: 0,
+                },
+            };
+
+            DlpackBoxPtr::new(NonNull::new_unchecked(raw_ptr))
+        }
     }
 
     pub fn flags(mut self, flags: DlpackFlags) -> Self {
@@ -234,39 +313,43 @@ impl DlpackBox<DLManagedTensor, 0> {
         shape_ptr: *mut i64,
         strides_ptr: *mut i64,
         ndim: i32,
-    ) -> Result<Box<Self>, Error>
+    ) -> Result<DlpackBoxPtr<DLManagedTensor, 0>, Error>
     where
         C: OpaqueContext,
     {
         ensure!(ndim >= 0, NegativeNdimSnafu { ndim });
-        let mut boxed = Box::new(Self {
+        let boxed = Box::new(Self {
             managed_tensor: unsafe { std::mem::zeroed() },
-            shape: Box::default(),
-            strides: Box::default(),
+            shape: [],
+            strides: [],
         });
 
-        boxed.managed_tensor = DLManagedTensor {
-            dl_tensor: DLTensor {
-                data: std::ptr::null_mut(),
-                device: DLDevice::CPU,
-                ndim,
-                dtype: DLDataType::default(),
-                shape: shape_ptr,
-                strides: strides_ptr,
-                byte_offset: 0,
-            },
-            manager_ctx: ctx.into_raw(),
-            deleter: Some(static_deleter::<0, C, _>),
-        };
+        let raw_ptr = Box::into_raw(boxed);
 
-        Ok(boxed)
+        unsafe {
+            (*raw_ptr).managed_tensor = DLManagedTensor {
+                dl_tensor: DLTensor {
+                    data: std::ptr::null_mut(),
+                    device: DLDevice::CPU,
+                    ndim,
+                    dtype: DLDataType::default(),
+                    shape: shape_ptr,
+                    strides: strides_ptr,
+                    byte_offset: 0,
+                },
+                manager_ctx: ctx.into_raw(),
+                deleter: Some(static_deleter::<0, C, _>),
+            };
+
+            Ok(DlpackBoxPtr::new(NonNull::new_unchecked(raw_ptr)))
+        }
     }
 
     pub fn with_dynamic_layout<C, T>(
         ctx: C,
         shape: &[T],
         strides: &[T],
-    ) -> Result<Box<Self>, Error>
+    ) -> Result<DlpackBoxPtr<DLManagedTensor, 0>, Error>
     where
         C: OpaqueContext,
         T: Into<i64> + Copy,
@@ -283,33 +366,43 @@ impl DlpackBox<DLManagedTensor, 0> {
             .try_into()
             .context(NdimOverflowSnafu { ndim: ndim_usize })?;
 
-        let shape_boxed: Box<[i64]> = shape.iter().map(|&s| s.into()).collect();
-        let strides_boxed: Box<[i64]> = strides.iter().map(|&s| s.into()).collect();
+        let total_size = size_of::<Self>() + 2 * ndim_usize * size_of::<i64>();
+        let layout = std::alloc::Layout::from_size_align(total_size, 8).unwrap();
 
-        let mut boxed = Box::new(Self {
-            managed_tensor: unsafe { std::mem::zeroed() },
-            shape: shape_boxed,
-            strides: strides_boxed,
-        });
+        unsafe {
+            let ptr = std::alloc::alloc(layout) as *mut Self;
+            if ptr.is_null() {
+                std::alloc::handle_alloc_error(layout);
+            }
 
-        let shape_ptr = boxed.shape.as_mut_ptr();
-        let strides_ptr = boxed.strides.as_mut_ptr();
+            let shape_ptr = (ptr as *mut u8).add(size_of::<Self>()) as *mut i64;
+            let strides_ptr = shape_ptr.add(ndim_usize);
 
-        boxed.managed_tensor = DLManagedTensor {
-            dl_tensor: DLTensor {
-                data: std::ptr::null_mut(),
-                device: DLDevice::CPU,
-                ndim,
-                dtype: DLDataType::default(),
-                shape: shape_ptr,
-                strides: strides_ptr,
-                byte_offset: 0,
-            },
-            manager_ctx: ctx.into_raw(),
-            deleter: Some(static_deleter::<0, C, _>),
-        };
+            for (i, s) in shape.iter().enumerate() {
+                std::ptr::write(shape_ptr.add(i), (*s).into());
+            }
+            for (i, s) in strides.iter().enumerate() {
+                std::ptr::write(strides_ptr.add(i), (*s).into());
+            }
 
-        Ok(boxed)
+            let managed_tensor = DLManagedTensor {
+                dl_tensor: DLTensor {
+                    data: std::ptr::null_mut(),
+                    device: DLDevice::CPU,
+                    ndim,
+                    dtype: DLDataType::default(),
+                    shape: shape_ptr,
+                    strides: strides_ptr,
+                    byte_offset: 0,
+                },
+                manager_ctx: ctx.into_raw(),
+                deleter: Some(dynamic_deleter::<C, _>),
+            };
+
+            std::ptr::write(std::ptr::addr_of_mut!((*ptr).managed_tensor), managed_tensor);
+
+            Ok(DlpackBoxPtr::new(NonNull::new_unchecked(ptr)))
+        }
     }
 }
 
@@ -319,41 +412,45 @@ impl DlpackBox<DLManagedTensorVersioned, 0> {
         shape_ptr: *mut i64,
         strides_ptr: *mut i64,
         ndim: i32,
-    ) -> Result<Box<Self>, Error>
+    ) -> Result<DlpackBoxPtr<DLManagedTensorVersioned, 0>, Error>
     where
         C: OpaqueContext,
     {
         ensure!(ndim >= 0, NegativeNdimSnafu { ndim });
-        let mut boxed = Box::new(Self {
+        let boxed = Box::new(Self {
             managed_tensor: unsafe { std::mem::zeroed() },
-            shape: Box::default(),
-            strides: Box::default(),
+            shape: [],
+            strides: [],
         });
 
-        boxed.managed_tensor = DLManagedTensorVersioned {
-            version: crate::ffi::DLPackVersion::default(),
-            manager_ctx: ctx.into_raw(),
-            deleter: Some(static_deleter::<0, C, _>),
-            flags: DlpackFlags::empty(),
-            dl_tensor: DLTensor {
-                data: std::ptr::null_mut(),
-                device: DLDevice::CPU,
-                ndim,
-                dtype: DLDataType::default(),
-                shape: shape_ptr,
-                strides: strides_ptr,
-                byte_offset: 0,
-            },
-        };
+        let raw_ptr = Box::into_raw(boxed);
 
-        Ok(boxed)
+        unsafe {
+            (*raw_ptr).managed_tensor = DLManagedTensorVersioned {
+                version: crate::ffi::DLPackVersion::default(),
+                manager_ctx: ctx.into_raw(),
+                deleter: Some(static_deleter::<0, C, _>),
+                flags: DlpackFlags::empty(),
+                dl_tensor: DLTensor {
+                    data: std::ptr::null_mut(),
+                    device: DLDevice::CPU,
+                    ndim,
+                    dtype: DLDataType::default(),
+                    shape: shape_ptr,
+                    strides: strides_ptr,
+                    byte_offset: 0,
+                },
+            };
+
+            Ok(DlpackBoxPtr::new(NonNull::new_unchecked(raw_ptr)))
+        }
     }
 
     pub fn with_dynamic_layout<C, T>(
         ctx: C,
         shape: &[T],
         strides: &[T],
-    ) -> Result<Box<Self>, Error>
+    ) -> Result<DlpackBoxPtr<DLManagedTensorVersioned, 0>, Error>
     where
         C: OpaqueContext,
         T: Into<i64> + Copy,
@@ -370,35 +467,48 @@ impl DlpackBox<DLManagedTensorVersioned, 0> {
             .try_into()
             .context(NdimOverflowSnafu { ndim: ndim_usize })?;
 
-        let shape_boxed: Box<[i64]> = shape.iter().map(|&s| s.into()).collect();
-        let strides_boxed: Box<[i64]> = strides.iter().map(|&s| s.into()).collect();
+        let total_size = size_of::<Self>() + 2 * ndim_usize * size_of::<i64>();
+        let layout = std::alloc::Layout::from_size_align(total_size, 8).unwrap();
 
-        let mut boxed = Box::new(Self {
-            managed_tensor: unsafe { std::mem::zeroed() },
-            shape: shape_boxed,
-            strides: strides_boxed,
-        });
+        unsafe {
+            let ptr = std::alloc::alloc(layout) as *mut Self;
+            if ptr.is_null() {
+                std::alloc::handle_alloc_error(layout);
+            }
 
-        let shape_ptr = boxed.shape.as_mut_ptr();
-        let strides_ptr = boxed.strides.as_mut_ptr();
+            let shape_ptr = (ptr as *mut u8).add(size_of::<Self>()) as *mut i64;
+            let strides_ptr = shape_ptr.add(ndim_usize);
 
-        boxed.managed_tensor = DLManagedTensorVersioned {
-            version: crate::ffi::DLPackVersion::default(),
-            manager_ctx: ctx.into_raw(),
-            deleter: Some(static_deleter::<0, C, _>),
-            flags: DlpackFlags::empty(),
-            dl_tensor: DLTensor {
-                data: std::ptr::null_mut(),
-                device: DLDevice::CPU,
-                ndim,
-                dtype: DLDataType::default(),
-                shape: shape_ptr,
-                strides: strides_ptr,
-                byte_offset: 0,
-            },
-        };
+            for (i, s) in shape.iter().enumerate() {
+                std::ptr::write(shape_ptr.add(i), (*s).into());
+            }
+            for (i, s) in strides.iter().enumerate() {
+                std::ptr::write(strides_ptr.add(i), (*s).into());
+            }
 
-        Ok(boxed)
+            let managed_tensor = DLManagedTensorVersioned {
+                version: crate::ffi::DLPackVersion::default(),
+                manager_ctx: ctx.into_raw(),
+                deleter: Some(dynamic_deleter::<C, _>),
+                flags: DlpackFlags::empty(),
+                dl_tensor: DLTensor {
+                    data: std::ptr::null_mut(),
+                    device: DLDevice::CPU,
+                    ndim,
+                    dtype: DLDataType::default(),
+                    shape: shape_ptr,
+                    strides: strides_ptr,
+                    byte_offset: 0,
+                },
+            };
+
+            std::ptr::write(
+                std::ptr::addr_of_mut!((*ptr).managed_tensor),
+                managed_tensor,
+            );
+
+            Ok(DlpackBoxPtr::new(NonNull::new_unchecked(ptr)))
+        }
     }
 }
 
@@ -444,7 +554,7 @@ mod tests {
 
         let boxed = DlpackBox::<DLManagedTensor, 3>::with_array_layout(ctx, [1, 2, 3], [6, 3, 1]);
 
-        let raw_box = Box::into_raw(boxed);
+        let raw_box = DlpackBoxPtr::into_raw(boxed);
         unsafe {
             let dlpack = Dlpack::new(raw_box as *mut DLManagedTensor).unwrap();
             assert_eq!(dlpack.dl_tensor().ndim, 3);
@@ -470,7 +580,7 @@ mod tests {
 
         let boxed = DlpackBox::<DLManagedTensor, 3>::with_slice_layout(ctx, &[2, 4, 8], &[32, 8, 1]);
 
-        let raw_box = Box::into_raw(boxed);
+        let raw_box = DlpackBoxPtr::into_raw(boxed);
         let dlpack = Dlpack::new(raw_box as *mut DLManagedTensor).unwrap();
         assert_eq!(dlpack.dl_tensor().ndim, 3);
         assert_eq!(drop_count.load(Ordering::SeqCst), 0);
@@ -487,7 +597,7 @@ mod tests {
 
         let boxed = DlpackBox::<DLManagedTensor, 0>::with_dynamic_layout(ctx, &[3, 5], &[5, 1]).unwrap();
 
-        let raw_box = Box::into_raw(boxed);
+        let raw_box = DlpackBoxPtr::into_raw(boxed);
         unsafe {
             let dlpack = Dlpack::new(raw_box as *mut DLManagedTensor).unwrap();
             assert_eq!(dlpack.dl_tensor().ndim, 2);
@@ -519,7 +629,7 @@ mod tests {
             2,
         ).unwrap();
 
-        let raw_box = Box::into_raw(boxed);
+        let raw_box = DlpackBoxPtr::into_raw(boxed);
         unsafe {
             let dlpack = Dlpack::new(raw_box as *mut DLManagedTensor).unwrap();
             assert_eq!(dlpack.dl_tensor().ndim, 2);
