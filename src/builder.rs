@@ -4,7 +4,26 @@ use crate::{
     managed_tensor::AsManagedTensor,
     Flags,
 };
+use snafu::{ResultExt, Snafu, ensure};
 use std::{alloc::Layout, os::raw::c_void, ptr::NonNull};
+
+#[derive(Debug, Snafu)]
+pub enum Error {
+    #[snafu(display("Mismatched length of shape ({shape_len}) and strides ({strides_len})"))]
+    MismatchedLength {
+        shape_len: usize,
+        strides_len: usize,
+    },
+
+    #[snafu(display("Dimension count ({ndim}) exceeds i32::MAX"))]
+    NdimOverflow {
+        ndim: usize,
+        source: std::num::TryFromIntError,
+    },
+
+    #[snafu(display("Negative dimension count ({ndim}) is invalid"))]
+    NegativeNdim { ndim: i32 },
+}
 
 #[repr(C)]
 pub struct DlpackBox<M, const N: usize> {
@@ -33,8 +52,7 @@ unsafe extern "C" fn dynamic_deleter<C: OpaqueContext, M: AsManagedTensor>(dlmt:
     unsafe {
         let b = NonNull::new_unchecked(dlmt as *mut DlpackBox<M, 0>);
         let ndim = b.as_ref().managed_tensor.get_dltensor().ndim;
-        assert!(ndim >= 0, "ndim must be non-negative in deleter");
-        let ndim_usize = ndim as usize;
+        let ndim_usize = if ndim < 0 { 0 } else { ndim as usize };
         let total_size = size_of::<DlpackBox<M, 0>>() + 2 * ndim_usize * size_of::<i64>();
         let layout = Layout::from_size_align_unchecked(total_size, 8);
         C::drop_raw(b.as_ref().managed_tensor.manager_ctx_ptr());
@@ -67,7 +85,7 @@ impl<M: AsManagedTensor, const N: usize> DlpackBox<M, N> {
 }
 
 impl<const N: usize> DlpackBox<DLManagedTensor, N> {
-    pub fn with_owned_layout<C, T>(ctx: C, shape: &[T], strides: &[T]) -> Box<Self>
+    pub fn with_slice_layout<C, T>(ctx: C, shape: &[T], strides: &[T]) -> Box<Self>
     where
         C: OpaqueContext,
         T: Into<i64> + Copy,
@@ -111,10 +129,43 @@ impl<const N: usize> DlpackBox<DLManagedTensor, N> {
 
         boxed
     }
+
+    pub fn with_array_layout<C, T>(ctx: C, shape: [T; N], strides: [T; N]) -> Box<Self>
+    where
+        C: OpaqueContext,
+        T: Into<i64> + Copy,
+    {
+        assert!(N <= i32::MAX as usize, "N must fit in i32");
+
+        let mut boxed = Box::new(Self {
+            managed_tensor: unsafe { std::mem::zeroed() },
+            shape: shape.map(|x| x.into()),
+            strides: strides.map(|x| x.into()),
+        });
+
+        let shape_ptr = boxed.shape.as_mut_ptr();
+        let strides_ptr = boxed.strides.as_mut_ptr();
+
+        boxed.managed_tensor = DLManagedTensor {
+            dl_tensor: DLTensor {
+                data: std::ptr::null_mut(),
+                device: DLDevice::CPU,
+                ndim: N as i32,
+                dtype: DLDataType::default(),
+                shape: shape_ptr,
+                strides: strides_ptr,
+                byte_offset: 0,
+            },
+            manager_ctx: ctx.into_raw(),
+            deleter: Some(static_deleter::<N, C, _>),
+        };
+
+        boxed
+    }
 }
 
 impl<const N: usize> DlpackBox<DLManagedTensorVersioned, N> {
-    pub fn with_owned_layout<C, T>(ctx: C, shape: &[T], strides: &[T]) -> Box<Self>
+    pub fn with_slice_layout<C, T>(ctx: C, shape: &[T], strides: &[T]) -> Box<Self>
     where
         C: OpaqueContext,
         T: Into<i64> + Copy,
@@ -161,6 +212,41 @@ impl<const N: usize> DlpackBox<DLManagedTensorVersioned, N> {
         boxed
     }
 
+    pub fn with_array_layout<C, T>(ctx: C, shape: [T; N], strides: [T; N]) -> Box<Self>
+    where
+        C: OpaqueContext,
+        T: Into<i64> + Copy,
+    {
+        assert!(N <= i32::MAX as usize, "N must fit in i32");
+
+        let mut boxed = Box::new(Self {
+            managed_tensor: unsafe { std::mem::zeroed() },
+            shape: shape.map(|x| x.into()),
+            strides: strides.map(|x| x.into()),
+        });
+
+        let shape_ptr = boxed.shape.as_mut_ptr();
+        let strides_ptr = boxed.strides.as_mut_ptr();
+
+        boxed.managed_tensor = DLManagedTensorVersioned {
+            version: crate::ffi::DLPackVersion::default(),
+            manager_ctx: ctx.into_raw(),
+            deleter: Some(static_deleter::<N, C, _>),
+            flags: Flags::empty(),
+            dl_tensor: DLTensor {
+                data: std::ptr::null_mut(),
+                device: DLDevice::CPU,
+                ndim: N as i32,
+                dtype: DLDataType::default(),
+                shape: shape_ptr,
+                strides: strides_ptr,
+                byte_offset: 0,
+            },
+        };
+
+        boxed
+    }
+
     pub fn flags(mut self, flags: Flags) -> Self {
         self.managed_tensor.flags = flags;
         self
@@ -168,16 +254,16 @@ impl<const N: usize> DlpackBox<DLManagedTensorVersioned, N> {
 }
 
 impl DlpackBox<DLManagedTensor, 0> {
-    pub fn with_borrowed_layout<C>(
+    pub fn with_pointer_layout<C>(
         ctx: C,
         shape_ptr: *mut i64,
         strides_ptr: *mut i64,
         ndim: i32,
-    ) -> Box<Self>
+    ) -> Result<Box<Self>, Error>
     where
         C: OpaqueContext,
     {
-        assert!(ndim >= 0, "ndim must be non-negative");
+        ensure!(ndim >= 0, NegativeNdimSnafu { ndim });
         let mut boxed = Box::new(Self {
             managed_tensor: unsafe { std::mem::zeroed() },
             shape: [],
@@ -198,22 +284,29 @@ impl DlpackBox<DLManagedTensor, 0> {
             deleter: Some(static_deleter::<0, C, _>),
         };
 
-        boxed
+        Ok(boxed)
     }
 
     pub fn with_dynamic_layout<C, T>(
         ctx: C,
         shape: &[T],
         strides: &[T],
-    ) -> Box<Self>
+    ) -> Result<Box<Self>, Error>
     where
         C: OpaqueContext,
         T: Into<i64> + Copy,
     {
-        assert_eq!(shape.len(), strides.len(), "shape and strides must have the same length");
+        ensure!(
+            shape.len() == strides.len(),
+            MismatchedLengthSnafu {
+                shape_len: shape.len(),
+                strides_len: strides.len()
+            }
+        );
         let ndim_usize = shape.len();
-        assert!(ndim_usize <= i32::MAX as usize, "ndim must fit in i32");
-        let ndim = ndim_usize as i32;
+        let ndim: i32 = ndim_usize
+            .try_into()
+            .context(NdimOverflowSnafu { ndim: ndim_usize })?;
 
         let total_size = size_of::<Self>() + 2 * ndim_usize * size_of::<i64>();
         let layout = Layout::from_size_align(total_size, 8).unwrap();
@@ -250,22 +343,22 @@ impl DlpackBox<DLManagedTensor, 0> {
 
             std::ptr::write(std::ptr::addr_of_mut!((*ptr).managed_tensor), managed_tensor);
 
-            Box::from_raw(ptr)
+            Ok(Box::from_raw(ptr))
         }
     }
 }
 
 impl DlpackBox<DLManagedTensorVersioned, 0> {
-    pub fn with_borrowed_layout<C>(
+    pub fn with_pointer_layout<C>(
         ctx: C,
         shape_ptr: *mut i64,
         strides_ptr: *mut i64,
         ndim: i32,
-    ) -> Box<Self>
+    ) -> Result<Box<Self>, Error>
     where
         C: OpaqueContext,
     {
-        assert!(ndim >= 0, "ndim must be non-negative");
+        ensure!(ndim >= 0, NegativeNdimSnafu { ndim });
         let mut boxed = Box::new(Self {
             managed_tensor: unsafe { std::mem::zeroed() },
             shape: [],
@@ -288,22 +381,29 @@ impl DlpackBox<DLManagedTensorVersioned, 0> {
             },
         };
 
-        boxed
+        Ok(boxed)
     }
 
     pub fn with_dynamic_layout<C, T>(
         ctx: C,
         shape: &[T],
         strides: &[T],
-    ) -> Box<Self>
+    ) -> Result<Box<Self>, Error>
     where
         C: OpaqueContext,
         T: Into<i64> + Copy,
     {
-        assert_eq!(shape.len(), strides.len(), "shape and strides must have the same length");
+        ensure!(
+            shape.len() == strides.len(),
+            MismatchedLengthSnafu {
+                shape_len: shape.len(),
+                strides_len: strides.len(),
+            }
+        );
         let ndim_usize = shape.len();
-        assert!(ndim_usize <= i32::MAX as usize, "ndim must fit in i32");
-        let ndim = ndim_usize as i32;
+        let ndim: i32 = ndim_usize
+            .try_into()
+            .context(NdimOverflowSnafu { ndim: ndim_usize })?;
 
         let total_size = size_of::<Self>() + 2 * ndim_usize * size_of::<i64>();
         let layout = Layout::from_size_align(total_size, 8).unwrap();
@@ -340,9 +440,12 @@ impl DlpackBox<DLManagedTensorVersioned, 0> {
                 },
             };
 
-            std::ptr::write(std::ptr::addr_of_mut!((*ptr).managed_tensor), managed_tensor);
+            std::ptr::write(
+                std::ptr::addr_of_mut!((*ptr).managed_tensor),
+                managed_tensor,
+            );
 
-            Box::from_raw(ptr)
+            Ok(Box::from_raw(ptr))
         }
     }
 }
