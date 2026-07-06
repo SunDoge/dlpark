@@ -70,3 +70,10 @@ cudarc = [
 
 [profile.dev.package."*"]
 opt-level = 2
+
+[dev-dependencies]
+criterion = "0.8.2"
+
+[[bench]]
+name = "builder"
+harness = false

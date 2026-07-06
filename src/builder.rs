@@ -83,9 +83,41 @@ unsafe extern "C" fn static_deleter<const N: usize, C: OpaqueContext, M: Managed
         return;
     }
     unsafe {
-        let b = Box::from_raw(dlmt as *mut DlpackTensorStorage<M, N>);
-        C::drop_raw(b.managed_tensor.manager_ctx_ptr());
-        // Box drop will automatically run drop_in_place and free memory
+        let ptr = dlmt as *mut DlpackTensorStorage<M, N>;
+        C::drop_raw((*ptr).managed_tensor.manager_ctx_ptr());
+        std::ptr::drop_in_place(ptr);
+        std::alloc::dealloc(
+            ptr as *mut u8,
+            std::alloc::Layout::new::<DlpackTensorStorage<M, N>>(),
+        );
+    }
+}
+
+/// Allocates uninitialized memory sized and aligned for a
+/// `DlpackTensorStorage<M, N>`.
+///
+/// Used instead of `Box::new` to construct the value in place: `Box::new`
+/// would require first materializing the full struct (including the `shape`
+/// and `strides` arrays) on the stack, then copying the whole thing onto the
+/// heap — for large `N` that's a second full copy of the shape/strides data
+/// on top of the one needed to convert it. Writing each field directly into
+/// this allocation via `ptr::write` does exactly one copy per field. Paired
+/// with `static_deleter`, which deallocates using the same `Layout`.
+///
+/// # Safety
+///
+/// The caller must initialize every field (`managed_tensor`, `shape`,
+/// `strides`) via `ptr::write` before the returned pointer is read from, and
+/// must not deallocate it except via a deleter using a matching
+/// `Layout::new::<DlpackTensorStorage<M, N>>()`.
+unsafe fn alloc_uninit_storage<M, const N: usize>() -> *mut DlpackTensorStorage<M, N> {
+    let layout = std::alloc::Layout::new::<DlpackTensorStorage<M, N>>();
+    unsafe {
+        let ptr = std::alloc::alloc(layout) as *mut DlpackTensorStorage<M, N>;
+        if ptr.is_null() {
+            std::alloc::handle_alloc_error(layout);
+        }
+        ptr
     }
 }
 
@@ -142,41 +174,35 @@ impl<const N: usize> DlpackBuilder<DLManagedTensor, N> {
         assert_eq!(strides.len(), N, "strides length must match N");
         assert!(N <= i32::MAX as usize, "N must fit in i32");
 
-        let mut shape_arr = [0i64; N];
-        for (i, s) in shape.iter().enumerate() {
-            shape_arr[i] = (*s).into();
-        }
-
-        let mut strides_arr = [0i64; N];
-        for (i, s) in strides.iter().enumerate() {
-            strides_arr[i] = (*s).into();
-        }
-
-        let boxed = Box::new(DlpackTensorStorage {
-            managed_tensor: unsafe { std::mem::zeroed() },
-            shape: shape_arr,
-            strides: strides_arr,
-        });
-
-        let raw_ptr = Box::into_raw(boxed);
-
         unsafe {
+            let raw_ptr = alloc_uninit_storage::<DLManagedTensor, N>();
+
             let shape_ptr = std::ptr::addr_of_mut!((*raw_ptr).shape) as *mut i64;
             let strides_ptr = std::ptr::addr_of_mut!((*raw_ptr).strides) as *mut i64;
 
-            (*raw_ptr).managed_tensor = DLManagedTensor {
-                dl_tensor: DLTensor {
-                    data: std::ptr::null_mut(),
-                    device: DLDevice::CPU,
-                    ndim: N as i32,
-                    dtype: DLDataType::default(),
-                    shape: shape_ptr,
-                    strides: strides_ptr,
-                    byte_offset: 0,
+            for (i, s) in shape.iter().enumerate() {
+                std::ptr::write(shape_ptr.add(i), (*s).into());
+            }
+            for (i, s) in strides.iter().enumerate() {
+                std::ptr::write(strides_ptr.add(i), (*s).into());
+            }
+
+            std::ptr::write(
+                std::ptr::addr_of_mut!((*raw_ptr).managed_tensor),
+                DLManagedTensor {
+                    dl_tensor: DLTensor {
+                        data: std::ptr::null_mut(),
+                        device: DLDevice::CPU,
+                        ndim: N as i32,
+                        dtype: DLDataType::default(),
+                        shape: shape_ptr,
+                        strides: strides_ptr,
+                        byte_offset: 0,
+                    },
+                    manager_ctx: ctx.into_raw(),
+                    deleter: Some(static_deleter::<N, C, _>),
                 },
-                manager_ctx: ctx.into_raw(),
-                deleter: Some(static_deleter::<N, C, _>),
-            };
+            );
 
             DlpackBuilder::new(NonNull::new_unchecked(raw_ptr))
         }
@@ -193,31 +219,35 @@ impl<const N: usize> DlpackBuilder<DLManagedTensor, N> {
     {
         assert!(N <= i32::MAX as usize, "N must fit in i32");
 
-        let boxed = Box::new(DlpackTensorStorage {
-            managed_tensor: unsafe { std::mem::zeroed() },
-            shape: shape.map(|x| x.into()),
-            strides: strides.map(|x| x.into()),
-        });
-
-        let raw_ptr = Box::into_raw(boxed);
-
         unsafe {
+            let raw_ptr = alloc_uninit_storage::<DLManagedTensor, N>();
+
             let shape_ptr = std::ptr::addr_of_mut!((*raw_ptr).shape) as *mut i64;
             let strides_ptr = std::ptr::addr_of_mut!((*raw_ptr).strides) as *mut i64;
 
-            (*raw_ptr).managed_tensor = DLManagedTensor {
-                dl_tensor: DLTensor {
-                    data: std::ptr::null_mut(),
-                    device: DLDevice::CPU,
-                    ndim: N as i32,
-                    dtype: DLDataType::default(),
-                    shape: shape_ptr,
-                    strides: strides_ptr,
-                    byte_offset: 0,
+            for (i, s) in shape.into_iter().enumerate() {
+                std::ptr::write(shape_ptr.add(i), s.into());
+            }
+            for (i, s) in strides.into_iter().enumerate() {
+                std::ptr::write(strides_ptr.add(i), s.into());
+            }
+
+            std::ptr::write(
+                std::ptr::addr_of_mut!((*raw_ptr).managed_tensor),
+                DLManagedTensor {
+                    dl_tensor: DLTensor {
+                        data: std::ptr::null_mut(),
+                        device: DLDevice::CPU,
+                        ndim: N as i32,
+                        dtype: DLDataType::default(),
+                        shape: shape_ptr,
+                        strides: strides_ptr,
+                        byte_offset: 0,
+                    },
+                    manager_ctx: ctx.into_raw(),
+                    deleter: Some(static_deleter::<N, C, _>),
                 },
-                manager_ctx: ctx.into_raw(),
-                deleter: Some(static_deleter::<N, C, _>),
-            };
+            );
 
             DlpackBuilder::new(NonNull::new_unchecked(raw_ptr))
         }
@@ -238,43 +268,37 @@ impl<const N: usize> DlpackBuilder<DLManagedTensorVersioned, N> {
         assert_eq!(strides.len(), N, "strides length must match N");
         assert!(N <= i32::MAX as usize, "N must fit in i32");
 
-        let mut shape_arr = [0i64; N];
-        for (i, s) in shape.iter().enumerate() {
-            shape_arr[i] = (*s).into();
-        }
-
-        let mut strides_arr = [0i64; N];
-        for (i, s) in strides.iter().enumerate() {
-            strides_arr[i] = (*s).into();
-        }
-
-        let boxed = Box::new(DlpackTensorStorage {
-            managed_tensor: unsafe { std::mem::zeroed() },
-            shape: shape_arr,
-            strides: strides_arr,
-        });
-
-        let raw_ptr = Box::into_raw(boxed);
-
         unsafe {
+            let raw_ptr = alloc_uninit_storage::<DLManagedTensorVersioned, N>();
+
             let shape_ptr = std::ptr::addr_of_mut!((*raw_ptr).shape) as *mut i64;
             let strides_ptr = std::ptr::addr_of_mut!((*raw_ptr).strides) as *mut i64;
 
-            (*raw_ptr).managed_tensor = DLManagedTensorVersioned {
-                version: crate::ffi::DLPackVersion::default(),
-                manager_ctx: ctx.into_raw(),
-                deleter: Some(static_deleter::<N, C, _>),
-                flags: DlpackFlags::empty(),
-                dl_tensor: DLTensor {
-                    data: std::ptr::null_mut(),
-                    device: DLDevice::CPU,
-                    ndim: N as i32,
-                    dtype: DLDataType::default(),
-                    shape: shape_ptr,
-                    strides: strides_ptr,
-                    byte_offset: 0,
+            for (i, s) in shape.iter().enumerate() {
+                std::ptr::write(shape_ptr.add(i), (*s).into());
+            }
+            for (i, s) in strides.iter().enumerate() {
+                std::ptr::write(strides_ptr.add(i), (*s).into());
+            }
+
+            std::ptr::write(
+                std::ptr::addr_of_mut!((*raw_ptr).managed_tensor),
+                DLManagedTensorVersioned {
+                    version: crate::ffi::DLPackVersion::default(),
+                    manager_ctx: ctx.into_raw(),
+                    deleter: Some(static_deleter::<N, C, _>),
+                    flags: DlpackFlags::empty(),
+                    dl_tensor: DLTensor {
+                        data: std::ptr::null_mut(),
+                        device: DLDevice::CPU,
+                        ndim: N as i32,
+                        dtype: DLDataType::default(),
+                        shape: shape_ptr,
+                        strides: strides_ptr,
+                        byte_offset: 0,
+                    },
                 },
-            };
+            );
 
             DlpackBuilder::new(NonNull::new_unchecked(raw_ptr))
         }
@@ -291,33 +315,37 @@ impl<const N: usize> DlpackBuilder<DLManagedTensorVersioned, N> {
     {
         assert!(N <= i32::MAX as usize, "N must fit in i32");
 
-        let boxed = Box::new(DlpackTensorStorage {
-            managed_tensor: unsafe { std::mem::zeroed() },
-            shape: shape.map(|x| x.into()),
-            strides: strides.map(|x| x.into()),
-        });
-
-        let raw_ptr = Box::into_raw(boxed);
-
         unsafe {
+            let raw_ptr = alloc_uninit_storage::<DLManagedTensorVersioned, N>();
+
             let shape_ptr = std::ptr::addr_of_mut!((*raw_ptr).shape) as *mut i64;
             let strides_ptr = std::ptr::addr_of_mut!((*raw_ptr).strides) as *mut i64;
 
-            (*raw_ptr).managed_tensor = DLManagedTensorVersioned {
-                version: crate::ffi::DLPackVersion::default(),
-                manager_ctx: ctx.into_raw(),
-                deleter: Some(static_deleter::<N, C, _>),
-                flags: DlpackFlags::empty(),
-                dl_tensor: DLTensor {
-                    data: std::ptr::null_mut(),
-                    device: DLDevice::CPU,
-                    ndim: N as i32,
-                    dtype: DLDataType::default(),
-                    shape: shape_ptr,
-                    strides: strides_ptr,
-                    byte_offset: 0,
+            for (i, s) in shape.into_iter().enumerate() {
+                std::ptr::write(shape_ptr.add(i), s.into());
+            }
+            for (i, s) in strides.into_iter().enumerate() {
+                std::ptr::write(strides_ptr.add(i), s.into());
+            }
+
+            std::ptr::write(
+                std::ptr::addr_of_mut!((*raw_ptr).managed_tensor),
+                DLManagedTensorVersioned {
+                    version: crate::ffi::DLPackVersion::default(),
+                    manager_ctx: ctx.into_raw(),
+                    deleter: Some(static_deleter::<N, C, _>),
+                    flags: DlpackFlags::empty(),
+                    dl_tensor: DLTensor {
+                        data: std::ptr::null_mut(),
+                        device: DLDevice::CPU,
+                        ndim: N as i32,
+                        dtype: DLDataType::default(),
+                        shape: shape_ptr,
+                        strides: strides_ptr,
+                        byte_offset: 0,
+                    },
                 },
-            };
+            );
 
             DlpackBuilder::new(NonNull::new_unchecked(raw_ptr))
         }
@@ -343,28 +371,28 @@ impl DlpackBuilder<DLManagedTensor, 0> {
         C: OpaqueContext,
     {
         ensure!(ndim >= 0, NegativeNdimSnafu { ndim });
-        let boxed = Box::new(DlpackTensorStorage {
-            managed_tensor: unsafe { std::mem::zeroed() },
-            shape: [],
-            strides: [],
-        });
-
-        let raw_ptr = Box::into_raw(boxed);
 
         unsafe {
-            (*raw_ptr).managed_tensor = DLManagedTensor {
-                dl_tensor: DLTensor {
-                    data: std::ptr::null_mut(),
-                    device: DLDevice::CPU,
-                    ndim,
-                    dtype: DLDataType::default(),
-                    shape: shape_ptr,
-                    strides: strides_ptr,
-                    byte_offset: 0,
+            // shape/strides are `[i64; 0]` here — zero-sized, nothing to
+            // initialize — so only `managed_tensor` needs a `ptr::write`.
+            let raw_ptr = alloc_uninit_storage::<DLManagedTensor, 0>();
+
+            std::ptr::write(
+                std::ptr::addr_of_mut!((*raw_ptr).managed_tensor),
+                DLManagedTensor {
+                    dl_tensor: DLTensor {
+                        data: std::ptr::null_mut(),
+                        device: DLDevice::CPU,
+                        ndim,
+                        dtype: DLDataType::default(),
+                        shape: shape_ptr,
+                        strides: strides_ptr,
+                        byte_offset: 0,
+                    },
+                    manager_ctx: ctx.into_raw(),
+                    deleter: Some(static_deleter::<0, C, _>),
                 },
-                manager_ctx: ctx.into_raw(),
-                deleter: Some(static_deleter::<0, C, _>),
-            };
+            );
 
             Ok(DlpackBuilder::new(NonNull::new_unchecked(raw_ptr)))
         }
@@ -448,30 +476,30 @@ impl DlpackBuilder<DLManagedTensorVersioned, 0> {
         C: OpaqueContext,
     {
         ensure!(ndim >= 0, NegativeNdimSnafu { ndim });
-        let boxed = Box::new(DlpackTensorStorage {
-            managed_tensor: unsafe { std::mem::zeroed() },
-            shape: [],
-            strides: [],
-        });
-
-        let raw_ptr = Box::into_raw(boxed);
 
         unsafe {
-            (*raw_ptr).managed_tensor = DLManagedTensorVersioned {
-                version: crate::ffi::DLPackVersion::default(),
-                manager_ctx: ctx.into_raw(),
-                deleter: Some(static_deleter::<0, C, _>),
-                flags: DlpackFlags::empty(),
-                dl_tensor: DLTensor {
-                    data: std::ptr::null_mut(),
-                    device: DLDevice::CPU,
-                    ndim,
-                    dtype: DLDataType::default(),
-                    shape: shape_ptr,
-                    strides: strides_ptr,
-                    byte_offset: 0,
+            // shape/strides are `[i64; 0]` here — zero-sized, nothing to
+            // initialize — so only `managed_tensor` needs a `ptr::write`.
+            let raw_ptr = alloc_uninit_storage::<DLManagedTensorVersioned, 0>();
+
+            std::ptr::write(
+                std::ptr::addr_of_mut!((*raw_ptr).managed_tensor),
+                DLManagedTensorVersioned {
+                    version: crate::ffi::DLPackVersion::default(),
+                    manager_ctx: ctx.into_raw(),
+                    deleter: Some(static_deleter::<0, C, _>),
+                    flags: DlpackFlags::empty(),
+                    dl_tensor: DLTensor {
+                        data: std::ptr::null_mut(),
+                        device: DLDevice::CPU,
+                        ndim,
+                        dtype: DLDataType::default(),
+                        shape: shape_ptr,
+                        strides: strides_ptr,
+                        byte_offset: 0,
+                    },
                 },
-            };
+            );
 
             Ok(DlpackBuilder::new(NonNull::new_unchecked(raw_ptr)))
         }
