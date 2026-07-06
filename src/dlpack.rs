@@ -1,6 +1,7 @@
 use crate::DlpackFlags;
 use crate::ManagedTensorBase;
 use crate::ffi::{DLManagedTensorVersioned, DLPackVersion, DLTensor};
+use std::borrow::Cow;
 use std::ptr::NonNull;
 
 /// Owning RAII handle for a DLPack managed tensor pointer.
@@ -54,6 +55,14 @@ where
     /// See [`crate::ffi::DLTensor::strides`] for error conditions.
     pub fn strides(&self) -> Result<Option<&[i64]>, crate::tensor::Error> {
         self.dl_tensor().strides()
+    }
+
+    /// Returns explicit strides, or computed compact row-major strides when
+    /// DLPack stores them implicitly as a null pointer.
+    ///
+    /// See [`crate::ffi::DLTensor::strides_or_compact`].
+    pub fn strides_or_compact(&self) -> Result<Cow<'_, [i64]>, crate::tensor::Error> {
+        self.dl_tensor().strides_or_compact()
     }
 
     /// Returns the total number of elements in the tensor (product of all shape dimensions).

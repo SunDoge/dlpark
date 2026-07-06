@@ -3,7 +3,7 @@ use crate::{
     ffi::{DLDataType, DLDevice, DLDeviceType, DLTensor},
 };
 use snafu::{Snafu, ensure};
-use std::{mem, os::raw::c_void};
+use std::{borrow::Cow, mem, os::raw::c_void};
 
 #[derive(Debug, Snafu)]
 pub enum Error {
@@ -162,6 +162,29 @@ impl DLTensor {
         }))
     }
 
+    /// Returns explicit strides, or computed compact row-major strides when
+    /// DLPack stores them implicitly as a null pointer.
+    ///
+    /// Explicit strides are borrowed from the tensor. Implicit compact strides
+    /// are returned as an owned allocation.
+    ///
+    /// # Errors
+    ///
+    /// Propagates errors from [`Self::shape`] and [`compact_strides`].
+    pub fn strides_or_compact(&self) -> Result<Cow<'_, [i64]>, Error> {
+        match self.strides()? {
+            Some(strides) => Ok(Cow::Borrowed(strides)),
+            None => {
+                let shape = self.shape()?;
+                if shape.is_empty() {
+                    Ok(Cow::Borrowed(&[]))
+                } else {
+                    Ok(Cow::Owned(compact_strides(shape)?))
+                }
+            }
+        }
+    }
+
     /// Returns the total number of elements in the tensor (product of all shape dimensions).
     ///
     /// # Errors
@@ -315,5 +338,53 @@ impl DLTensor {
 
     pub fn data_ptr(&self) -> *const c_void {
         self.data as *const c_void
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn strides_or_compact_borrows_explicit_strides() {
+        let shape = [2i64, 3];
+        let strides = [10i64, 2];
+        let tensor = DLTensor {
+            ndim: 2,
+            shape: shape.as_ptr() as *mut i64,
+            strides: strides.as_ptr() as *mut i64,
+            ..DLTensor::default()
+        };
+
+        let actual = tensor.strides_or_compact().unwrap();
+
+        assert!(matches!(actual, Cow::Borrowed(_)));
+        assert_eq!(&*actual, &[10, 2]);
+    }
+
+    #[test]
+    fn strides_or_compact_computes_implicit_compact_strides() {
+        let shape = [2i64, 3, 4];
+        let tensor = DLTensor {
+            ndim: 3,
+            shape: shape.as_ptr() as *mut i64,
+            strides: std::ptr::null_mut(),
+            ..DLTensor::default()
+        };
+
+        let actual = tensor.strides_or_compact().unwrap();
+
+        assert!(matches!(actual, Cow::Owned(_)));
+        assert_eq!(&*actual, &[12, 4, 1]);
+    }
+
+    #[test]
+    fn strides_or_compact_keeps_scalar_strides_empty() {
+        let tensor = DLTensor::default();
+
+        let actual = tensor.strides_or_compact().unwrap();
+
+        assert!(matches!(actual, Cow::Borrowed(_)));
+        assert!(actual.is_empty());
     }
 }

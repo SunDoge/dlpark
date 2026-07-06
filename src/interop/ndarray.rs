@@ -101,35 +101,24 @@ where
             usize::try_from(dim).map_err(|_| Error::SpanOverflow)
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let strides = match tensor.strides()? {
-        Some(strides) => strides
-            .iter()
-            .enumerate()
-            .map(|(axis, &stride)| {
-                ensure!(
-                    stride >= 0,
-                    NegativeStrideSnafu {
-                        axis,
-                        value: stride
-                    }
-                );
-                usize::try_from(stride).map_err(|_| Error::DlpackStrideOverflow {
+    let strides = tensor
+        .strides_or_compact()?
+        .iter()
+        .enumerate()
+        .map(|(axis, &stride)| {
+            ensure!(
+                stride >= 0,
+                NegativeStrideSnafu {
                     axis,
-                    value: stride,
-                })
+                    value: stride
+                }
+            );
+            usize::try_from(stride).map_err(|_| Error::DlpackStrideOverflow {
+                axis,
+                value: stride,
             })
-            .collect::<Result<Vec<_>, _>>()?,
-        None => crate::tensor::compact_strides(tensor.shape()?)?
-            .into_iter()
-            .enumerate()
-            .map(|(axis, stride)| {
-                usize::try_from(stride).map_err(|_| Error::DlpackStrideOverflow {
-                    axis,
-                    value: stride,
-                })
-            })
-            .collect::<Result<Vec<_>, _>>()?,
-    };
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     let ptr = tensor.cpu_data_ptr::<T>()?;
     let span_len = strided_span_len(&shape, &strides)?;
     let data = unsafe { std::slice::from_raw_parts(ptr, span_len) };
