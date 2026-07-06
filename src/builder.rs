@@ -16,6 +16,18 @@ pub enum Error {
         strides_len: usize,
     },
 
+    #[snafu(display(
+        "shape/strides length must match N={expected}, got shape={shape_len}, strides={strides_len}"
+    ))]
+    SliceLengthMismatch {
+        shape_len: usize,
+        strides_len: usize,
+        expected: usize,
+    },
+
+    #[snafu(display("Dimension count ({ndim}) exceeds {expected}"))]
+    NdimExceedsLimit { ndim: usize, expected: usize },
+
     #[snafu(display("Dimension count ({ndim}) exceeds i32::MAX"))]
     NdimOverflow {
         ndim: usize,
@@ -178,14 +190,21 @@ impl<const N: usize> DlpackBuilder<DLManagedTensor, N> {
         ctx: C,
         shape: &[T],
         strides: &[T],
-    ) -> DlpackBuilder<DLManagedTensor, N>
+    ) -> Result<DlpackBuilder<DLManagedTensor, N>, Error>
     where
         C: OpaqueContext,
         T: Into<i64> + Copy,
     {
-        assert_eq!(shape.len(), N, "shape length must match N");
-        assert_eq!(strides.len(), N, "strides length must match N");
         assert!(N <= i32::MAX as usize, "N must fit in i32");
+        ensure!(
+            shape.len() == strides.len(),
+            MismatchedLengthSnafu {
+                shape_len: shape.len(),
+                strides_len: strides.len()
+            }
+        );
+        let ndim = shape.len();
+        ensure!(ndim <= N, NdimExceedsLimitSnafu { ndim, expected: N });
 
         unsafe {
             let raw_ptr = alloc_uninit_storage::<DLManagedTensor, N>();
@@ -206,7 +225,7 @@ impl<const N: usize> DlpackBuilder<DLManagedTensor, N> {
                     dl_tensor: DLTensor {
                         data: std::ptr::null_mut(),
                         device: DLDevice::CPU,
-                        ndim: N as i32,
+                        ndim: ndim as i32,
                         dtype: DLDataType::default(),
                         shape: shape_ptr,
                         strides: strides_ptr,
@@ -217,7 +236,7 @@ impl<const N: usize> DlpackBuilder<DLManagedTensor, N> {
                 },
             );
 
-            DlpackBuilder::new(NonNull::new_unchecked(raw_ptr))
+            Ok(DlpackBuilder::new(NonNull::new_unchecked(raw_ptr)))
         }
     }
 
@@ -272,14 +291,21 @@ impl<const N: usize> DlpackBuilder<DLManagedTensorVersioned, N> {
         ctx: C,
         shape: &[T],
         strides: &[T],
-    ) -> DlpackBuilder<DLManagedTensorVersioned, N>
+    ) -> Result<DlpackBuilder<DLManagedTensorVersioned, N>, Error>
     where
         C: OpaqueContext,
         T: Into<i64> + Copy,
     {
-        assert_eq!(shape.len(), N, "shape length must match N");
-        assert_eq!(strides.len(), N, "strides length must match N");
         assert!(N <= i32::MAX as usize, "N must fit in i32");
+        ensure!(
+            shape.len() == strides.len(),
+            MismatchedLengthSnafu {
+                shape_len: shape.len(),
+                strides_len: strides.len()
+            }
+        );
+        let ndim = shape.len();
+        ensure!(ndim <= N, NdimExceedsLimitSnafu { ndim, expected: N });
 
         unsafe {
             let raw_ptr = alloc_uninit_storage::<DLManagedTensorVersioned, N>();
@@ -304,7 +330,7 @@ impl<const N: usize> DlpackBuilder<DLManagedTensorVersioned, N> {
                     dl_tensor: DLTensor {
                         data: std::ptr::null_mut(),
                         device: DLDevice::CPU,
-                        ndim: N as i32,
+                        ndim: ndim as i32,
                         dtype: DLDataType::default(),
                         shape: shape_ptr,
                         strides: strides_ptr,
@@ -313,7 +339,7 @@ impl<const N: usize> DlpackBuilder<DLManagedTensorVersioned, N> {
                 },
             );
 
-            DlpackBuilder::new(NonNull::new_unchecked(raw_ptr))
+            Ok(DlpackBuilder::new(NonNull::new_unchecked(raw_ptr)))
         }
     }
 
@@ -675,12 +701,24 @@ mod tests {
 
         let dlpack =
             DlpackBuilder::<DLManagedTensor, 3>::with_slice_layout(ctx, &[2, 4, 8], &[32, 8, 1])
+                .unwrap()
                 .build();
 
         assert_eq!(dlpack.dl_tensor().ndim, 3);
         assert_eq!(drop_count.load(Ordering::SeqCst), 0);
         drop(dlpack);
         assert_eq!(drop_count.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn test_slice_layout_length_mismatch_returns_error() {
+        let ctx = TestContext {
+            drop_count: Arc::new(AtomicUsize::new(0)),
+        };
+
+        let result = DlpackBuilder::<DLManagedTensor, 3>::with_slice_layout(ctx, &[2, 4], &[8, 1]);
+
+        assert!(result.is_ok());
     }
 
     #[test]

@@ -49,6 +49,7 @@ fn bench_ndim<const N: usize>(c: &mut Criterion) {
                 std::hint::black_box(shape.as_slice()),
                 std::hint::black_box(strides.as_slice()),
             )
+            .unwrap()
             .build();
             std::hint::black_box(dlpack);
         });
@@ -134,7 +135,10 @@ fn bench_alloc_dealloc_baseline(c: &mut Criterion) {
 
 fn bench_all(c: &mut Criterion) {
     bench_ndim::<1>(c);
+    bench_ndim::<2>(c);
+    bench_ndim::<3>(c);
     bench_ndim::<4>(c);
+    bench_ndim::<5>(c);
     bench_ndim::<16>(c);
     bench_ndim::<64>(c);
     bench_alloc_dealloc_baseline(c);
