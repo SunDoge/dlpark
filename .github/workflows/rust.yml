@@ -1,4 +1,4 @@
-name: Rust
+name: "Test Suite"
 
 on:
   push:
@@ -10,11 +10,12 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
+  test:
+    name: cargo test
     runs-on: ubuntu-latest
-
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
       - name: Build
         run: cargo build --verbose --features "pyo3 half ndarray image candle cudarc"
       - name: Run tests
