@@ -1,4 +1,9 @@
 use crate::prelude::*;
+use crate::{
+    ManagedBox, ManagedTensorBase,
+    ffi::{DLDevice, DLManagedTensor, DLManagedTensorVersioned},
+    tensor::{compact_strides_array, is_compact_strides},
+};
 use image::{ImageBuffer, Pixel};
 use snafu::{Snafu, ensure};
 use std::{marker::PhantomData, ops::Deref, os::raw::c_void};
@@ -45,13 +50,13 @@ pub enum Error {
 }
 
 // ---------------------------------------------------------------------------
-// Forward: ImageBuffer → OwnedDlpackTensor  (infallible, so From not TryFrom)
+// Forward: ImageBuffer → ManagedBox  (infallible, so From not TryFrom)
 //
 // Box<ImageBuffer> is used directly as the OpaqueContext, which avoids
 // extracting the inner Vec and double-boxing it. One allocation total.
 // ---------------------------------------------------------------------------
 
-impl<P> From<ImageBuffer<P, Vec<P::Subpixel>>> for ManagedBox<DLManagedTensor>
+impl<P> From<ImageBuffer<P, Vec<P::Subpixel>>> for ManagedTensor
 where
     P: Pixel,
     P::Subpixel: DlpackElement,
@@ -74,7 +79,7 @@ where
     }
 }
 
-impl<P> From<ImageBuffer<P, Vec<P::Subpixel>>> for ManagedBox<DLManagedTensorVersioned>
+impl<P> From<ImageBuffer<P, Vec<P::Subpixel>>> for VersionedManagedTensor
 where
     P: Pixel,
     P::Subpixel: DlpackElement,
@@ -100,9 +105,9 @@ where
 }
 
 // ---------------------------------------------------------------------------
-// Reverse borrowed: &OwnedDlpackTensor → ImageBuffer<P, &[T]>
+// Reverse borrowed: &ManagedBox → ImageBuffer<P, &[T]>
 //
-// Zero-copy borrowed view. The ImageBuffer borrows from the OwnedDlpackTensor
+// Zero-copy borrowed view. The ImageBuffer borrows from the ManagedBox
 // and cannot outlive it.
 // ---------------------------------------------------------------------------
 
@@ -127,13 +132,13 @@ where
 }
 
 // ---------------------------------------------------------------------------
-// Reverse owned: OwnedDlpackTensor → ImageBuffer<P, DlpackContainer<M, T>>
+// Reverse owned: ManagedBox → ImageBuffer<P, DlpackContainer<M, T>>
 //
-// Zero-copy owned conversion. DlpackContainer holds the OwnedDlpackTensor by value and
+// Zero-copy owned conversion. DlpackContainer holds the ManagedBox by value and
 // exposes its pixel data as a slice through Deref. No data is copied.
 // ---------------------------------------------------------------------------
 
-/// An owned container that wraps an [`OwnedDlpackTensor`] and exposes its raw data as a
+/// An owned container that wraps a [`ManagedBox`] and exposes its raw data as a
 /// `&[T]` slice, suitable for use as the backing store of an [`ImageBuffer`].
 pub struct DlpackContainer<M: ManagedTensorBase, T> {
     dlpack: ManagedBox<M>,
@@ -266,7 +271,7 @@ mod tests {
     #[test]
     fn test_image_to_dlpack() {
         let img = ImageBuffer::<Rgb<u8>, _>::from_vec(4, 4, vec![0u8; 48]).unwrap();
-        let dlpack = ManagedBox::<DLManagedTensor>::from(img);
+        let dlpack = ManagedTensor::from(img);
 
         assert_eq!(dlpack.shape().unwrap(), &[4, 4, 3]);
     }
@@ -274,7 +279,7 @@ mod tests {
     #[test]
     fn test_borrowed_roundtrip() {
         let img = ImageBuffer::<Rgb<u8>, _>::from_vec(4, 4, vec![42u8; 48]).unwrap();
-        let dlpack = ManagedBox::<DLManagedTensor>::from(img);
+        let dlpack = ManagedTensor::from(img);
 
         let img2 = ImageBuffer::<Rgb<u8>, _>::try_from(&dlpack).unwrap();
         assert_eq!(img2.width(), 4);
@@ -285,7 +290,7 @@ mod tests {
     #[test]
     fn test_owned_roundtrip() {
         let img = ImageBuffer::<Rgb<u8>, _>::from_vec(4, 4, vec![99u8; 48]).unwrap();
-        let dlpack = ManagedBox::<DLManagedTensor>::from(img);
+        let dlpack = ManagedTensor::from(img);
 
         let img2 = ImageBuffer::<Rgb<u8>, DlpackContainer<_, u8>>::try_from(dlpack).unwrap();
         assert_eq!(img2.width(), 4);
@@ -322,7 +327,7 @@ mod tests {
         assert!(matches!(
             err,
             Error::Tensor {
-                source: crate::TensorError::NullData
+                source: crate::tensor::Error::NullData
             }
         ));
     }

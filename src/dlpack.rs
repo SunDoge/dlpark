@@ -5,8 +5,8 @@ use std::ptr::NonNull;
 pub type Dlpack = NonNull<DLManagedTensor>;
 pub type VersionedDlpack = NonNull<DLManagedTensorVersioned>;
 
-pub type ManagedTensor = ManagedBox<Dlpack>;
-pub type VersionedManagedTensor = ManagedBox<VersionedDlpack>;
+pub type ManagedTensor = ManagedBox<DLManagedTensor>;
+pub type VersionedManagedTensor = ManagedBox<DLManagedTensorVersioned>;
 
 /// Owning RAII handle for a DLPack managed tensor pointer.
 ///
@@ -24,7 +24,7 @@ where
         NonNull::new(ptr).map(ManagedBox)
     }
 
-    /// Create a new `OwnedDlpackTensor` from a raw pointer without checking if it is null.
+    /// Create a new `ManagedBox` from a raw pointer without checking if it is null.
     ///
     /// # Safety
     ///
@@ -73,7 +73,7 @@ where
         self.dl_tensor().num_bytes()
     }
 
-    /// Consumes the `OwnedDlpackTensor`, returning the wrapped raw pointer.
+    /// Consumes the `ManagedBox`, returning the wrapped raw pointer.
     ///
     /// The caller takes ownership of the managed tensor and is responsible for calling the FFI deleter later.
     pub fn into_raw(self) -> *mut M {
@@ -82,9 +82,9 @@ where
         ptr
     }
 
-    /// Returns the wrapped raw pointer without consuming the `OwnedDlpackTensor`.
+    /// Returns the wrapped raw pointer without consuming the `ManagedBox`.
     ///
-    /// The `OwnedDlpackTensor` still owns the managed tensor and will call its deleter on drop.
+    /// The `ManagedBox` still owns the managed tensor and will call its deleter on drop.
     pub fn as_ptr(&self) -> *mut M {
         self.0.as_ptr()
     }

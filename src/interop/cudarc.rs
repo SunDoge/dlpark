@@ -3,18 +3,28 @@
 //! Provides zero-copy conversion between [`CudaSlice<T>`] and DLPack managed
 //! tensors in both directions.
 //!
-//! # `from_cuda_slice` direction (`CudaSlice<T>` → `OwnedDlpackTensor`)
+//! # `from_cuda_slice` direction (`CudaSlice<T>` → `ManagedBox`)
 //!
 //! The slice is heap-boxed and stored as the `manager_ctx`; the underlying
 //! CUDA allocation is freed when the DLPack deleter fires.
 //!
-//! # `to_cuda_slice` direction (`OwnedDlpackTensor` → [`BorrowedCudaSlice<T>`])
+//! This stays a plain function rather than `TryFrom` because the DLPack shape
+//! and strides are not derivable from a bare `CudaSlice<T>` (it is just a flat
+//! device buffer) — the conversion genuinely needs more than one argument, so
+//! forcing it through `TryFrom`'s single-argument contract would not simplify
+//! anything.
+//!
+//! # `to_cuda_slice` direction (`ManagedBox` → [`BorrowedCudaSlice<T>`])
 //!
 //! `upgrade_device_ptr` wraps the DLPack tensor's raw device pointer into a
 //! proper `CudaSlice<T>`. Because the DLPack tensor owns that allocation, we
 //! must NOT call `cudaFree` when our `CudaSlice` is done. [`BorrowedCudaSlice`]
 //! holds the slice in a `ManuallyDrop` and calls [`CudaSlice::leak`] on drop,
 //! preventing the double-free.
+//!
+//! Unlike the forward direction, this conversion takes a single borrowed
+//! `&ManagedBox<M>` and can fail, so it is exposed as
+//! `TryFrom<&ManagedBox<M>> for BorrowedCudaSlice<T>`.
 //!
 //! ## Why not return `CudaView<T>`?
 //!
@@ -35,11 +45,11 @@
 //! is responsible for explicit synchronization.
 
 use crate::{
-    DlpackElement,
+    DlpackElement, ManagedTensor, VersionedManagedTensor,
     builder::DlpackBuilder,
-    dlpack::OwnedDlpackTensor,
+    dlpack::ManagedBox,
     ffi::{DLDevice, DLDeviceType, DLManagedTensor, DLManagedTensorVersioned},
-    managed_tensor::DlpackManagedTensor,
+    managed_tensor::ManagedTensorBase,
 };
 use cudarc::driver::{CudaContext, CudaSlice, CudaStream, DevicePtr};
 use snafu::{Snafu, ensure};
@@ -74,10 +84,10 @@ pub enum Error {
 }
 
 // ---------------------------------------------------------------------------
-// Forward: CudaSlice<T> → OwnedDlpackTensor
+// Forward: CudaSlice<T> → ManagedBox
 // ---------------------------------------------------------------------------
 
-/// Wrap a [`CudaSlice<T>`] as an [`OwnedDlpackTensor<DLManagedTensor>`].
+/// Wrap a [`CudaSlice<T>`] as a [`ManagedTensor`].
 ///
 /// - `slice`   — owned GPU buffer; ownership is transferred into the DLPack
 ///               tensor's `manager_ctx` via `Box<CudaSlice<T>>`
@@ -92,7 +102,7 @@ pub fn from_cuda_slice<T: DlpackElement>(
     slice: CudaSlice<T>,
     shape: &[i64],
     strides: &[i64],
-) -> Result<OwnedDlpackTensor<DLManagedTensor>, Error> {
+) -> Result<ManagedTensor, Error> {
     let device_id = slice.ordinal() as i32;
     let data_ptr = device_ptr_of(&slice);
 
@@ -110,7 +120,7 @@ pub fn from_cuda_slice_versioned<T: DlpackElement>(
     slice: CudaSlice<T>,
     shape: &[i64],
     strides: &[i64],
-) -> Result<OwnedDlpackTensor<DLManagedTensorVersioned>, Error> {
+) -> Result<VersionedManagedTensor, Error> {
     let device_id = slice.ordinal() as i32;
     let data_ptr = device_ptr_of(&slice);
 
@@ -128,10 +138,10 @@ pub fn from_cuda_slice_versioned<T: DlpackElement>(
 }
 
 // ---------------------------------------------------------------------------
-// Reverse: OwnedDlpackTensor → BorrowedCudaSlice<T>
+// Reverse: &ManagedBox<M> → BorrowedCudaSlice<T>
 // ---------------------------------------------------------------------------
 
-/// A `CudaSlice<T>` view over memory owned by an [`OwnedDlpackTensor`] tensor.
+/// A `CudaSlice<T>` view over memory owned by a [`ManagedBox`] tensor.
 ///
 /// Implements [`Deref<Target = CudaSlice<T>>`] so it can be passed directly
 /// to any cudarc API that takes `&CudaSlice<T>`.
@@ -140,7 +150,7 @@ pub fn from_cuda_slice_versioned<T: DlpackElement>(
 ///
 /// The inner `CudaSlice<T>` is held in a [`ManuallyDrop`]. On drop,
 /// [`CudaSlice::leak`] is called instead of running the normal destructor,
-/// preventing `cudaFree` from being called on memory owned by the [`OwnedDlpackTensor`].
+/// preventing `cudaFree` from being called on memory owned by the [`ManagedBox`].
 pub struct BorrowedCudaSlice<'a, T> {
     // ManuallyDrop — we call leak() instead of drop() to avoid cudaFree.
     inner: ManuallyDrop<CudaSlice<T>>,
@@ -169,7 +179,7 @@ impl<'a, T> Deref for BorrowedCudaSlice<'a, T> {
     }
 }
 
-/// Borrow the CUDA device buffer of an [`OwnedDlpackTensor`] tensor as a [`BorrowedCudaSlice<T>`].
+/// Borrow the CUDA device buffer of a [`ManagedBox`] tensor as a [`BorrowedCudaSlice<T>`].
 ///
 /// Creates a new [`CudaContext`] and default stream for the tensor's device,
 /// then uses [`upgrade_device_ptr`] to construct a `CudaSlice<T>` over the
@@ -177,7 +187,7 @@ impl<'a, T> Deref for BorrowedCudaSlice<'a, T> {
 ///
 /// The returned [`BorrowedCudaSlice`] implements `Deref<Target = CudaSlice<T>>`,
 /// so it can be passed to any cudarc API. When it is dropped, `leak()` is
-/// called to prevent `cudaFree` on memory owned by the [`OwnedDlpackTensor`].
+/// called to prevent `cudaFree` on memory owned by the [`ManagedBox`].
 ///
 /// # Errors
 ///
@@ -192,48 +202,50 @@ impl<'a, T> Deref for BorrowedCudaSlice<'a, T> {
 /// A fresh `CudaContext`/stream is created for the device. If the DLPack
 /// producer used a different stream, the caller must synchronize explicitly
 /// (e.g. via `cudaDeviceSynchronize`) before submitting GPU work.
-pub fn to_cuda_slice<'a, T, M>(
-    dlpack: &'a OwnedDlpackTensor<M>,
-) -> Result<BorrowedCudaSlice<'a, T>, Error>
+impl<'a, T, M> TryFrom<&'a ManagedBox<M>> for BorrowedCudaSlice<'a, T>
 where
     T: DlpackElement,
-    M: DlpackManagedTensor,
+    M: ManagedTensorBase,
 {
-    let tensor = dlpack.dl_tensor();
+    type Error = Error;
 
-    ensure!(
-        tensor.device.device_type == DLDeviceType::CUDA,
-        NotCudaSnafu {
-            device_type: tensor.device.device_type
-        }
-    );
-    ensure!(
-        tensor.dtype.is::<T>(),
-        DtypeMismatchSnafu {
-            expected: T::DTYPE,
-            actual: tensor.dtype,
-        }
-    );
-    ensure!(!tensor.data.is_null(), NullDataSnafu);
+    fn try_from(dlpack: &'a ManagedBox<M>) -> Result<Self, Self::Error> {
+        let tensor = dlpack.dl_tensor();
 
-    let len = tensor.num_elements()?;
-    let cu_device_ptr = tensor.data as usize as u64;
+        ensure!(
+            tensor.device.device_type == DLDeviceType::CUDA,
+            NotCudaSnafu {
+                device_type: tensor.device.device_type
+            }
+        );
+        ensure!(
+            tensor.dtype.is::<T>(),
+            DtypeMismatchSnafu {
+                expected: T::DTYPE,
+                actual: tensor.dtype,
+            }
+        );
+        ensure!(!tensor.data.is_null(), NullDataSnafu);
 
-    let ctx = CudaContext::new(tensor.device.device_id as usize)
-        .map_err(|source| Error::Driver { source })?;
-    let stream: Arc<CudaStream> = ctx.default_stream();
+        let len = tensor.num_elements()?;
+        let cu_device_ptr = tensor.data as usize as u64;
 
-    // SAFETY:
-    // - cu_device_ptr comes from the DLPack tensor's data field, which must be
-    //   a valid CUDA allocation for at least `len * size_of::<T>()` bytes.
-    // - We do NOT take ownership: BorrowedCudaSlice::drop calls leak() instead
-    //   of allowing cudaFree to run.
-    let slice = unsafe { stream.upgrade_device_ptr::<T>(cu_device_ptr, len) };
+        let ctx = CudaContext::new(tensor.device.device_id as usize)
+            .map_err(|source| Error::Driver { source })?;
+        let stream: Arc<CudaStream> = ctx.default_stream();
 
-    Ok(BorrowedCudaSlice {
-        inner: ManuallyDrop::new(slice),
-        _dlpack: PhantomData,
-    })
+        // SAFETY:
+        // - cu_device_ptr comes from the DLPack tensor's data field, which must be
+        //   a valid CUDA allocation for at least `len * size_of::<T>()` bytes.
+        // - We do NOT take ownership: BorrowedCudaSlice::drop calls leak() instead
+        //   of allowing cudaFree to run.
+        let slice = unsafe { stream.upgrade_device_ptr::<T>(cu_device_ptr, len) };
+
+        Ok(BorrowedCudaSlice {
+            inner: ManuallyDrop::new(slice),
+            _dlpack: PhantomData,
+        })
+    }
 }
 
 // ---------------------------------------------------------------------------

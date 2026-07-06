@@ -1,9 +1,9 @@
 use crate::{
-    DlpackElement,
+    DlpackElement, ManagedTensor, VersionedManagedTensor,
     builder::DlpackBuilder,
-    dlpack::OwnedDlpackTensor,
+    dlpack::ManagedBox,
     ffi::{DLDevice, DLManagedTensor, DLManagedTensorVersioned},
-    managed_tensor::DlpackManagedTensor,
+    managed_tensor::ManagedTensorBase,
 };
 use ndarray::{ArrayBase, ArrayViewD, Dimension, IxDyn, OwnedRepr, ShapeBuilder};
 use snafu::{ResultExt, Snafu, ensure};
@@ -36,7 +36,7 @@ pub enum Error {
     Builder { source: crate::builder::Error },
 }
 
-impl<T, D> TryFrom<ArrayBase<OwnedRepr<T>, D>> for OwnedDlpackTensor<DLManagedTensor>
+impl<T, D> TryFrom<ArrayBase<OwnedRepr<T>, D>> for ManagedTensor
 where
     T: DlpackElement,
     D: Dimension,
@@ -48,7 +48,7 @@ where
     }
 }
 
-impl<T, D> TryFrom<ArrayBase<OwnedRepr<T>, D>> for OwnedDlpackTensor<DLManagedTensorVersioned>
+impl<T, D> TryFrom<ArrayBase<OwnedRepr<T>, D>> for VersionedManagedTensor
 where
     T: DlpackElement,
     D: Dimension,
@@ -60,21 +60,19 @@ where
     }
 }
 
-impl<'a, T, M> TryFrom<&'a OwnedDlpackTensor<M>> for ArrayViewD<'a, T>
+impl<'a, T, M> TryFrom<&'a ManagedBox<M>> for ArrayViewD<'a, T>
 where
     T: DlpackElement,
-    M: DlpackManagedTensor,
+    M: ManagedTensorBase,
 {
     type Error = Error;
 
-    fn try_from(dlpack: &'a OwnedDlpackTensor<M>) -> Result<Self, Self::Error> {
+    fn try_from(dlpack: &'a ManagedBox<M>) -> Result<Self, Self::Error> {
         array_view_from_dlpack(dlpack)
     }
 }
 
-pub fn dlpack_from_ndarray<T, D>(
-    array: ArrayBase<OwnedRepr<T>, D>,
-) -> Result<OwnedDlpackTensor<DLManagedTensor>, Error>
+pub fn dlpack_from_ndarray<T, D>(array: ArrayBase<OwnedRepr<T>, D>) -> Result<ManagedTensor, Error>
 where
     T: DlpackElement,
     D: Dimension,
@@ -101,7 +99,7 @@ where
 
 pub fn dlpack_versioned_from_ndarray<T, D>(
     array: ArrayBase<OwnedRepr<T>, D>,
-) -> Result<OwnedDlpackTensor<DLManagedTensorVersioned>, Error>
+) -> Result<VersionedManagedTensor, Error>
 where
     T: DlpackElement,
     D: Dimension,
@@ -127,11 +125,11 @@ where
 }
 
 pub fn array_view_from_dlpack<'a, T, M>(
-    dlpack: &'a OwnedDlpackTensor<M>,
+    dlpack: &'a ManagedBox<M>,
 ) -> Result<ArrayViewD<'a, T>, Error>
 where
     T: DlpackElement,
-    M: DlpackManagedTensor,
+    M: ManagedTensorBase,
 {
     let tensor = dlpack.dl_tensor();
     let shape = tensor
@@ -163,7 +161,7 @@ where
                 })
             })
             .collect::<Result<Vec<_>, _>>()?,
-        None => crate::compact_strides(tensor.shape()?)?
+        None => crate::tensor::compact_strides(tensor.shape()?)?
             .into_iter()
             .enumerate()
             .map(|(axis, stride)| {
@@ -225,13 +223,12 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ffi::{DLManagedTensor, DLManagedTensorVersioned};
     use ndarray::{Array, arr2};
 
     #[test]
     fn owned_ndarray_to_legacy_dlpack_keeps_layout_and_data() {
         let array = arr2(&[[1i32, 2, 3], [4, 5, 6]]);
-        let dlpack = OwnedDlpackTensor::<DLManagedTensor>::try_from(array).unwrap();
+        let dlpack = ManagedTensor::try_from(array).unwrap();
 
         assert_eq!(dlpack.shape().unwrap(), &[2, 3]);
         assert_eq!(dlpack.strides().unwrap().unwrap(), &[3, 1]);
@@ -244,7 +241,7 @@ mod tests {
     #[test]
     fn owned_ndarray_to_versioned_dlpack_keeps_layout_and_data() {
         let array = Array::from_shape_vec((2, 2), vec![1f32, 2., 3., 4.]).unwrap();
-        let dlpack = OwnedDlpackTensor::<DLManagedTensorVersioned>::try_from(array).unwrap();
+        let dlpack = VersionedManagedTensor::try_from(array).unwrap();
 
         assert_eq!(dlpack.shape().unwrap(), &[2, 2]);
         assert_eq!(dlpack.strides().unwrap().unwrap(), &[2, 1]);
@@ -257,7 +254,7 @@ mod tests {
     #[test]
     fn owned_arrayd_to_dlpack_keeps_dynamic_shape() {
         let array = arr2(&[[1i32, 2], [3, 4]]).into_dyn();
-        let dlpack = OwnedDlpackTensor::<DLManagedTensor>::try_from(array).unwrap();
+        let dlpack = ManagedTensor::try_from(array).unwrap();
 
         assert_eq!(dlpack.shape().unwrap(), &[2, 2]);
         assert_eq!(dlpack.strides().unwrap().unwrap(), &[2, 1]);
@@ -270,7 +267,7 @@ mod tests {
     #[test]
     fn borrowed_dlpack_to_ndarray_view_is_zero_copy() {
         let array = arr2(&[[1i32, 2, 3], [4, 5, 6]]);
-        let dlpack = OwnedDlpackTensor::<DLManagedTensor>::try_from(array).unwrap();
+        let dlpack = ManagedTensor::try_from(array).unwrap();
         let view = ArrayViewD::<i32>::try_from(&dlpack).unwrap();
 
         assert_eq!(view.shape(), &[2, 3]);
@@ -282,7 +279,7 @@ mod tests {
     fn borrowed_dlpack_to_ndarray_view_preserves_strides() {
         let array = arr2(&[[1i32, 2, 3], [4, 5, 6]]);
         let transposed = array.reversed_axes().to_owned();
-        let dlpack = OwnedDlpackTensor::<DLManagedTensor>::try_from(transposed).unwrap();
+        let dlpack = ManagedTensor::try_from(transposed).unwrap();
         let view = array_view_from_dlpack::<i32, _>(&dlpack).unwrap();
 
         assert_eq!(view.shape(), &[3, 2]);
@@ -293,7 +290,7 @@ mod tests {
     #[test]
     fn sliced_owned_ndarray_to_dlpack_exports_non_standard_strides() {
         let array = Array::from_shape_vec((2, 2).strides((4, 2)), (0i32..7).collect()).unwrap();
-        let dlpack = OwnedDlpackTensor::<DLManagedTensor>::try_from(array).unwrap();
+        let dlpack = ManagedTensor::try_from(array).unwrap();
         let view = ArrayViewD::<i32>::try_from(&dlpack).unwrap();
 
         assert_eq!(view.shape(), &[2, 2]);

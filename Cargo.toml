@@ -12,7 +12,11 @@ exclude = [".github/"]
 
 [workspace]
 resolver = "2"
-members = ["crates/dlpark-bindgen", "examples/dlparkimg"]
+members = [
+  "crates/dlpark-bindgen",
+  "examples/dlparkimg",
+  "examples/ndarray-candle"
+]
 
 [workspace.dependencies]
 candle-core = "0.9"
@@ -53,7 +57,11 @@ half = ["dep:half"]
 image = ["dep:image"]
 ndarray = ["dep:ndarray"]
 
-cudarc = ["dep:cudarc", "cudarc/cuda-version-from-build-system", "cudarc/fallback-latest"]
+cudarc = [
+  "cudarc/cuda-version-from-build-system",
+  "cudarc/fallback-latest",
+  "dep:cudarc"
+]
 
 # Not supported yet
 # candle-cpu = ["dep:candle-core"]

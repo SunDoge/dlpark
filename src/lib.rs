@@ -12,7 +12,7 @@ mod device;
 
 mod managed_tenesor_versioned;
 mod managed_tensor;
-mod tensor;
+pub mod tensor;
 
 pub use builder::{DlpackBuilder, DlpackTensorStorage};
 pub use context::OpaqueContext;
