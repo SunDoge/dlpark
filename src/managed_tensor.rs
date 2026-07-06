@@ -23,25 +23,31 @@ bitflags! {
 }
 
 pub trait ManagedTensorBase {
-    fn new(
+    fn from_parts(
         tensor: DLTensor,
         manager_ctx: *mut c_void,
         deleter: Option<unsafe extern "C" fn(self_: *mut Self)>,
     ) -> Self;
-    fn get_dltensor(&self) -> &DLTensor;
-    fn get_dltensor_mut(&mut self) -> &mut DLTensor;
-    fn manager_ctx_ptr(&self) -> *mut c_void;
 
-    /// Call the FFI deleter on the given pointer.
+    fn dl_tensor(&self) -> &DLTensor;
+    fn dl_tensor_mut(&mut self) -> &mut DLTensor;
+    fn manager_ctx(&self) -> *mut c_void;
+    fn deleter(&self) -> Option<unsafe extern "C" fn(self_: *mut Self)>;
+
+    /// Drops a raw managed tensor pointer through its DLPack deleter.
     ///
     /// # Safety
     ///
     /// The caller must ensure that `ptr` is a valid pointer to `Self` and has not been dropped/freed yet.
-    unsafe fn call_deleter(ptr: *mut Self);
+    unsafe fn drop_raw(ptr: *mut Self) {
+        if let Some(deleter) = unsafe { (*ptr).deleter() } {
+            unsafe { deleter(ptr) };
+        }
+    }
 }
 
 impl ManagedTensorBase for DLManagedTensor {
-    fn new(
+    fn from_parts(
         tensor: DLTensor,
         manager_ctx: *mut c_void,
         deleter: Option<unsafe extern "C" fn(self_: *mut Self)>,
@@ -53,24 +59,23 @@ impl ManagedTensorBase for DLManagedTensor {
         }
     }
 
-    fn get_dltensor(&self) -> &DLTensor {
+    fn dl_tensor(&self) -> &DLTensor {
         &self.dl_tensor
     }
-    fn get_dltensor_mut(&mut self) -> &mut DLTensor {
+    fn dl_tensor_mut(&mut self) -> &mut DLTensor {
         &mut self.dl_tensor
     }
-    fn manager_ctx_ptr(&self) -> *mut c_void {
+    fn manager_ctx(&self) -> *mut c_void {
         self.manager_ctx
     }
-    unsafe fn call_deleter(ptr: *mut Self) {
-        if let Some(deleter) = unsafe { (*ptr).deleter } {
-            unsafe { deleter(ptr) };
-        }
+
+    fn deleter(&self) -> Option<unsafe extern "C" fn(self_: *mut Self)> {
+        self.deleter
     }
 }
 
 impl ManagedTensorBase for DLManagedTensorVersioned {
-    fn new(
+    fn from_parts(
         tensor: DLTensor,
         manager_ctx: *mut c_void,
         deleter: Option<unsafe extern "C" fn(self_: *mut Self)>,
@@ -84,18 +89,17 @@ impl ManagedTensorBase for DLManagedTensorVersioned {
         }
     }
 
-    fn get_dltensor(&self) -> &DLTensor {
+    fn dl_tensor(&self) -> &DLTensor {
         &self.dl_tensor
     }
-    fn get_dltensor_mut(&mut self) -> &mut DLTensor {
+    fn dl_tensor_mut(&mut self) -> &mut DLTensor {
         &mut self.dl_tensor
     }
-    fn manager_ctx_ptr(&self) -> *mut c_void {
+    fn manager_ctx(&self) -> *mut c_void {
         self.manager_ctx
     }
-    unsafe fn call_deleter(ptr: *mut Self) {
-        if let Some(deleter) = unsafe { (*ptr).deleter } {
-            unsafe { deleter(ptr) };
-        }
+
+    fn deleter(&self) -> Option<unsafe extern "C" fn(self_: *mut Self)> {
+        self.deleter
     }
 }

@@ -1,7 +1,9 @@
 use crate::{
-    Builder, Dlpack, DlpackElement, DlpackVersioned, ManagedBox, ManagedTensorBase,
+    Builder, DlpackElement, ManagedBox, ManagedTensorBase,
     ffi::{DLDevice, DLManagedTensor, DLManagedTensorVersioned},
+    legacy,
     tensor::{compact_strides_array, is_compact_strides},
+    versioned,
 };
 use image::{ImageBuffer, Pixel};
 use snafu::{Snafu, ensure};
@@ -55,7 +57,7 @@ pub enum Error {
 // extracting the inner Vec and double-boxing it. One allocation total.
 // ---------------------------------------------------------------------------
 
-impl<P> From<ImageBuffer<P, Vec<P::Subpixel>>> for Dlpack
+impl<P> From<ImageBuffer<P, Vec<P::Subpixel>>> for legacy::Dlpack
 where
     P: Pixel,
     P::Subpixel: DlpackElement,
@@ -78,7 +80,7 @@ where
     }
 }
 
-impl<P> From<ImageBuffer<P, Vec<P::Subpixel>>> for DlpackVersioned
+impl<P> From<ImageBuffer<P, Vec<P::Subpixel>>> for versioned::Dlpack
 where
     P: Pixel,
     P::Subpixel: DlpackElement,
@@ -266,7 +268,7 @@ mod tests {
     #[test]
     fn test_image_to_dlpack() {
         let img = ImageBuffer::<Rgb<u8>, _>::from_vec(4, 4, vec![0u8; 48]).unwrap();
-        let dlpack = Dlpack::from(img);
+        let dlpack = legacy::Dlpack::from(img);
 
         assert_eq!(dlpack.shape().unwrap(), &[4, 4, 3]);
     }
@@ -274,7 +276,7 @@ mod tests {
     #[test]
     fn test_borrowed_roundtrip() {
         let img = ImageBuffer::<Rgb<u8>, _>::from_vec(4, 4, vec![42u8; 48]).unwrap();
-        let dlpack = Dlpack::from(img);
+        let dlpack = legacy::Dlpack::from(img);
 
         let img2 = ImageBuffer::<Rgb<u8>, _>::try_from(&dlpack).unwrap();
         assert_eq!(img2.width(), 4);
@@ -285,7 +287,7 @@ mod tests {
     #[test]
     fn test_owned_roundtrip() {
         let img = ImageBuffer::<Rgb<u8>, _>::from_vec(4, 4, vec![99u8; 48]).unwrap();
-        let dlpack = Dlpack::from(img);
+        let dlpack = legacy::Dlpack::from(img);
 
         let img2 = ImageBuffer::<Rgb<u8>, DlpackContainer<_, u8>>::try_from(dlpack).unwrap();
         assert_eq!(img2.width(), 4);

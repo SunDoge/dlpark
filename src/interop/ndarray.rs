@@ -1,6 +1,6 @@
 use crate::{
-    DlpackElement, builder::Builder, dlpack::ManagedBox, ffi::DLDevice, legacy,
-    managed_tensor::ManagedTensorBase, versioned,
+    DlpackElement, builder::Builder, dlpack::ManagedBox, ffi::DLDevice,
+    managed_tensor::ManagedTensorBase,
 };
 use ndarray::{ArrayBase, ArrayViewD, Dimension, IxDyn, OwnedRepr, ShapeBuilder};
 use snafu::{ResultExt, Snafu, ensure};
@@ -181,7 +181,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cudarc::runtime::result::version;
+    use crate::{legacy, versioned};
     use ndarray::{Array, arr2};
 
     #[test]
@@ -238,7 +238,7 @@ mod tests {
     fn borrowed_dlpack_to_ndarray_view_preserves_strides() {
         let array = arr2(&[[1i32, 2, 3], [4, 5, 6]]);
         let transposed = array.reversed_axes().to_owned();
-        let dlpack = Dlpack::try_from(transposed).unwrap();
+        let dlpack = legacy::Dlpack::try_from(transposed).unwrap();
         let view = array_view_from_dlpack::<i32, _>(&dlpack).unwrap();
 
         assert_eq!(view.shape(), &[3, 2]);
@@ -249,7 +249,7 @@ mod tests {
     #[test]
     fn sliced_owned_ndarray_to_dlpack_exports_non_standard_strides() {
         let array = Array::from_shape_vec((2, 2).strides((4, 2)), (0i32..7).collect()).unwrap();
-        let dlpack = Dlpack::try_from(array).unwrap();
+        let dlpack = legacy::Dlpack::try_from(array).unwrap();
         let view = ArrayViewD::<i32>::try_from(&dlpack).unwrap();
 
         assert_eq!(view.shape(), &[2, 2]);

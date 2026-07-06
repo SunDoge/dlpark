@@ -1,24 +1,24 @@
-use dlpark::{Dlpack, DlpackVersioned};
+use dlpark::{legacy, versioned};
 use image::{ImageBuffer, Rgb};
 use pyo3::exceptions::{PyIOError, PyValueError};
 use pyo3::prelude::*;
 
 #[pyfunction]
-fn read_image(filename: &str) -> PyResult<Dlpack> {
+fn read_image(filename: &str) -> PyResult<legacy::Dlpack> {
     let img = image::open(filename).map_err(|err| PyIOError::new_err(err.to_string()))?;
     let rgb_img = img.to_rgb8();
-    Ok(Dlpack::from(rgb_img))
+    Ok(legacy::Dlpack::from(rgb_img))
 }
 
 #[pyfunction]
-fn read_image_versioned(filename: &str) -> PyResult<DlpackVersioned> {
+fn read_image_versioned(filename: &str) -> PyResult<versioned::Dlpack> {
     let img = image::open(filename).map_err(|err| PyIOError::new_err(err.to_string()))?;
     let rgb_img = img.to_rgb8();
-    Ok(DlpackVersioned::from(rgb_img))
+    Ok(versioned::Dlpack::from(rgb_img))
 }
 
 #[pyfunction]
-fn write_image(filename: &str, tensor: Dlpack) -> PyResult<()> {
+fn write_image(filename: &str, tensor: legacy::Dlpack) -> PyResult<()> {
     let rgb_img: ImageBuffer<Rgb<u8>, _> = (&tensor)
         .try_into()
         .map_err(|err: dlpark::interop::image::Error| PyValueError::new_err(err.to_string()))?;
@@ -28,7 +28,7 @@ fn write_image(filename: &str, tensor: Dlpack) -> PyResult<()> {
 }
 
 #[pyfunction]
-fn write_image_versioned(filename: &str, tensor: DlpackVersioned) -> PyResult<()> {
+fn write_image_versioned(filename: &str, tensor: versioned::Dlpack) -> PyResult<()> {
     let rgb_img: ImageBuffer<Rgb<u8>, _> = (&tensor)
         .try_into()
         .map_err(|err: dlpark::interop::image::Error| PyValueError::new_err(err.to_string()))?;

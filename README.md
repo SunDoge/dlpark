@@ -25,8 +25,8 @@ Key features of `DLPack`:
 
 The library implements both legacy and versioned `DLPack` structures:
 
-- `Dlpack`: Legacy managed tensor capsule support
-- `DlpackVersioned`: Versioned managed tensor capsule support with:
+- `legacy::Dlpack`: Legacy managed tensor capsule support
+- `versioned::Dlpack`: Versioned managed tensor capsule support with:
   - Major version: 1
   - Minor version: 3
   - Additional flags for tensor properties (read-only, copied, sub-byte type padding)
@@ -37,7 +37,7 @@ The library provides a Rust ownership wrapper over the C-style `DLPack` structur
 
 - RAII wrapper around a raw managed `DLPack` tensor pointer
 - Automatic cleanup through the DLPack deleter function on drop
-- `Dlpack` and `DlpackVersioned` are convenience aliases for `ManagedBox<DLManagedTensor>` and `ManagedBox<DLManagedTensorVersioned>` — the two concrete forms you'll actually use
+- `legacy::Dlpack` and `versioned::Dlpack` are convenience aliases for `ManagedBox<DLManagedTensor>` and `ManagedBox<DLManagedTensorVersioned>` — the two concrete forms you'll actually use
 
 Other key features:
 
@@ -72,8 +72,8 @@ If you don't already own `shape`/`strides` memory that will outlive the tensor, 
 
 The `pyo3` feature supports the standard Python DLPack capsule protocol:
 
-- `Dlpack` consumes or produces legacy `"dltensor"` capsules.
-- `DlpackVersioned` consumes or produces `"dltensor_versioned"` capsules.
+- `legacy::Dlpack` consumes or produces legacy `"dltensor"` capsules.
+- `versioned::Dlpack` consumes or produces `"dltensor_versioned"` capsules.
 - When extracting a versioned tensor from a Python object, dlpark first checks the object's type for a `__dlpack_c_exchange_api__` PyCapsule named `"dlpack_exchange_api"`. If present, it uses the DLPack C Exchange API no-sync function table. Otherwise it falls back to `obj.__dlpack__(max_version=(1, 3))`, and then to no-arg `obj.__dlpack__()` for older producers.
 
 The C Exchange API is intended for extension/library use where the consumer can borrow tensors and coordinate work on the producer's current stream. It is not a replacement for the normal `__dlpack__` ingestion path.
@@ -94,26 +94,26 @@ The C Exchange API is intended for extension/library use where the consumer can 
 Two runnable examples:
 
 - [`examples/dlparkimg`](./examples/dlparkimg/) — a Python extension module (via `pyo3`) transferring `image::RgbImage` to/from Python (e.g. `torch.Tensor`).
-- [`examples/ndarray-candle`](./examples/ndarray-candle/) — a plain binary round-tripping data through DLPack: `ndarray::Array2` → `Dlpack` → `candle::Tensor` → `Dlpack` → `ndarray` view, run with `cargo run -p ndarray-candle`.
+- [`examples/ndarray-candle`](./examples/ndarray-candle/) — a plain binary round-tripping data through DLPack: `ndarray::Array2` → `legacy::Dlpack` → `candle::Tensor` → `legacy::Dlpack` → `ndarray` view, run with `cargo run -p ndarray-candle`.
 
 ## Usage Examples
 
 ### Converting between Rust and Python
 
 ```rust
-use dlpark::Dlpack;
+use dlpark::legacy;
 use pyo3::prelude::*;
 
 // Rust to Python
 #[pyfunction]
-fn read_image(filename: &str) -> Dlpack {
+fn read_image(filename: &str) -> legacy::Dlpack {
     let img = image::open(filename).unwrap().to_rgb8();
-    Dlpack::from(img)
+    legacy::Dlpack::from(img)
 }
 
 // Python to Rust
 #[pyfunction]
-fn write_image(filename: &str, tensor: Dlpack) {
+fn write_image(filename: &str, tensor: legacy::Dlpack) {
     let img: image::RgbImage = (&tensor).try_into().unwrap();
     img.save(filename).unwrap();
 }
@@ -122,28 +122,28 @@ fn write_image(filename: &str, tensor: Dlpack) {
 ### Image Processing
 
 ```rust
-use dlpark::Dlpack;
+use dlpark::legacy;
 use image::{ImageBuffer, Rgb};
 
 let img = ImageBuffer::<Rgb<u8>, _>::from_vec(100, 100, vec![0; 100 * 100 * 3])?;
-let tensor = Dlpack::from(img);
+let tensor = legacy::Dlpack::from(img);
 let img2 = ImageBuffer::<Rgb<u8>, _>::try_from(&tensor)?;
 ```
 
 ### ndarray
 
 ```rust
-use dlpark::Dlpack;
+use dlpark::legacy;
 use ndarray::{ArrayD, ArrayViewD, arr2};
 
 let array = arr2(&[[1i32, 2, 3], [4, 5, 6]]);
-let tensor = Dlpack::try_from(array)?;
+let tensor = legacy::Dlpack::try_from(array)?;
 let view = ArrayViewD::<i32>::try_from(&tensor)?;
 
 assert_eq!(view[[1, 2]], 6);
 
 let dynamic: ArrayD<i32> = arr2(&[[1, 2], [3, 4]]).into_dyn();
-let dynamic_tensor = Dlpack::try_from(dynamic)?;
+let dynamic_tensor = legacy::Dlpack::try_from(dynamic)?;
 ```
 
 ### candle
@@ -152,10 +152,10 @@ Zero-copy from `candle::Tensor` to DLPack; the reverse direction (DLPack to `can
 
 ```rust
 use candle_core::Tensor;
-use dlpark::Dlpack;
+use dlpark::legacy;
 
 let tensor = Tensor::new(&[1f32, 2., 3., 4.], &candle_core::Device::Cpu)?;
-let dlpack = Dlpack::try_from(tensor)?;
+let dlpack = legacy::Dlpack::try_from(tensor)?;
 
 let tensor2 = Tensor::try_from(&dlpack)?;
 assert_eq!(tensor2.to_vec1::<f32>()?, vec![1., 2., 3., 4.]);

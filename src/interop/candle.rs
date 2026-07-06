@@ -3,7 +3,7 @@
 //! Provides conversions between [`candle_core::Tensor`] and DLPack managed
 //! tensors.
 //!
-//! # Forward direction (`Tensor` → `Dlpack`/`DlpackVersioned`)
+//! # Forward direction (`Tensor` → `legacy::Dlpack`/`versioned::Dlpack`)
 //!
 //! Zero-copy: the whole [`Tensor`] is boxed as the DLPack `manager_ctx`,
 //! keeping its `Arc`-refcounted storage alive for the DLPack tensor's
@@ -32,9 +32,10 @@
 //! doc for why per-element addressing doesn't make sense for them.
 
 use crate::{
-    Dlpack, DlpackFlags, DlpackVersioned, ManagedBox, ManagedTensorBase,
+    DlpackFlags, ManagedBox, ManagedTensorBase,
     builder::Builder,
     ffi::{DLDataType, DLDataTypeCode, DLDevice, DLManagedTensor, DLManagedTensorVersioned},
+    legacy, versioned,
 };
 use candle_core::{
     DType, Device, Storage, Tensor, backend::BackendStorage, cpu_backend::CpuStorage,
@@ -78,7 +79,7 @@ pub enum Error {
 }
 
 // ---------------------------------------------------------------------------
-// Forward: candle_core::Tensor → Dlpack / DlpackVersioned
+// Forward: candle_core::Tensor → legacy::Dlpack / versioned::Dlpack
 // ---------------------------------------------------------------------------
 
 /// Maps a candle [`DType`] to the equivalent DLPack dtype, or `None` if
@@ -221,7 +222,7 @@ fn dlpack_layout_from_candle(tensor: &Tensor) -> Result<CandleLayout, Error> {
 /// - [`Error::UnsupportedCandleDType`] if [`dl_dtype_from_candle`] has no
 ///   mapping for the tensor's dtype (currently the packed sub-byte float
 ///   formats, and `BF16`/`F16` when the `half` feature is disabled).
-pub fn candle_tensor_to_dlpack(tensor: Tensor) -> Result<Dlpack, Error> {
+pub fn candle_tensor_to_dlpack(tensor: Tensor) -> Result<legacy::Dlpack, Error> {
     if !tensor.device().is_cpu() {
         return Err(Error::UnsupportedDevice);
     }
@@ -240,9 +241,9 @@ pub fn candle_tensor_to_dlpack(tensor: Tensor) -> Result<Dlpack, Error> {
     )
 }
 
-/// Same as [`candle_tensor_to_dlpack`] but produces a [`DlpackVersioned`]
+/// Same as [`candle_tensor_to_dlpack`] but produces a [`versioned::Dlpack`]
 /// (DLPack ≥ 1.0) with [`DlpackFlags::READ_ONLY`] set.
-pub fn candle_tensor_to_versioned_dlpack(tensor: Tensor) -> Result<DlpackVersioned, Error> {
+pub fn candle_tensor_to_versioned_dlpack(tensor: Tensor) -> Result<versioned::Dlpack, Error> {
     if !tensor.device().is_cpu() {
         return Err(Error::UnsupportedDevice);
     }
@@ -264,7 +265,7 @@ pub fn candle_tensor_to_versioned_dlpack(tensor: Tensor) -> Result<DlpackVersion
     .build())
 }
 
-impl TryFrom<Tensor> for Dlpack {
+impl TryFrom<Tensor> for legacy::Dlpack {
     type Error = Error;
 
     fn try_from(tensor: Tensor) -> Result<Self, Self::Error> {
@@ -272,7 +273,7 @@ impl TryFrom<Tensor> for Dlpack {
     }
 }
 
-impl TryFrom<Tensor> for DlpackVersioned {
+impl TryFrom<Tensor> for versioned::Dlpack {
     type Error = Error;
 
     fn try_from(tensor: Tensor) -> Result<Self, Self::Error> {
@@ -417,7 +418,7 @@ mod tests {
     #[test]
     fn candle_tensor_to_legacy_dlpack_keeps_layout_and_data() {
         let tensor = Tensor::from_vec(vec![1i32, 2, 3, 4, 5, 6], (2, 3), &Device::Cpu).unwrap();
-        let dlpack = Dlpack::try_from(tensor).unwrap();
+        let dlpack = legacy::Dlpack::try_from(tensor).unwrap();
 
         assert_eq!(dlpack.shape().unwrap(), &[2, 3]);
         assert_eq!(dlpack.strides().unwrap().unwrap(), &[3, 1]);
@@ -430,7 +431,7 @@ mod tests {
     #[test]
     fn candle_tensor_to_versioned_dlpack_sets_read_only_flag() {
         let tensor = Tensor::from_vec(vec![1f32, 2., 3., 4.], (2, 2), &Device::Cpu).unwrap();
-        let dlpack = DlpackVersioned::try_from(tensor).unwrap();
+        let dlpack = versioned::Dlpack::try_from(tensor).unwrap();
 
         assert_eq!(dlpack.flags(), DlpackFlags::READ_ONLY);
         assert_eq!(
@@ -445,7 +446,7 @@ mod tests {
         // Rust-side value comparisons without the separate `float8` crate —
         // so this only checks shape/dtype/byte-count, not element values.
         let tensor = Tensor::zeros((2, 3), DType::F8E4M3, &Device::Cpu).unwrap();
-        let dlpack = Dlpack::try_from(tensor).unwrap();
+        let dlpack = legacy::Dlpack::try_from(tensor).unwrap();
 
         assert_eq!(dlpack.shape().unwrap(), &[2, 3]);
         let dtype = dlpack.dl_tensor().dtype;
@@ -462,7 +463,7 @@ mod tests {
         // 6 elements * 4 bits = 24 bits = 3 bytes exactly, no padding.
         let tensor =
             Tensor::from_raw_buffer(&[0xAB, 0xCD, 0xEF], DType::F4, &[6], &Device::Cpu).unwrap();
-        let dlpack = Dlpack::try_from(tensor).unwrap();
+        let dlpack = legacy::Dlpack::try_from(tensor).unwrap();
 
         assert_eq!(dlpack.shape().unwrap(), &[6]);
         let dtype = dlpack.dl_tensor().dtype;

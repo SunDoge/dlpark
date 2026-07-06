@@ -29,7 +29,11 @@ where
     }
 
     pub fn dl_tensor(&self) -> &DLTensor {
-        unsafe { self.0.as_ref().get_dltensor() }
+        unsafe { self.0.as_ref() }.dl_tensor()
+    }
+
+    pub fn dl_tensor_mut(&mut self) -> &mut DLTensor {
+        unsafe { self.0.as_mut() }.dl_tensor_mut()
     }
 
     /// Returns the shape of the tensor as a slice.
@@ -40,6 +44,8 @@ where
     pub fn shape(&self) -> Result<&[i64], crate::tensor::Error> {
         self.dl_tensor().shape()
     }
+
+    pub fn shape_mut(&mut self) {}
 
     /// Returns the strides of the tensor as a slice, or `None` for compact row-major layout.
     ///
@@ -113,7 +119,7 @@ where
 {
     fn drop(&mut self) {
         unsafe {
-            M::call_deleter(self.0.as_ptr());
+            M::drop_raw(self.0.as_ptr());
         }
     }
 }

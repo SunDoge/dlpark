@@ -85,7 +85,7 @@ impl<M: ManagedTensorBase, const N: usize> std::ops::DerefMut for Builder<M, N> 
 impl<M: ManagedTensorBase, const N: usize> Drop for Builder<M, N> {
     fn drop(&mut self) {
         unsafe {
-            M::call_deleter(self.0.as_ptr() as *mut M);
+            M::drop_raw(self.0.as_ptr() as *mut M);
         }
     }
 }
@@ -105,7 +105,7 @@ unsafe extern "C" fn static_deleter<const N: usize, C: OpaqueContext, M: Managed
     }
     unsafe {
         let ptr = dlmt as *mut DlpackTensorStorage<M, N>;
-        C::drop_raw((*ptr).managed_tensor.manager_ctx_ptr());
+        C::drop_raw((*ptr).managed_tensor.manager_ctx());
         std::ptr::drop_in_place(ptr);
         std::alloc::dealloc(
             ptr as *mut u8,
@@ -148,11 +148,11 @@ unsafe extern "C" fn dynamic_deleter<C: OpaqueContext, M: ManagedTensorBase>(dlm
     }
     unsafe {
         let b = NonNull::new_unchecked(dlmt as *mut DlpackTensorStorage<M, 0>);
-        let ndim = b.as_ref().managed_tensor.get_dltensor().ndim;
+        let ndim = b.as_ref().managed_tensor.dl_tensor().ndim;
         let ndim_usize = if ndim < 0 { 0 } else { ndim as usize };
         let total_size = size_of::<DlpackTensorStorage<M, 0>>() + 2 * ndim_usize * size_of::<i64>();
         let layout = std::alloc::Layout::from_size_align_unchecked(total_size, 8);
-        C::drop_raw(b.as_ref().managed_tensor.manager_ctx_ptr());
+        C::drop_raw(b.as_ref().managed_tensor.manager_ctx());
         // Defensive drop of any struct fields
         std::ptr::drop_in_place(b.as_ptr());
         std::alloc::dealloc(b.as_ptr() as *mut u8, layout);
@@ -161,22 +161,22 @@ unsafe extern "C" fn dynamic_deleter<C: OpaqueContext, M: ManagedTensorBase>(dlm
 
 impl<M: ManagedTensorBase, const N: usize> Builder<M, N> {
     pub fn data(mut self, ptr: *mut c_void) -> Self {
-        self.managed_tensor.get_dltensor_mut().data = ptr;
+        self.managed_tensor.dl_tensor_mut().data = ptr;
         self
     }
 
     pub fn device(mut self, device: DLDevice) -> Self {
-        self.managed_tensor.get_dltensor_mut().device = device;
+        self.managed_tensor.dl_tensor_mut().device = device;
         self
     }
 
     pub fn dtype(mut self, dtype: DLDataType) -> Self {
-        self.managed_tensor.get_dltensor_mut().dtype = dtype;
+        self.managed_tensor.dl_tensor_mut().dtype = dtype;
         self
     }
 
     pub fn byte_offset(mut self, byte_offset: u64) -> Self {
-        self.managed_tensor.get_dltensor_mut().byte_offset = byte_offset;
+        self.managed_tensor.dl_tensor_mut().byte_offset = byte_offset;
         self
     }
 
@@ -218,7 +218,7 @@ impl<M: ManagedTensorBase, const N: usize> Builder<M, N> {
 
             std::ptr::write(
                 std::ptr::addr_of_mut!((*raw_ptr).managed_tensor),
-                M::new(
+                M::from_parts(
                     DLTensor {
                         data: std::ptr::null_mut(),
                         device: DLDevice::CPU,
@@ -261,7 +261,7 @@ impl<M: ManagedTensorBase, const N: usize> Builder<M, N> {
 
             std::ptr::write(
                 std::ptr::addr_of_mut!((*raw_ptr).managed_tensor),
-                M::new(
+                M::from_parts(
                     DLTensor {
                         data: std::ptr::null_mut(),
                         device: DLDevice::CPU,
@@ -424,7 +424,7 @@ impl<M: ManagedTensorBase> Builder<M, 0> {
 
             std::ptr::write(
                 std::ptr::addr_of_mut!((*ptr).managed_tensor),
-                M::new(
+                M::from_parts(
                     DLTensor {
                         data: std::ptr::null_mut(),
                         device: DLDevice::CPU,

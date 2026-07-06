@@ -45,11 +45,13 @@
 //! is responsible for explicit synchronization.
 
 use crate::{
-    Dlpack, DlpackElement, DlpackVersioned,
+    DlpackElement,
     builder::Builder,
     dlpack::ManagedBox,
     ffi::{DLDevice, DLDeviceType, DLManagedTensor, DLManagedTensorVersioned},
+    legacy,
     managed_tensor::ManagedTensorBase,
+    versioned,
 };
 use cudarc::driver::{CudaContext, CudaSlice, CudaStream, DevicePtr};
 use snafu::{Snafu, ensure};
@@ -102,7 +104,7 @@ pub fn from_cuda_slice<T: DlpackElement>(
     slice: CudaSlice<T>,
     shape: &[i64],
     strides: &[i64],
-) -> Result<Dlpack, Error> {
+) -> Result<legacy::Dlpack, Error> {
     let device_id = slice.ordinal() as i32;
     let data_ptr = device_ptr_of(&slice);
 
@@ -120,7 +122,7 @@ pub fn from_cuda_slice_versioned<T: DlpackElement>(
     slice: CudaSlice<T>,
     shape: &[i64],
     strides: &[i64],
-) -> Result<DlpackVersioned, Error> {
+) -> Result<versioned::Dlpack, Error> {
     let device_id = slice.ordinal() as i32;
     let data_ptr = device_ptr_of(&slice);
 
