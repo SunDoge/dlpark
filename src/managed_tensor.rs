@@ -5,7 +5,7 @@ use crate::{
     ffi::{DLManagedTensor, DLManagedTensorVersioned, DLPackVersion, DLTensor},
 };
 
-pub trait ManagedTensor {
+pub trait ManagedTensorBase {
     fn new(
         tensor: DLTensor,
         manager_ctx: *mut c_void,
@@ -23,7 +23,7 @@ pub trait ManagedTensor {
     unsafe fn call_deleter(ptr: *mut Self);
 }
 
-impl ManagedTensor for DLManagedTensor {
+impl ManagedTensorBase for DLManagedTensor {
     fn new(
         tensor: DLTensor,
         manager_ctx: *mut c_void,
@@ -52,7 +52,7 @@ impl ManagedTensor for DLManagedTensor {
     }
 }
 
-impl ManagedTensor for DLManagedTensorVersioned {
+impl ManagedTensorBase for DLManagedTensorVersioned {
     fn new(
         tensor: DLTensor,
         manager_ctx: *mut c_void,

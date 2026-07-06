@@ -24,8 +24,8 @@ Key features of `DLPack`:
 
 The library implements both legacy and versioned `DLPack` structures:
 
-- `Dlpack<DLManagedTensor>`: Legacy managed tensor capsule support
-- `Dlpack<DLManagedTensorVersioned>`: Versioned managed tensor capsule support with:
+- `ManagedTensor`: Legacy managed tensor capsule support
+- `VersionedManagedTensor`: Versioned managed tensor capsule support with:
   - Major version: 1
   - Minor version: 3
   - Additional flags for tensor properties (read-only, copied, sub-byte type padding)
@@ -34,7 +34,7 @@ The library implements both legacy and versioned `DLPack` structures:
 
 The library provides Rust ownership wrappers over the C-style `DLPack` structures:
 
-1. `Dlpack<M>`:
+1. `OwnedDlpackTensor<M>`:
    - RAII wrapper around raw managed `DLPack` tensors
    - RAII-style memory management
    - Automatic cleanup through deleter functions
@@ -51,8 +51,8 @@ The library provides Rust ownership wrappers over the C-style `DLPack` structure
 
 The `pyo3` feature supports the standard Python DLPack capsule protocol:
 
-- `Dlpack<DLManagedTensor>` consumes or produces legacy `"dltensor"` capsules.
-- `Dlpack<DLManagedTensorVersioned>` consumes or produces `"dltensor_versioned"` capsules.
+- `ManagedTensor` consumes or produces legacy `"dltensor"` capsules.
+- `VersionedManagedTensor` consumes or produces `"dltensor_versioned"` capsules.
 - When extracting a versioned tensor from a Python object, dlpark first checks the object's type for a `__dlpack_c_exchange_api__` PyCapsule named `"dlpack_exchange_api"`. If present, it uses the DLPack C Exchange API no-sync function table. Otherwise it falls back to `obj.__dlpack__(max_version=(1, 3))`, and then to no-arg `obj.__dlpack__()` for older producers.
 
 The C Exchange API is intended for extension/library use where the consumer can borrow tensors and coordinate work on the producer's current stream. It is not a replacement for the normal `__dlpack__` ingestion path.
@@ -63,7 +63,7 @@ The C Exchange API is intended for extension/library use where the consumer can 
 | --------- | ----------------------------------------- | ------ |
 | `pyo3`    | Enable Python bindings with [pyo3]        | ✅      |
 | `image`   | Enable [image] support                    | ✅      |
-| `ndarray` | Enables the optional [ndarray] dependency | 🚧     |
+| `ndarray` | Enable [ndarray] support                  | ✅      |
 | `cuda`    | Enables the optional [cuda] integration   | 🚧     |
 
 ## Quick Start
@@ -77,19 +77,19 @@ We provide a simple example of how to transfer `image::RgbImage` to Python and `
 ### Converting between Rust and Python
 
 ```rust
-use dlpark::{Dlpack, ffi::DLManagedTensor};
+use dlpark::ManagedTensor;
 use pyo3::prelude::*;
 
 // Rust to Python
 #[pyfunction]
-fn read_image(filename: &str) -> Dlpack<DLManagedTensor> {
+fn read_image(filename: &str) -> ManagedTensor {
     let img = image::open(filename).unwrap().to_rgb8();
-    Dlpack::from(img)
+    ManagedTensor::from(img)
 }
 
 // Python to Rust
 #[pyfunction]
-fn write_image(filename: &str, tensor: Dlpack<DLManagedTensor>) {
+fn write_image(filename: &str, tensor: ManagedTensor) {
     let img: image::RgbImage = (&tensor).try_into().unwrap();
     img.save(filename).unwrap();
 }
@@ -98,12 +98,28 @@ fn write_image(filename: &str, tensor: Dlpack<DLManagedTensor>) {
 ### Image Processing
 
 ```rust
-use dlpark::{Dlpack, ffi::DLManagedTensor};
+use dlpark::ManagedTensor;
 use image::{ImageBuffer, Rgb};
 
 let img = ImageBuffer::<Rgb<u8>, _>::from_vec(100, 100, vec![0; 100 * 100 * 3])?;
-let tensor = Dlpack::<DLManagedTensor>::from(img);
+let tensor = ManagedTensor::from(img);
 let img2 = ImageBuffer::<Rgb<u8>, _>::try_from(&tensor)?;
+```
+
+### ndarray
+
+```rust
+use dlpark::ManagedTensor;
+use ndarray::{ArrayD, ArrayViewD, arr2};
+
+let array = arr2(&[[1i32, 2, 3], [4, 5, 6]]);
+let tensor = ManagedTensor::try_from(array)?;
+let view = ArrayViewD::<i32>::try_from(&tensor)?;
+
+assert_eq!(view[[1, 2]], 6);
+
+let dynamic: ArrayD<i32> = arr2(&[[1, 2], [3, 4]]).into_dyn();
+let dynamic_tensor = ManagedTensor::try_from(dynamic)?;
 ```
 
 [pyo3]: https://github.com/PyO3/pyo3

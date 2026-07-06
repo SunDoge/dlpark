@@ -1,12 +1,4 @@
-use crate::{
-    DlpackElement,
-    builder::DlpackBuilder,
-    compact_strides_array,
-    dlpack::Dlpack,
-    ffi::{DLDevice, DLManagedTensor, DLManagedTensorVersioned},
-    is_compact_strides,
-    managed_tensor::ManagedTensor,
-};
+use crate::prelude::*;
 use image::{ImageBuffer, Pixel};
 use snafu::{Snafu, ensure};
 use std::{marker::PhantomData, ops::Deref, os::raw::c_void};
@@ -53,13 +45,13 @@ pub enum Error {
 }
 
 // ---------------------------------------------------------------------------
-// Forward: ImageBuffer → Dlpack  (infallible, so From not TryFrom)
+// Forward: ImageBuffer → OwnedDlpackTensor  (infallible, so From not TryFrom)
 //
 // Box<ImageBuffer> is used directly as the OpaqueContext, which avoids
 // extracting the inner Vec and double-boxing it. One allocation total.
 // ---------------------------------------------------------------------------
 
-impl<P> From<ImageBuffer<P, Vec<P::Subpixel>>> for Dlpack<DLManagedTensor>
+impl<P> From<ImageBuffer<P, Vec<P::Subpixel>>> for ManagedBox<DLManagedTensor>
 where
     P: Pixel,
     P::Subpixel: DlpackElement,
@@ -82,7 +74,7 @@ where
     }
 }
 
-impl<P> From<ImageBuffer<P, Vec<P::Subpixel>>> for Dlpack<DLManagedTensorVersioned>
+impl<P> From<ImageBuffer<P, Vec<P::Subpixel>>> for ManagedBox<DLManagedTensorVersioned>
 where
     P: Pixel,
     P::Subpixel: DlpackElement,
@@ -108,21 +100,21 @@ where
 }
 
 // ---------------------------------------------------------------------------
-// Reverse borrowed: &Dlpack → ImageBuffer<P, &[T]>
+// Reverse borrowed: &OwnedDlpackTensor → ImageBuffer<P, &[T]>
 //
-// Zero-copy borrowed view. The ImageBuffer borrows from the Dlpack
+// Zero-copy borrowed view. The ImageBuffer borrows from the OwnedDlpackTensor
 // and cannot outlive it.
 // ---------------------------------------------------------------------------
 
-impl<'a, P, M> TryFrom<&'a Dlpack<M>> for ImageBuffer<P, &'a [P::Subpixel]>
+impl<'a, P, M> TryFrom<&'a ManagedBox<M>> for ImageBuffer<P, &'a [P::Subpixel]>
 where
     P: Pixel,
     P::Subpixel: DlpackElement,
-    M: ManagedTensor,
+    M: ManagedTensorBase,
 {
     type Error = Error;
 
-    fn try_from(dlpack: &'a Dlpack<M>) -> Result<Self, Self::Error> {
+    fn try_from(dlpack: &'a ManagedBox<M>) -> Result<Self, Self::Error> {
         let tensor = dlpack.dl_tensor();
         let layout = validated_hwc::<P>(tensor)?;
 
@@ -135,22 +127,22 @@ where
 }
 
 // ---------------------------------------------------------------------------
-// Reverse owned: Dlpack → ImageBuffer<P, DlpackContainer<M, T>>
+// Reverse owned: OwnedDlpackTensor → ImageBuffer<P, DlpackContainer<M, T>>
 //
-// Zero-copy owned conversion. DlpackContainer holds the Dlpack by value and
+// Zero-copy owned conversion. DlpackContainer holds the OwnedDlpackTensor by value and
 // exposes its pixel data as a slice through Deref. No data is copied.
 // ---------------------------------------------------------------------------
 
-/// An owned container that wraps a [`Dlpack`] and exposes its raw data as a
+/// An owned container that wraps an [`OwnedDlpackTensor`] and exposes its raw data as a
 /// `&[T]` slice, suitable for use as the backing store of an [`ImageBuffer`].
-pub struct DlpackContainer<M: ManagedTensor, T> {
-    dlpack: Dlpack<M>,
+pub struct DlpackContainer<M: ManagedTensorBase, T> {
+    dlpack: ManagedBox<M>,
     data_ptr: *const T,
     num_elements: usize,
     _marker: PhantomData<T>,
 }
 
-impl<M: ManagedTensor, T> Deref for DlpackContainer<M, T> {
+impl<M: ManagedTensorBase, T> Deref for DlpackContainer<M, T> {
     type Target = [T];
 
     fn deref(&self) -> &[T] {
@@ -159,15 +151,15 @@ impl<M: ManagedTensor, T> Deref for DlpackContainer<M, T> {
     }
 }
 
-impl<P, M> TryFrom<Dlpack<M>> for ImageBuffer<P, DlpackContainer<M, P::Subpixel>>
+impl<P, M> TryFrom<ManagedBox<M>> for ImageBuffer<P, DlpackContainer<M, P::Subpixel>>
 where
     P: Pixel,
     P::Subpixel: DlpackElement,
-    M: ManagedTensor,
+    M: ManagedTensorBase,
 {
     type Error = Error;
 
-    fn try_from(dlpack: Dlpack<M>) -> Result<Self, Self::Error> {
+    fn try_from(dlpack: ManagedBox<M>) -> Result<Self, Self::Error> {
         let layout = {
             let tensor = dlpack.dl_tensor();
             validated_hwc::<P>(tensor)?
@@ -274,7 +266,7 @@ mod tests {
     #[test]
     fn test_image_to_dlpack() {
         let img = ImageBuffer::<Rgb<u8>, _>::from_vec(4, 4, vec![0u8; 48]).unwrap();
-        let dlpack = Dlpack::<DLManagedTensor>::from(img);
+        let dlpack = ManagedBox::<DLManagedTensor>::from(img);
 
         assert_eq!(dlpack.shape().unwrap(), &[4, 4, 3]);
     }
@@ -282,7 +274,7 @@ mod tests {
     #[test]
     fn test_borrowed_roundtrip() {
         let img = ImageBuffer::<Rgb<u8>, _>::from_vec(4, 4, vec![42u8; 48]).unwrap();
-        let dlpack = Dlpack::<DLManagedTensor>::from(img);
+        let dlpack = ManagedBox::<DLManagedTensor>::from(img);
 
         let img2 = ImageBuffer::<Rgb<u8>, _>::try_from(&dlpack).unwrap();
         assert_eq!(img2.width(), 4);
@@ -293,7 +285,7 @@ mod tests {
     #[test]
     fn test_owned_roundtrip() {
         let img = ImageBuffer::<Rgb<u8>, _>::from_vec(4, 4, vec![99u8; 48]).unwrap();
-        let dlpack = Dlpack::<DLManagedTensor>::from(img);
+        let dlpack = ManagedBox::<DLManagedTensor>::from(img);
 
         let img2 = ImageBuffer::<Rgb<u8>, DlpackContainer<_, u8>>::try_from(dlpack).unwrap();
         assert_eq!(img2.width(), 4);

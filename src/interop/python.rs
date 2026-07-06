@@ -5,7 +5,7 @@ use pyo3::{Borrowed, Bound, PyAny, PyErr, Python};
 use std::ffi::CStr;
 
 use crate::{
-    Dlpack,
+    ManagedBox,
     ffi::{DLManagedTensor, DLManagedTensorVersioned},
     interop::python_exchange::DlpackExchangeApiRef,
 };
@@ -40,7 +40,7 @@ unsafe extern "C" fn dlpack_capsule_deleter(capsule: *mut pyo3::ffi::PyObject) {
             return;
         }
 
-        let _ = Dlpack::<DLManagedTensor>::new_unchecked(ptr as *mut _);
+        let _ = ManagedBox::<DLManagedTensor>::new_unchecked(ptr as *mut _);
     }
 }
 
@@ -57,7 +57,7 @@ unsafe extern "C" fn dlpack_capsule_deleter_versioned(capsule: *mut pyo3::ffi::P
             return;
         }
 
-        let _ = Dlpack::<DLManagedTensorVersioned>::new_unchecked(ptr as *mut _);
+        let _ = ManagedBox::<DLManagedTensorVersioned>::new_unchecked(ptr as *mut _);
     }
 }
 
@@ -142,7 +142,7 @@ fn raw_dlpack_to_capsule(
     }
 }
 
-impl<'py> FromPyObject<'_, 'py> for Dlpack<DLManagedTensor> {
+impl<'py> FromPyObject<'_, 'py> for ManagedBox<DLManagedTensor> {
     type Error = PyErr;
     fn extract(ob: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
         let owned_capsule;
@@ -162,7 +162,7 @@ impl<'py> FromPyObject<'_, 'py> for Dlpack<DLManagedTensor> {
     }
 }
 
-impl<'py> IntoPyObject<'py> for Dlpack<DLManagedTensor> {
+impl<'py> IntoPyObject<'py> for ManagedBox<DLManagedTensor> {
     type Target = PyAny;
     type Output = Bound<'py, PyAny>;
     type Error = pyo3::PyErr;
@@ -174,7 +174,7 @@ impl<'py> IntoPyObject<'py> for Dlpack<DLManagedTensor> {
                 match raw_dlpack_to_capsule(raw as *mut _, DLTENSOR, dlpack_capsule_deleter) {
                     Ok(capsule) => capsule,
                     Err(err) => {
-                        let _ = Dlpack::<DLManagedTensor>::new_unchecked(raw);
+                        let _ = ManagedBox::<DLManagedTensor>::new_unchecked(raw);
                         return Err(err);
                     }
                 };
@@ -183,7 +183,7 @@ impl<'py> IntoPyObject<'py> for Dlpack<DLManagedTensor> {
     }
 }
 
-impl<'py> FromPyObject<'_, 'py> for Dlpack<DLManagedTensorVersioned> {
+impl<'py> FromPyObject<'_, 'py> for ManagedBox<DLManagedTensorVersioned> {
     type Error = PyErr;
     fn extract(ob: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
         if let Some(api) = DlpackExchangeApiRef::from_object(ob)? {
@@ -213,7 +213,7 @@ impl<'py> FromPyObject<'_, 'py> for Dlpack<DLManagedTensorVersioned> {
     }
 }
 
-impl<'py> IntoPyObject<'py> for Dlpack<DLManagedTensorVersioned> {
+impl<'py> IntoPyObject<'py> for ManagedBox<DLManagedTensorVersioned> {
     type Target = PyAny;
     type Output = Bound<'py, PyAny>;
     type Error = pyo3::PyErr;
@@ -228,7 +228,7 @@ impl<'py> IntoPyObject<'py> for Dlpack<DLManagedTensorVersioned> {
             ) {
                 Ok(capsule) => capsule,
                 Err(err) => {
-                    let _ = Dlpack::<DLManagedTensorVersioned>::new_unchecked(raw);
+                    let _ = ManagedBox::<DLManagedTensorVersioned>::new_unchecked(raw);
                     return Err(err);
                 }
             };
@@ -245,7 +245,7 @@ mod tests {
     use pyo3::types::PyModule;
     use std::ffi::c_void;
 
-    fn legacy_tensor() -> Dlpack<DLManagedTensor> {
+    fn legacy_tensor() -> ManagedBox<DLManagedTensor> {
         let data = Box::new(vec![1i32, 2, 3]);
         let data_ptr = data.as_ptr() as *mut c_void;
         DlpackBuilder::<DLManagedTensor, 1>::with_array_layout(data, [3i64], [1i64])
@@ -254,7 +254,7 @@ mod tests {
             .build()
     }
 
-    fn versioned_tensor() -> Dlpack<DLManagedTensorVersioned> {
+    fn versioned_tensor() -> ManagedBox<DLManagedTensorVersioned> {
         let data = Box::new(vec![4i32, 5, 6]);
         let data_ptr = data.as_ptr() as *mut c_void;
         DlpackBuilder::<DLManagedTensorVersioned, 1>::with_array_layout(data, [3i64], [1i64])
@@ -269,13 +269,13 @@ mod tests {
         pyo3::Python::attach(|py| -> pyo3::PyResult<()> {
             let capsule = legacy_tensor().into_pyobject(py)?;
 
-            let dlpack = Dlpack::<DLManagedTensor>::extract(capsule.as_borrowed())?;
+            let dlpack = ManagedBox::<DLManagedTensor>::extract(capsule.as_borrowed())?;
             assert_eq!(
                 dlpack.dl_tensor().cpu_data_slice::<i32>().unwrap(),
                 &[1, 2, 3]
             );
 
-            let err = match Dlpack::<DLManagedTensor>::extract(capsule.as_borrowed()) {
+            let err = match ManagedBox::<DLManagedTensor>::extract(capsule.as_borrowed()) {
                 Ok(_) => panic!("consuming the same DLPack capsule twice should fail"),
                 Err(err) => err,
             };
@@ -292,13 +292,13 @@ mod tests {
         pyo3::Python::attach(|py| -> pyo3::PyResult<()> {
             let capsule = versioned_tensor().into_pyobject(py)?;
 
-            let dlpack = Dlpack::<DLManagedTensorVersioned>::extract(capsule.as_borrowed())?;
+            let dlpack = ManagedBox::<DLManagedTensorVersioned>::extract(capsule.as_borrowed())?;
             assert_eq!(
                 dlpack.dl_tensor().cpu_data_slice::<i32>().unwrap(),
                 &[4, 5, 6]
             );
 
-            let err = match Dlpack::<DLManagedTensorVersioned>::extract(capsule.as_borrowed()) {
+            let err = match ManagedBox::<DLManagedTensorVersioned>::extract(capsule.as_borrowed()) {
                 Ok(_) => panic!("consuming the same DLPack capsule twice should fail"),
                 Err(err) => err,
             };
@@ -322,7 +322,7 @@ mod tests {
             )?;
             let producer = module.getattr("Producer")?.call1((capsule,))?;
 
-            let dlpack = Dlpack::<DLManagedTensor>::extract(producer.as_borrowed())?;
+            let dlpack = ManagedBox::<DLManagedTensor>::extract(producer.as_borrowed())?;
             assert_eq!(dlpack.dl_tensor().cpu_data_slice::<i32>().unwrap(), &[1, 2, 3]);
 
             Ok(())
@@ -343,7 +343,7 @@ mod tests {
             )?;
             let producer = module.getattr("Producer")?.call1((capsule,))?;
 
-            let dlpack = Dlpack::<DLManagedTensorVersioned>::extract(producer.as_borrowed())?;
+            let dlpack = ManagedBox::<DLManagedTensorVersioned>::extract(producer.as_borrowed())?;
             assert_eq!(dlpack.dl_tensor().cpu_data_slice::<i32>().unwrap(), &[4, 5, 6]);
             assert_eq!(
                 producer.getattr("seen_max_version")?.extract::<(u32, u32)>()?,
@@ -371,7 +371,7 @@ mod tests {
             )?;
             let producer = module.getattr("Producer")?.call1((capsule,))?;
 
-            let dlpack = Dlpack::<DLManagedTensorVersioned>::extract(producer.as_borrowed())?;
+            let dlpack = ManagedBox::<DLManagedTensorVersioned>::extract(producer.as_borrowed())?;
             assert_eq!(dlpack.dl_tensor().cpu_data_slice::<i32>().unwrap(), &[4, 5, 6]);
             assert_eq!(producer.getattr("calls")?.extract::<u32>()?, 1);
 

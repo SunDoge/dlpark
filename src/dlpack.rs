@@ -1,21 +1,30 @@
-use crate::ManagedTensor;
-use crate::ffi::DLTensor;
+use crate::ManagedTensorBase;
+use crate::ffi::{DLManagedTensor, DLManagedTensorVersioned, DLTensor};
 use std::ptr::NonNull;
 
-pub struct Dlpack<M: ManagedTensor>(NonNull<M>);
+pub type Dlpack = NonNull<DLManagedTensor>;
+pub type VersionedDlpack = NonNull<DLManagedTensorVersioned>;
 
-impl<M> Dlpack<M>
+pub type ManagedTensor = ManagedBox<Dlpack>;
+pub type VersionedManagedTensor = ManagedBox<VersionedDlpack>;
+
+/// Owning RAII handle for a DLPack managed tensor pointer.
+///
+/// Drops by calling the DLPack managed tensor deleter.
+pub struct ManagedBox<M: ManagedTensorBase>(NonNull<M>);
+
+impl<M> ManagedBox<M>
 where
-    M: ManagedTensor,
+    M: ManagedTensorBase,
 {
     /// # Safety
     ///
     /// TODO
     pub unsafe fn new(ptr: *mut M) -> Option<Self> {
-        NonNull::new(ptr).map(Dlpack)
+        NonNull::new(ptr).map(ManagedBox)
     }
 
-    /// Create a new `Dlpack` instance from a raw pointer without checking if it is null.
+    /// Create a new `OwnedDlpackTensor` from a raw pointer without checking if it is null.
     ///
     /// # Safety
     ///
@@ -64,26 +73,26 @@ where
         self.dl_tensor().num_bytes()
     }
 
-    /// Consumes the `Dlpack`, returning the wrapped raw pointer.
+    /// Consumes the `OwnedDlpackTensor`, returning the wrapped raw pointer.
     ///
-    /// The caller takes ownership of the memory and is responsible for calling the FFI deleter later.
+    /// The caller takes ownership of the managed tensor and is responsible for calling the FFI deleter later.
     pub fn into_raw(self) -> *mut M {
         let ptr = self.0.as_ptr();
         std::mem::forget(self);
         ptr
     }
 
-    /// Returns the wrapped raw pointer without consuming the `Dlpack`.
+    /// Returns the wrapped raw pointer without consuming the `OwnedDlpackTensor`.
     ///
-    /// The `Dlpack` still owns the memory and will automatically drop it when it goes out of scope.
+    /// The `OwnedDlpackTensor` still owns the managed tensor and will call its deleter on drop.
     pub fn as_ptr(&self) -> *mut M {
         self.0.as_ptr()
     }
 }
 
-impl<M> Drop for Dlpack<M>
+impl<M> Drop for ManagedBox<M>
 where
-    M: ManagedTensor,
+    M: ManagedTensorBase,
 {
     fn drop(&mut self) {
         unsafe {

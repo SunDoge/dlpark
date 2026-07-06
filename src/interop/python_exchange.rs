@@ -4,7 +4,7 @@ use std::ffi::CStr;
 use std::ptr::NonNull;
 
 use crate::{
-    Dlpack,
+    ManagedBox,
     ffi::{
         DLDevice, DLManagedTensorVersioned, DLPACK_MAJOR_VERSION, DLPackExchangeAPI,
         DLPackExchangeAPIHeader, DLTensor,
@@ -66,7 +66,7 @@ impl DlpackExchangeApiRef {
     pub fn managed_tensor_from_py_object_no_sync(
         &self,
         obj: Borrowed<'_, '_, PyAny>,
-    ) -> pyo3::PyResult<Dlpack<DLManagedTensorVersioned>> {
+    ) -> pyo3::PyResult<ManagedBox<DLManagedTensorVersioned>> {
         let api = unsafe { self.api.as_ref() };
         let Some(from_py_object) = api.managed_tensor_from_py_object_no_sync else {
             return Err(PyRuntimeError::new_err(
@@ -85,7 +85,7 @@ impl DlpackExchangeApiRef {
             ));
         }
 
-        Ok(unsafe { Dlpack::new_unchecked(out) })
+        Ok(unsafe { ManagedBox::new_unchecked(out) })
     }
 
     /// Returns the producer's current work stream for `device`.
@@ -111,7 +111,7 @@ impl DlpackExchangeApiRef {
     ///
     /// The producer owns the shape, strides, and data pointers. The view is only
     /// valid during the callback and must not be stored or wrapped as an owned
-    /// [`Dlpack`].
+    /// [`OwnedDlpackTensor`].
     pub fn with_dltensor_view_no_sync<R>(
         &self,
         obj: Borrowed<'_, '_, PyAny>,
@@ -278,7 +278,7 @@ mod tests {
                 assert_eq!(tensor.num_elements().unwrap(), 3);
             })?;
 
-            let dlpack = Dlpack::<DLManagedTensorVersioned>::extract(obj.as_borrowed())?;
+            let dlpack = ManagedBox::<DLManagedTensorVersioned>::extract(obj.as_borrowed())?;
             let tensor = dlpack.dl_tensor();
             assert_eq!(tensor.ndim, 1);
             assert_eq!(tensor.shape().unwrap(), &[3]);

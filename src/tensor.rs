@@ -224,6 +224,32 @@ impl DLTensor {
         Ok(unsafe { std::slice::from_raw_parts(data_ptr, num_elements) })
     }
 
+    /// Returns the byte-offset-adjusted CPU data pointer for typed consumers.
+    ///
+    /// This validates device, dtype, nullness for non-empty tensors, offset, and
+    /// alignment without assuming that the tensor is compact in memory.
+    pub fn cpu_data_ptr<T: DlpackElement>(&self) -> Result<*const T, Error> {
+        ensure!(
+            self.device.device_type == DLDeviceType::CPU,
+            NotCpuSnafu {
+                device_type: self.device.device_type
+            }
+        );
+        ensure!(
+            self.dtype.is::<T>(),
+            DtypeMismatchSnafu {
+                expected: T::DTYPE,
+                actual: self.dtype
+            }
+        );
+
+        if self.num_elements()? == 0 {
+            return Ok(std::ptr::NonNull::<T>::dangling().as_ptr());
+        }
+
+        self.offset_data_ptr::<T>()
+    }
+
     fn offset_data_ptr<T>(&self) -> Result<*const T, Error> {
         ensure!(!self.data.is_null(), NullDataSnafu);
 
