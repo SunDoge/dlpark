@@ -1,6 +1,6 @@
 [package]
 name = "dlpark"
-version = "0.7.0"
+version = "0.8.0-alpha.1"
 edition = "2024"
 description = "dlpack Rust binding for Python"
 documentation = "https://docs.rs/dlpark"
@@ -68,6 +68,5 @@ cudarc = [
 # Not supported yet — needs a CUDA toolchain to verify against candle's real (non-dummy) cuda backend
 # candle-cuda = ["candle", "candle-core/cuda"]
 
-# for examples/dlparkimg
-[profile.dev.package."image"]
-opt-level = 3
+[profile.dev.package."*"]
+opt-level = 2
