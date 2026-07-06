@@ -19,13 +19,13 @@ members = [
 ]
 
 [workspace.dependencies]
-candle-core = "0.9"
+candle-core = "0.11"
 cudarc = "0.19.2"
 dlpark = {
   path = ".",
   default-features = false
 }  # Add dlpark as a workspace dependency
-half = "2.6"
+half = "2.7"
 image = "0.25"
 ndarray = "0.17"
 pyo3 = "0.29"
@@ -57,15 +57,16 @@ half = ["dep:half"]
 image = ["dep:image"]
 ndarray = ["dep:ndarray"]
 
+candle = ["dep:candle-core"]
+
 cudarc = [
   "cudarc/cuda-version-from-build-system",
   "cudarc/fallback-latest",
   "dep:cudarc"
 ]
 
-# Not supported yet
-# candle-cpu = ["dep:candle-core"]
-# candle-cuda = ["dep:candle-core", "candle-core/cuda"]
+# Not supported yet — needs a CUDA toolchain to verify against candle's real (non-dummy) cuda backend
+# candle-cuda = ["candle", "candle-core/cuda"]
 
 # for examples/dlparkimg
 [profile.dev.package."image"]

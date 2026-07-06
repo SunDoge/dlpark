@@ -47,12 +47,6 @@ impl DLDataType {
         }
     }
 
-    pub const FLOAT32: Self = Self {
-        code: DLDataTypeCode::FLOAT,
-        bits: 32,
-        lanes: 1,
-    };
-
     pub const fn of<T: DlpackElement>() -> Self {
         T::DTYPE
     }
@@ -65,10 +59,18 @@ impl DLDataType {
         self.matches(T::DTYPE)
     }
 
-    /// Returns the size of a single element in bytes.
+    /// Returns the size of a single element in bytes, rounded up.
     ///
-    /// Handles sub-byte types (e.g. INT4 with `bits = 4`) by rounding up to the nearest byte.
     /// For vectorized types (`lanes > 1`), the total bit width is `bits × lanes`.
+    ///
+    /// This is only meaningful for byte-aligned dtypes (`bits` a multiple of
+    /// 8 — true of every [`DlpackElement`] currently defined in this crate).
+    /// For genuinely sub-byte packed dtypes (`bits < 8`, e.g. DLPack's
+    /// 4-/6-bit float codes), several elements are packed per byte and this
+    /// per-element rounding overcounts — use
+    /// [`crate::ffi::DLTensor::num_bytes`] for a whole-tensor byte count
+    /// that accounts for packing correctly instead of multiplying this by
+    /// the element count.
     pub fn element_size(&self) -> usize {
         let total_bits = (self.bits as usize) * (self.lanes as usize);
         total_bits.div_ceil(8)

@@ -1,6 +1,6 @@
-use crate::prelude::*;
 use crate::{
-    ManagedBox, ManagedTensorBase,
+    DlpackBuilder, DlpackElement, ManagedBox, ManagedTensor, ManagedTensorBase,
+    VersionedManagedTensor,
     ffi::{DLDevice, DLManagedTensor, DLManagedTensorVersioned},
     tensor::{compact_strides_array, is_compact_strides},
 };

@@ -16,6 +16,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build
-        run: cargo build --verbose --features "pyo3 half ndarray image cudarc"
+        run: cargo build --verbose --features "pyo3 half ndarray image candle cudarc"
       - name: Run tests
-        run: cargo test --verbose --features "pyo3 half ndarray image"
+        run: cargo test --verbose --features "pyo3 half ndarray image candle"

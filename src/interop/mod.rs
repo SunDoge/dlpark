@@ -12,3 +12,6 @@ pub mod python_exchange;
 
 #[cfg(feature = "ndarray")]
 pub mod ndarray;
+
+#[cfg(feature = "candle")]
+pub mod candle;

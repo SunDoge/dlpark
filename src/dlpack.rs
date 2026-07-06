@@ -1,5 +1,6 @@
+use crate::DlpackFlags;
 use crate::ManagedTensorBase;
-use crate::ffi::{DLManagedTensor, DLManagedTensorVersioned, DLTensor};
+use crate::ffi::{DLManagedTensor, DLManagedTensorVersioned, DLPackVersion, DLTensor};
 use std::ptr::NonNull;
 
 pub type Dlpack = NonNull<DLManagedTensor>;
@@ -90,6 +91,20 @@ where
     }
 }
 
+impl ManagedBox<DLManagedTensorVersioned> {
+    /// Returns the DLPack bitmask flags (e.g. `READ_ONLY`, `IS_COPIED`).
+    ///
+    /// Only present on the versioned tensor ABI; the legacy `DLManagedTensor`
+    /// has no `flags` field.
+    pub fn flags(&self) -> DlpackFlags {
+        unsafe { self.0.as_ref() }.flags
+    }
+
+    pub fn version(&self) -> DLPackVersion {
+        unsafe { self.0.as_ref() }.version
+    }
+}
+
 impl<M> Drop for ManagedBox<M>
 where
     M: ManagedTensorBase,
@@ -98,5 +113,32 @@ where
         unsafe {
             M::call_deleter(self.0.as_ptr());
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::builder::DlpackBuilder;
+
+    #[test]
+    fn versioned_flags_roundtrip_through_builder() {
+        let data = Box::new(vec![1i32, 2, 3]);
+        let dlpack =
+            DlpackBuilder::<DLManagedTensorVersioned, 1>::with_array_layout(data, [3i64], [1i64])
+                .flags(DlpackFlags::READ_ONLY)
+                .build();
+
+        assert_eq!(dlpack.flags(), DlpackFlags::READ_ONLY);
+    }
+
+    #[test]
+    fn versioned_flags_default_to_empty() {
+        let data = Box::new(vec![1i32, 2, 3]);
+        let dlpack =
+            DlpackBuilder::<DLManagedTensorVersioned, 1>::with_array_layout(data, [3i64], [1i64])
+                .build();
+
+        assert_eq!(dlpack.flags(), DlpackFlags::empty());
     }
 }

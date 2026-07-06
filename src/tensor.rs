@@ -178,15 +178,27 @@ impl DLTensor {
 
     /// Returns the total size of the tensor data in bytes.
     ///
-    /// Computed as `num_elements × dtype.element_size()`.
+    /// Computed as `ceil(num_elements × bits × lanes / 8)` — the ceiling is
+    /// taken once over the whole tensor, not per element. For byte-aligned
+    /// dtypes (`bits` a multiple of 8, true of every [`DlpackElement`]
+    /// currently defined in this crate) this is identical to
+    /// `num_elements × dtype.element_size()`. For genuinely sub-byte packed
+    /// dtypes (`bits < 8`, e.g. DLPack's 4-/6-bit float codes) it is not:
+    /// rounding per element like [`DLDataType::element_size`] would
+    /// overcount, since several packed elements share a byte.
     ///
     /// # Errors
     ///
     /// Propagates errors from [`Self::num_elements`].
     pub fn num_bytes(&self) -> Result<usize, Error> {
-        self.num_elements()?
-            .checked_mul(self.dtype.element_size())
-            .ok_or(Error::NumBytesOverflow)
+        let bits_per_element = (self.dtype.bits as usize)
+            .checked_mul(self.dtype.lanes as usize)
+            .ok_or(Error::NumBytesOverflow)?;
+        let total_bits = self
+            .num_elements()?
+            .checked_mul(bits_per_element)
+            .ok_or(Error::NumBytesOverflow)?;
+        Ok(total_bits.div_ceil(8))
     }
 
     /// Returns the tensor data as a typed Rust slice.
@@ -248,6 +260,35 @@ impl DLTensor {
         }
 
         self.offset_data_ptr::<T>()
+    }
+
+    /// Returns the byte-offset-adjusted CPU data pointer without requiring a
+    /// concrete Rust element type.
+    ///
+    /// Unlike [`Self::cpu_data_ptr`], this does not check `dtype` against any
+    /// particular type (there is none to check) and never fails on
+    /// alignment — a `u8` pointer is trivially aligned. Useful for callers
+    /// that dispatch on `self.dtype` themselves (e.g. against another
+    /// library's own dtype enum) instead of a compile-time `T`.
+    ///
+    /// # Errors
+    ///
+    /// - [`Error::NotCpu`] if the tensor is not on CPU.
+    /// - [`Error::NullData`] if the data pointer is null for a non-empty tensor.
+    /// - Offset arithmetic errors from [`Self::offset_data_ptr`].
+    pub fn cpu_data_ptr_bytes(&self) -> Result<*const u8, Error> {
+        ensure!(
+            self.device.device_type == DLDeviceType::CPU,
+            NotCpuSnafu {
+                device_type: self.device.device_type
+            }
+        );
+
+        if self.num_bytes()? == 0 {
+            return Ok(std::ptr::NonNull::<u8>::dangling().as_ptr());
+        }
+
+        self.offset_data_ptr::<u8>()
     }
 
     fn offset_data_ptr<T>(&self) -> Result<*const T, Error> {
