@@ -3,7 +3,7 @@
 //! Provides conversions between [`candle_core::Tensor`] and DLPack managed
 //! tensors.
 //!
-//! # Forward direction (`Tensor` → `ManagedTensor`/`VersionedManagedTensor`)
+//! # Forward direction (`Tensor` → `Dlpack`/`DlpackVersioned`)
 //!
 //! Zero-copy: the whole [`Tensor`] is boxed as the DLPack `manager_ctx`,
 //! keeping its `Arc`-refcounted storage alive for the DLPack tensor's
@@ -32,7 +32,7 @@
 //! doc for why per-element addressing doesn't make sense for them.
 
 use crate::{
-    DlpackFlags, ManagedBox, ManagedTensor, ManagedTensorBase, VersionedManagedTensor,
+    Dlpack, DlpackFlags, DlpackVersioned, ManagedBox, ManagedTensorBase,
     builder::DlpackBuilder,
     ffi::{DLDataType, DLDataTypeCode, DLDevice, DLManagedTensor, DLManagedTensorVersioned},
 };
@@ -78,7 +78,7 @@ pub enum Error {
 }
 
 // ---------------------------------------------------------------------------
-// Forward: candle_core::Tensor → ManagedTensor / VersionedManagedTensor
+// Forward: candle_core::Tensor → Dlpack / DlpackVersioned
 // ---------------------------------------------------------------------------
 
 /// Maps a candle [`DType`] to the equivalent DLPack dtype, or `None` if
@@ -213,7 +213,7 @@ fn dlpack_layout_from_candle(tensor: &Tensor) -> Result<CandleLayout, Error> {
     })
 }
 
-/// Converts a CPU [`Tensor`] into a [`ManagedTensor`] (legacy DLPack ABI).
+/// Converts a CPU [`Tensor`] into a [`Dlpack`] (legacy DLPack ABI).
 ///
 /// # Errors
 ///
@@ -221,7 +221,7 @@ fn dlpack_layout_from_candle(tensor: &Tensor) -> Result<CandleLayout, Error> {
 /// - [`Error::UnsupportedCandleDType`] if [`dl_dtype_from_candle`] has no
 ///   mapping for the tensor's dtype (currently the packed sub-byte float
 ///   formats, and `BF16`/`F16` when the `half` feature is disabled).
-pub fn candle_tensor_to_dlpack(tensor: Tensor) -> Result<ManagedTensor, Error> {
+pub fn candle_tensor_to_dlpack(tensor: Tensor) -> Result<Dlpack, Error> {
     if !tensor.device().is_cpu() {
         return Err(Error::UnsupportedDevice);
     }
@@ -244,9 +244,9 @@ pub fn candle_tensor_to_dlpack(tensor: Tensor) -> Result<ManagedTensor, Error> {
     )
 }
 
-/// Same as [`candle_tensor_to_dlpack`] but produces a [`VersionedManagedTensor`]
+/// Same as [`candle_tensor_to_dlpack`] but produces a [`DlpackVersioned`]
 /// (DLPack ≥ 1.0) with [`DlpackFlags::READ_ONLY`] set.
-pub fn candle_tensor_to_versioned_dlpack(tensor: Tensor) -> Result<VersionedManagedTensor, Error> {
+pub fn candle_tensor_to_versioned_dlpack(tensor: Tensor) -> Result<DlpackVersioned, Error> {
     if !tensor.device().is_cpu() {
         return Err(Error::UnsupportedDevice);
     }
@@ -270,7 +270,7 @@ pub fn candle_tensor_to_versioned_dlpack(tensor: Tensor) -> Result<VersionedMana
     )
 }
 
-impl TryFrom<Tensor> for ManagedTensor {
+impl TryFrom<Tensor> for Dlpack {
     type Error = Error;
 
     fn try_from(tensor: Tensor) -> Result<Self, Self::Error> {
@@ -278,7 +278,7 @@ impl TryFrom<Tensor> for ManagedTensor {
     }
 }
 
-impl TryFrom<Tensor> for VersionedManagedTensor {
+impl TryFrom<Tensor> for DlpackVersioned {
     type Error = Error;
 
     fn try_from(tensor: Tensor) -> Result<Self, Self::Error> {
@@ -423,7 +423,7 @@ mod tests {
     #[test]
     fn candle_tensor_to_legacy_dlpack_keeps_layout_and_data() {
         let tensor = Tensor::from_vec(vec![1i32, 2, 3, 4, 5, 6], (2, 3), &Device::Cpu).unwrap();
-        let dlpack = ManagedTensor::try_from(tensor).unwrap();
+        let dlpack = Dlpack::try_from(tensor).unwrap();
 
         assert_eq!(dlpack.shape().unwrap(), &[2, 3]);
         assert_eq!(dlpack.strides().unwrap().unwrap(), &[3, 1]);
@@ -436,7 +436,7 @@ mod tests {
     #[test]
     fn candle_tensor_to_versioned_dlpack_sets_read_only_flag() {
         let tensor = Tensor::from_vec(vec![1f32, 2., 3., 4.], (2, 2), &Device::Cpu).unwrap();
-        let dlpack = VersionedManagedTensor::try_from(tensor).unwrap();
+        let dlpack = DlpackVersioned::try_from(tensor).unwrap();
 
         assert_eq!(dlpack.flags(), DlpackFlags::READ_ONLY);
         assert_eq!(
@@ -451,7 +451,7 @@ mod tests {
         // Rust-side value comparisons without the separate `float8` crate —
         // so this only checks shape/dtype/byte-count, not element values.
         let tensor = Tensor::zeros((2, 3), DType::F8E4M3, &Device::Cpu).unwrap();
-        let dlpack = ManagedTensor::try_from(tensor).unwrap();
+        let dlpack = Dlpack::try_from(tensor).unwrap();
 
         assert_eq!(dlpack.shape().unwrap(), &[2, 3]);
         let dtype = dlpack.dl_tensor().dtype;
@@ -468,7 +468,7 @@ mod tests {
         // 6 elements * 4 bits = 24 bits = 3 bytes exactly, no padding.
         let tensor =
             Tensor::from_raw_buffer(&[0xAB, 0xCD, 0xEF], DType::F4, &[6], &Device::Cpu).unwrap();
-        let dlpack = ManagedTensor::try_from(tensor).unwrap();
+        let dlpack = Dlpack::try_from(tensor).unwrap();
 
         assert_eq!(dlpack.shape().unwrap(), &[6]);
         let dtype = dlpack.dl_tensor().dtype;
@@ -483,7 +483,7 @@ mod tests {
     fn dlpack_f4_converts_to_candle_tensor_with_matching_dtype() {
         let data = Box::new(vec![0xABu8, 0xCD, 0xEF]);
         let data_ptr = data.as_ptr() as *mut c_void;
-        let dlpack = DlpackBuilder::<DLManagedTensor, 1>::with_array_layout(data, [6i64], [1i64])
+        let dlpack = DlpackBuilder::<DLManagedTensor, 1>::with_array_layout(data, &[6i64], &[1i64])
             .data(data_ptr)
             .dtype(DLDataType {
                 code: DLDataTypeCode::FLOAT4_E2M1FN,
@@ -504,7 +504,7 @@ mod tests {
         let data_ptr = data.as_ptr() as *mut c_void;
         // [3, 2] compact strides would be [2, 1]; [1, 3] is a (nonsensical
         // but sufficient) non-compact stride to exercise the rejection path.
-        let dlpack = DlpackBuilder::<DLManagedTensor, 2>::with_array_layout(data, [3, 2], [1, 3])
+        let dlpack = DlpackBuilder::<DLManagedTensor, 2>::with_array_layout(data, &[3, 2], &[1, 3])
             .data(data_ptr)
             .dtype(DLDataType {
                 code: DLDataTypeCode::FLOAT4_E2M1FN,
@@ -521,7 +521,7 @@ mod tests {
     fn compact_dlpack_to_candle_tensor_copies_values() {
         let data = Box::new(vec![1i32, 2, 3, 4, 5, 6]);
         let data_ptr = data.as_ptr() as *mut c_void;
-        let dlpack = DlpackBuilder::<DLManagedTensor, 2>::with_array_layout(data, [2, 3], [3, 1])
+        let dlpack = DlpackBuilder::<DLManagedTensor, 2>::with_array_layout(data, &[2, 3], &[3, 1])
             .data(data_ptr)
             .dtype(<i32 as DlpackElement>::DTYPE)
             .build();
@@ -541,7 +541,7 @@ mod tests {
         // strides — not compact for shape [3, 2].
         let data = Box::new(vec![1i32, 2, 3, 4, 5, 6]);
         let data_ptr = data.as_ptr() as *mut c_void;
-        let dlpack = DlpackBuilder::<DLManagedTensor, 2>::with_array_layout(data, [3, 2], [1, 3])
+        let dlpack = DlpackBuilder::<DLManagedTensor, 2>::with_array_layout(data, &[3, 2], &[1, 3])
             .data(data_ptr)
             .dtype(<i32 as DlpackElement>::DTYPE)
             .build();
@@ -559,7 +559,7 @@ mod tests {
     fn dlpack_f8e4m3_converts_to_candle_tensor_with_matching_dtype() {
         let data = Box::new(vec![0u8; 6]);
         let data_ptr = data.as_ptr() as *mut c_void;
-        let dlpack = DlpackBuilder::<DLManagedTensor, 2>::with_array_layout(data, [2, 3], [3, 1])
+        let dlpack = DlpackBuilder::<DLManagedTensor, 2>::with_array_layout(data, &[2, 3], &[3, 1])
             .data(data_ptr)
             .dtype(DLDataType {
                 code: DLDataTypeCode::FLOAT8_E4M3,
@@ -578,7 +578,7 @@ mod tests {
     fn dlpack_with_unmatched_dtype_is_rejected() {
         let data = Box::new(vec![0u8; 3]);
         let data_ptr = data.as_ptr() as *mut c_void;
-        let dlpack = DlpackBuilder::<DLManagedTensor, 1>::with_array_layout(data, [3i64], [1i64])
+        let dlpack = DlpackBuilder::<DLManagedTensor, 1>::with_array_layout(data, &[3i64], &[1i64])
             .data(data_ptr)
             .dtype(crate::ffi::DLDataType {
                 code: DLDataTypeCode(99),

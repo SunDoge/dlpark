@@ -45,7 +45,7 @@
 //! is responsible for explicit synchronization.
 
 use crate::{
-    DlpackElement, ManagedTensor, VersionedManagedTensor,
+    Dlpack, DlpackElement, DlpackVersioned,
     builder::DlpackBuilder,
     dlpack::ManagedBox,
     ffi::{DLDevice, DLDeviceType, DLManagedTensor, DLManagedTensorVersioned},
@@ -87,7 +87,7 @@ pub enum Error {
 // Forward: CudaSlice<T> → ManagedBox
 // ---------------------------------------------------------------------------
 
-/// Wrap a [`CudaSlice<T>`] as a [`ManagedTensor`].
+/// Wrap a [`CudaSlice<T>`] as a [`Dlpack`].
 ///
 /// - `slice`   — owned GPU buffer; ownership is transferred into the DLPack
 ///               tensor's `manager_ctx` via `Box<CudaSlice<T>>`
@@ -102,7 +102,7 @@ pub fn from_cuda_slice<T: DlpackElement>(
     slice: CudaSlice<T>,
     shape: &[i64],
     strides: &[i64],
-) -> Result<ManagedTensor, Error> {
+) -> Result<Dlpack, Error> {
     let device_id = slice.ordinal() as i32;
     let data_ptr = device_ptr_of(&slice);
 
@@ -120,7 +120,7 @@ pub fn from_cuda_slice_versioned<T: DlpackElement>(
     slice: CudaSlice<T>,
     shape: &[i64],
     strides: &[i64],
-) -> Result<VersionedManagedTensor, Error> {
+) -> Result<DlpackVersioned, Error> {
     let device_id = slice.ordinal() as i32;
     let data_ptr = device_ptr_of(&slice);
 

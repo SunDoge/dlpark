@@ -1,24 +1,24 @@
-use dlpark::{ManagedTensor, VersionedManagedTensor};
+use dlpark::{Dlpack, DlpackVersioned};
 use image::{ImageBuffer, Rgb};
 use pyo3::exceptions::{PyIOError, PyValueError};
 use pyo3::prelude::*;
 
 #[pyfunction]
-fn read_image(filename: &str) -> PyResult<ManagedTensor> {
+fn read_image(filename: &str) -> PyResult<Dlpack> {
     let img = image::open(filename).map_err(|err| PyIOError::new_err(err.to_string()))?;
     let rgb_img = img.to_rgb8();
-    Ok(ManagedTensor::from(rgb_img))
+    Ok(Dlpack::from(rgb_img))
 }
 
 #[pyfunction]
-fn read_image_versioned(filename: &str) -> PyResult<VersionedManagedTensor> {
+fn read_image_versioned(filename: &str) -> PyResult<DlpackVersioned> {
     let img = image::open(filename).map_err(|err| PyIOError::new_err(err.to_string()))?;
     let rgb_img = img.to_rgb8();
-    Ok(VersionedManagedTensor::from(rgb_img))
+    Ok(DlpackVersioned::from(rgb_img))
 }
 
 #[pyfunction]
-fn write_image(filename: &str, tensor: ManagedTensor) -> PyResult<()> {
+fn write_image(filename: &str, tensor: Dlpack) -> PyResult<()> {
     let rgb_img: ImageBuffer<Rgb<u8>, _> = (&tensor)
         .try_into()
         .map_err(|err: dlpark::interop::image::Error| PyValueError::new_err(err.to_string()))?;
@@ -28,7 +28,7 @@ fn write_image(filename: &str, tensor: ManagedTensor) -> PyResult<()> {
 }
 
 #[pyfunction]
-fn write_image_versioned(filename: &str, tensor: VersionedManagedTensor) -> PyResult<()> {
+fn write_image_versioned(filename: &str, tensor: DlpackVersioned) -> PyResult<()> {
     let rgb_img: ImageBuffer<Rgb<u8>, _> = (&tensor)
         .try_into()
         .map_err(|err: dlpark::interop::image::Error| PyValueError::new_err(err.to_string()))?;

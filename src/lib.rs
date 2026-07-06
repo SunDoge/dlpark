@@ -15,5 +15,5 @@ pub mod tensor;
 pub use builder::{DlpackBuilder, DlpackTensorStorage};
 pub use context::OpaqueContext;
 pub use data_type::DlpackElement;
-pub use dlpack::{Dlpack, ManagedBox, ManagedTensor, VersionedDlpack, VersionedManagedTensor};
+pub use dlpack::{Dlpack, DlpackVersioned, ManagedBox};
 pub use managed_tensor::{DlpackFlags, ManagedTensorBase};

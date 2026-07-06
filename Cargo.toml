@@ -71,8 +71,17 @@ cudarc = [
 [profile.dev.package."*"]
 opt-level = 2
 
+# For profiling with pprof/flamegraph: release-level optimizations, but with
+# debug info kept so the symbolizer can resolve inlined-frame boundaries
+# (plain `--release` strips this, which is why inlined functions like
+# `with_array_layout` collapse into their caller in a flamegraph).
+[profile.profiling]
+inherits = "release"
+debug = true
+
 [dev-dependencies]
 criterion = "0.8.2"
+pprof = { version = "0.15.0", features = ["flamegraph"] }
 
 [[bench]]
 name = "builder"

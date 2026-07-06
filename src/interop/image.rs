@@ -1,6 +1,5 @@
 use crate::{
-    DlpackBuilder, DlpackElement, ManagedBox, ManagedTensor, ManagedTensorBase,
-    VersionedManagedTensor,
+    Dlpack, DlpackBuilder, DlpackElement, DlpackVersioned, ManagedBox, ManagedTensorBase,
     ffi::{DLDevice, DLManagedTensor, DLManagedTensorVersioned},
     tensor::{compact_strides_array, is_compact_strides},
 };
@@ -56,7 +55,7 @@ pub enum Error {
 // extracting the inner Vec and double-boxing it. One allocation total.
 // ---------------------------------------------------------------------------
 
-impl<P> From<ImageBuffer<P, Vec<P::Subpixel>>> for ManagedTensor
+impl<P> From<ImageBuffer<P, Vec<P::Subpixel>>> for Dlpack
 where
     P: Pixel,
     P::Subpixel: DlpackElement,
@@ -71,7 +70,7 @@ where
         let shape = [height as i64, width as i64, channels as i64];
         let strides = compact_strides_array(shape).expect("image shape must fit compact strides");
 
-        DlpackBuilder::<DLManagedTensor, 3>::with_array_layout(Box::new(img), shape, strides)
+        DlpackBuilder::<DLManagedTensor, 3>::with_array_layout(Box::new(img), &shape, &strides)
             .data(data_ptr)
             .dtype(P::Subpixel::DTYPE)
             .device(DLDevice::CPU)
@@ -79,7 +78,7 @@ where
     }
 }
 
-impl<P> From<ImageBuffer<P, Vec<P::Subpixel>>> for VersionedManagedTensor
+impl<P> From<ImageBuffer<P, Vec<P::Subpixel>>> for DlpackVersioned
 where
     P: Pixel,
     P::Subpixel: DlpackElement,
@@ -94,8 +93,8 @@ where
 
         DlpackBuilder::<DLManagedTensorVersioned, 3>::with_array_layout(
             Box::new(img),
-            shape,
-            strides,
+            &shape,
+            &strides,
         )
         .data(data_ptr)
         .dtype(P::Subpixel::DTYPE)
@@ -271,7 +270,7 @@ mod tests {
     #[test]
     fn test_image_to_dlpack() {
         let img = ImageBuffer::<Rgb<u8>, _>::from_vec(4, 4, vec![0u8; 48]).unwrap();
-        let dlpack = ManagedTensor::from(img);
+        let dlpack = Dlpack::from(img);
 
         assert_eq!(dlpack.shape().unwrap(), &[4, 4, 3]);
     }
@@ -279,7 +278,7 @@ mod tests {
     #[test]
     fn test_borrowed_roundtrip() {
         let img = ImageBuffer::<Rgb<u8>, _>::from_vec(4, 4, vec![42u8; 48]).unwrap();
-        let dlpack = ManagedTensor::from(img);
+        let dlpack = Dlpack::from(img);
 
         let img2 = ImageBuffer::<Rgb<u8>, _>::try_from(&dlpack).unwrap();
         assert_eq!(img2.width(), 4);
@@ -290,7 +289,7 @@ mod tests {
     #[test]
     fn test_owned_roundtrip() {
         let img = ImageBuffer::<Rgb<u8>, _>::from_vec(4, 4, vec![99u8; 48]).unwrap();
-        let dlpack = ManagedTensor::from(img);
+        let dlpack = Dlpack::from(img);
 
         let img2 = ImageBuffer::<Rgb<u8>, DlpackContainer<_, u8>>::try_from(dlpack).unwrap();
         assert_eq!(img2.width(), 4);
@@ -304,7 +303,7 @@ mod tests {
         let data_ptr = data.as_ptr() as *mut c_void;
         let shape = [1, 1, 3];
         let strides = [3, 3, 1];
-        let dlpack = DlpackBuilder::<DLManagedTensor, 3>::with_array_layout(data, shape, strides)
+        let dlpack = DlpackBuilder::<DLManagedTensor, 3>::with_array_layout(data, &shape, &strides)
             .data(data_ptr)
             .byte_offset(1)
             .dtype(u8::DTYPE)
@@ -319,7 +318,7 @@ mod tests {
         let data = Box::new(vec![0u8; 3]);
         let shape = [1, 1, 3];
         let strides = [3, 3, 1];
-        let dlpack = DlpackBuilder::<DLManagedTensor, 3>::with_array_layout(data, shape, strides)
+        let dlpack = DlpackBuilder::<DLManagedTensor, 3>::with_array_layout(data, &shape, &strides)
             .dtype(u8::DTYPE)
             .build();
 
@@ -338,7 +337,7 @@ mod tests {
         let data_ptr = data.as_ptr() as *mut c_void;
         let shape = [1, 1, 3];
         let strides = [6, 3, 1];
-        let dlpack = DlpackBuilder::<DLManagedTensor, 3>::with_array_layout(data, shape, strides)
+        let dlpack = DlpackBuilder::<DLManagedTensor, 3>::with_array_layout(data, &shape, &strides)
             .data(data_ptr)
             .dtype(u8::DTYPE)
             .build();

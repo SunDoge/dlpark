@@ -34,8 +34,8 @@ fn bench_ndim<const N: usize>(c: &mut Criterion) {
         b.iter(|| {
             let dlpack = DlpackBuilder::<DLManagedTensor, N>::with_array_layout(
                 context(),
-                std::hint::black_box(shape),
-                std::hint::black_box(strides),
+                std::hint::black_box(&shape),
+                std::hint::black_box(&strides),
             )
             .build();
             std::hint::black_box(dlpack);
@@ -88,11 +88,56 @@ fn bench_ndim<const N: usize>(c: &mut Criterion) {
     group.finish();
 }
 
+/// Isolates the allocator call itself (no shape/strides writes, no
+/// `DLManagedTensor` construction) for the exact byte size/align that
+/// `with_array_layout`/`with_dynamic_layout` both request at `ndim=64`
+/// (verified equal: 1088 bytes, align 8) — a clean baseline to compare
+/// against those functions' full measured cost, since pprof's signal-based
+/// sampling only had a few hundred samples to attribute time with, too few
+/// to trust for a fine-grained "why" answer.
+///
+/// Two variants because the two call sites construct the `Layout` two
+/// different ways (`Layout::new::<T>()` vs `Layout::from_size_align`) even
+/// though both resolve to the same value — this checks whether the
+/// construction method itself, not just the resulting value, affects
+/// codegen/timing.
+fn bench_alloc_dealloc_baseline(c: &mut Criterion) {
+    #[repr(C)]
+    struct Storage64 {
+        _managed_tensor: DLManagedTensor,
+        _shape: [i64; 64],
+        _strides: [i64; 64],
+    }
+
+    let mut group = c.benchmark_group("alloc_dealloc_baseline/1088_bytes");
+
+    group.bench_function("via_layout_new::<T>", |b| {
+        b.iter(|| unsafe {
+            let layout = std::alloc::Layout::new::<Storage64>();
+            let ptr = std::alloc::alloc(std::hint::black_box(layout));
+            std::hint::black_box(ptr);
+            std::alloc::dealloc(ptr, layout);
+        });
+    });
+
+    group.bench_function("via_from_size_align", |b| {
+        b.iter(|| unsafe {
+            let layout = std::alloc::Layout::from_size_align(1088, 8).unwrap();
+            let ptr = std::alloc::alloc(std::hint::black_box(layout));
+            std::hint::black_box(ptr);
+            std::alloc::dealloc(ptr, layout);
+        });
+    });
+
+    group.finish();
+}
+
 fn bench_all(c: &mut Criterion) {
     bench_ndim::<1>(c);
     bench_ndim::<4>(c);
     bench_ndim::<16>(c);
     bench_ndim::<64>(c);
+    bench_alloc_dealloc_baseline(c);
 }
 
 criterion_group!(benches, bench_all);

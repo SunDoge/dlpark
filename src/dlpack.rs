@@ -3,11 +3,8 @@ use crate::ManagedTensorBase;
 use crate::ffi::{DLManagedTensor, DLManagedTensorVersioned, DLPackVersion, DLTensor};
 use std::ptr::NonNull;
 
-pub type Dlpack = NonNull<DLManagedTensor>;
-pub type VersionedDlpack = NonNull<DLManagedTensorVersioned>;
-
-pub type ManagedTensor = ManagedBox<DLManagedTensor>;
-pub type VersionedManagedTensor = ManagedBox<DLManagedTensorVersioned>;
+pub type Dlpack = ManagedBox<DLManagedTensor>;
+pub type DlpackVersioned = ManagedBox<DLManagedTensorVersioned>;
 
 /// Owning RAII handle for a DLPack managed tensor pointer.
 ///
@@ -125,7 +122,7 @@ mod tests {
     fn versioned_flags_roundtrip_through_builder() {
         let data = Box::new(vec![1i32, 2, 3]);
         let dlpack =
-            DlpackBuilder::<DLManagedTensorVersioned, 1>::with_array_layout(data, [3i64], [1i64])
+            DlpackBuilder::<DLManagedTensorVersioned, 1>::with_array_layout(data, &[3i64], &[1i64])
                 .flags(DlpackFlags::READ_ONLY)
                 .build();
 
@@ -136,7 +133,7 @@ mod tests {
     fn versioned_flags_default_to_empty() {
         let data = Box::new(vec![1i32, 2, 3]);
         let dlpack =
-            DlpackBuilder::<DLManagedTensorVersioned, 1>::with_array_layout(data, [3i64], [1i64])
+            DlpackBuilder::<DLManagedTensorVersioned, 1>::with_array_layout(data, &[3i64], &[1i64])
                 .build();
 
         assert_eq!(dlpack.flags(), DlpackFlags::empty());

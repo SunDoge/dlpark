@@ -179,14 +179,14 @@ mod tests {
     ) -> c_int {
         let data = Box::new(vec![7i32, 8, 9]);
         let data_ptr = data.as_ptr() as *mut c_void;
-        let dlpack =
-            DlpackBuilder::<DLManagedTensorVersioned, 1>::with_array_layout(data, [3i64], [1i64])
+        let raw =
+            DlpackBuilder::<DLManagedTensorVersioned, 1>::with_array_layout(data, &[3i64], &[1i64])
                 .data(data_ptr)
                 .dtype(DLDataType::of::<i32>())
-                .build();
+                .build_raw();
 
         unsafe {
-            *out = dlpack.into_raw();
+            *out = raw;
         }
         0
     }
