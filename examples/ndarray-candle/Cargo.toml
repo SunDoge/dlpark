@@ -4,5 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-candle-core = "0.9.1"
-ndarray = "0.16.1"
+candle-core = { workspace = true }
+ndarray = { workspace = true }
+snafu = { workspace = true }
+dlpark = { workspace = true, features = ["ndarray", "candle"] }

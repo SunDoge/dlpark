@@ -3,5 +3,13 @@
 // For a full list of overridable settings, and general information on folder-specific settings,
 // see the documentation: https://zed.dev/docs/configuring-zed#settings-files
 {
-
+  "lsp": {
+    "rust-analyzer": {
+      "initialization_options": {
+        "cargo": {
+          "features": ["image", "ndarray", "pyo3", "cudarc", "candle"],
+        },
+      },
+    },
+  },
 }

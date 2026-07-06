@@ -1,6 +1,7 @@
-import dlparkimg
-from torch.utils.dlpack import to_dlpack, from_dlpack
 from loguru import logger
+from torch.utils.dlpack import from_dlpack
+
+import dlparkimg
 # import matplotlib.pyplot as plt
 
 image_path = "candy.jpg"
@@ -12,5 +13,5 @@ logger.info("Converting to BGR")
 bgr_img = tensor[..., [2, 1, 0]]
 output_path = "bgr.jpg"
 logger.info("Writing image: {}", output_path)
-dlparkimg.write_image(output_path, to_dlpack(bgr_img))
+dlparkimg.write_image(output_path, bgr_img)
 logger.info("Done")

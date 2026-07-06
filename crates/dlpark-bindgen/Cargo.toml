@@ -1,0 +1,8 @@
+[package]
+name = "dlpark-bindgen"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bindgen = "0.72.1"
+snafu = { workspace = true }
