@@ -7,3 +7,4 @@ edition = "2024"
 candle-core = { workspace = true }
 ndarray = { workspace = true }
 snafu = { workspace = true }
+dlpark = { workspace = true, features = ["ndarray", "candle"] }
