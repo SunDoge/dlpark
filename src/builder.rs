@@ -6,7 +6,7 @@ use crate::{
     managed_tensor::ManagedTensorBase,
 };
 use snafu::{ResultExt, Snafu, ensure};
-use std::{os::raw::c_void, ptr::NonNull};
+use std::{ffi::c_void, ptr::NonNull};
 
 #[derive(Debug, Snafu)]
 pub enum Error {
@@ -14,15 +14,6 @@ pub enum Error {
     MismatchedLength {
         shape_len: usize,
         strides_len: usize,
-    },
-
-    #[snafu(display(
-        "shape/strides length must match N={expected}, got shape={shape_len}, strides={strides_len}"
-    ))]
-    SliceLengthMismatch {
-        shape_len: usize,
-        strides_len: usize,
-        expected: usize,
     },
 
     #[snafu(display("Dimension count ({ndim}) exceeds {expected}"))]
@@ -38,12 +29,17 @@ pub enum Error {
     NegativeNdim { ndim: i32 },
 }
 
-pub struct DlpackBuilder<M: ManagedTensorBase, const N: usize>(NonNull<DlpackTensorStorage<M, N>>);
+pub struct Builder<M: ManagedTensorBase, const N: usize>(NonNull<DlpackTensorStorage<M, N>>);
 
-unsafe impl<M: ManagedTensorBase + Send, const N: usize> Send for DlpackBuilder<M, N> {}
-unsafe impl<M: ManagedTensorBase + Sync, const N: usize> Sync for DlpackBuilder<M, N> {}
+pub type DlpackBuilder<const N: usize> = Builder<DLManagedTensor, N>;
+pub type DlpackVersionedBuilder<const N: usize> = Builder<DLManagedTensorVersioned, N>;
+pub type DynamicDlpackBuilder = DlpackBuilder<0>;
+pub type DynamicDlpackVersionedBuilder = DlpackVersionedBuilder<0>;
 
-impl<M: ManagedTensorBase, const N: usize> DlpackBuilder<M, N> {
+unsafe impl<M: ManagedTensorBase + Send, const N: usize> Send for Builder<M, N> {}
+unsafe impl<M: ManagedTensorBase + Sync, const N: usize> Sync for Builder<M, N> {}
+
+impl<M: ManagedTensorBase, const N: usize> Builder<M, N> {
     pub fn new(ptr: NonNull<DlpackTensorStorage<M, N>>) -> Self {
         Self(ptr)
     }
@@ -73,20 +69,20 @@ impl<M: ManagedTensorBase, const N: usize> DlpackBuilder<M, N> {
     }
 }
 
-impl<M: ManagedTensorBase, const N: usize> std::ops::Deref for DlpackBuilder<M, N> {
+impl<M: ManagedTensorBase, const N: usize> std::ops::Deref for Builder<M, N> {
     type Target = DlpackTensorStorage<M, N>;
     fn deref(&self) -> &Self::Target {
         unsafe { self.0.as_ref() }
     }
 }
 
-impl<M: ManagedTensorBase, const N: usize> std::ops::DerefMut for DlpackBuilder<M, N> {
+impl<M: ManagedTensorBase, const N: usize> std::ops::DerefMut for Builder<M, N> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         unsafe { self.0.as_mut() }
     }
 }
 
-impl<M: ManagedTensorBase, const N: usize> Drop for DlpackBuilder<M, N> {
+impl<M: ManagedTensorBase, const N: usize> Drop for Builder<M, N> {
     fn drop(&mut self) {
         unsafe {
             M::call_deleter(self.0.as_ptr() as *mut M);
@@ -163,7 +159,7 @@ unsafe extern "C" fn dynamic_deleter<C: OpaqueContext, M: ManagedTensorBase>(dlm
     }
 }
 
-impl<M: ManagedTensorBase, const N: usize> DlpackBuilder<M, N> {
+impl<M: ManagedTensorBase, const N: usize> Builder<M, N> {
     pub fn data(mut self, ptr: *mut c_void) -> Self {
         self.managed_tensor.get_dltensor_mut().data = ptr;
         self
@@ -183,14 +179,15 @@ impl<M: ManagedTensorBase, const N: usize> DlpackBuilder<M, N> {
         self.managed_tensor.get_dltensor_mut().byte_offset = byte_offset;
         self
     }
-}
 
-impl<const N: usize> DlpackBuilder<DLManagedTensor, N> {
+    /// Same fixed capacity `N` as `with_array_layout`, but takes `&[T]`
+    /// instead of `&[T; N]`. `shape`/`strides` may be shorter than `N`
+    /// (`ndim` becomes their actual length) but not longer.
     pub fn with_slice_layout<C, T>(
         ctx: C,
         shape: &[T],
         strides: &[T],
-    ) -> Result<DlpackBuilder<DLManagedTensor, N>, Error>
+    ) -> Result<Builder<M, N>, Error>
     where
         C: OpaqueContext,
         T: Into<i64> + Copy,
@@ -207,7 +204,7 @@ impl<const N: usize> DlpackBuilder<DLManagedTensor, N> {
         ensure!(ndim <= N, NdimExceedsLimitSnafu { ndim, expected: N });
 
         unsafe {
-            let raw_ptr = alloc_uninit_storage::<DLManagedTensor, N>();
+            let raw_ptr = alloc_uninit_storage::<M, N>();
 
             let shape_ptr = std::ptr::addr_of_mut!((*raw_ptr).shape) as *mut i64;
             let strides_ptr = std::ptr::addr_of_mut!((*raw_ptr).strides) as *mut i64;
@@ -221,8 +218,8 @@ impl<const N: usize> DlpackBuilder<DLManagedTensor, N> {
 
             std::ptr::write(
                 std::ptr::addr_of_mut!((*raw_ptr).managed_tensor),
-                DLManagedTensor {
-                    dl_tensor: DLTensor {
+                M::new(
+                    DLTensor {
                         data: std::ptr::null_mut(),
                         device: DLDevice::CPU,
                         ndim: ndim as i32,
@@ -231,20 +228,18 @@ impl<const N: usize> DlpackBuilder<DLManagedTensor, N> {
                         strides: strides_ptr,
                         byte_offset: 0,
                     },
-                    manager_ctx: ctx.into_raw(),
-                    deleter: Some(static_deleter::<N, C, _>),
-                },
+                    ctx.into_raw(),
+                    Some(static_deleter::<N, C, M>),
+                ),
             );
 
-            Ok(DlpackBuilder::new(NonNull::new_unchecked(raw_ptr)))
+            Ok(Builder::new(NonNull::new_unchecked(raw_ptr)))
         }
     }
 
-    pub fn with_array_layout<C, T>(
-        ctx: C,
-        shape: &[T; N],
-        strides: &[T; N],
-    ) -> DlpackBuilder<DLManagedTensor, N>
+    /// `shape`/`strides` as fixed-size arrays: `N` is known at compile time,
+    /// so a length mismatch can't happen and this never fails.
+    pub fn with_array_layout<C, T>(ctx: C, shape: &[T; N], strides: &[T; N]) -> Builder<M, N>
     where
         C: OpaqueContext,
         T: Into<i64> + Copy,
@@ -252,7 +247,7 @@ impl<const N: usize> DlpackBuilder<DLManagedTensor, N> {
         assert!(N <= i32::MAX as usize, "N must fit in i32");
 
         unsafe {
-            let raw_ptr = alloc_uninit_storage::<DLManagedTensor, N>();
+            let raw_ptr = alloc_uninit_storage::<M, N>();
 
             let shape_ptr = std::ptr::addr_of_mut!((*raw_ptr).shape) as *mut i64;
             let strides_ptr = std::ptr::addr_of_mut!((*raw_ptr).strides) as *mut i64;
@@ -266,8 +261,8 @@ impl<const N: usize> DlpackBuilder<DLManagedTensor, N> {
 
             std::ptr::write(
                 std::ptr::addr_of_mut!((*raw_ptr).managed_tensor),
-                DLManagedTensor {
-                    dl_tensor: DLTensor {
+                M::new(
+                    DLTensor {
                         data: std::ptr::null_mut(),
                         device: DLDevice::CPU,
                         ndim: N as i32,
@@ -276,127 +271,24 @@ impl<const N: usize> DlpackBuilder<DLManagedTensor, N> {
                         strides: strides_ptr,
                         byte_offset: 0,
                     },
-                    manager_ctx: ctx.into_raw(),
-                    deleter: Some(static_deleter::<N, C, _>),
-                },
+                    ctx.into_raw(),
+                    Some(static_deleter::<N, C, M>),
+                ),
             );
 
-            DlpackBuilder::new(NonNull::new_unchecked(raw_ptr))
+            Builder::new(NonNull::new_unchecked(raw_ptr))
         }
     }
 }
 
-impl<const N: usize> DlpackBuilder<DLManagedTensorVersioned, N> {
-    pub fn with_slice_layout<C, T>(
-        ctx: C,
-        shape: &[T],
-        strides: &[T],
-    ) -> Result<DlpackBuilder<DLManagedTensorVersioned, N>, Error>
-    where
-        C: OpaqueContext,
-        T: Into<i64> + Copy,
-    {
-        assert!(N <= i32::MAX as usize, "N must fit in i32");
-        ensure!(
-            shape.len() == strides.len(),
-            MismatchedLengthSnafu {
-                shape_len: shape.len(),
-                strides_len: strides.len()
-            }
-        );
-        let ndim = shape.len();
-        ensure!(ndim <= N, NdimExceedsLimitSnafu { ndim, expected: N });
-
-        unsafe {
-            let raw_ptr = alloc_uninit_storage::<DLManagedTensorVersioned, N>();
-
-            let shape_ptr = std::ptr::addr_of_mut!((*raw_ptr).shape) as *mut i64;
-            let strides_ptr = std::ptr::addr_of_mut!((*raw_ptr).strides) as *mut i64;
-
-            for (i, s) in shape.iter().enumerate() {
-                std::ptr::write(shape_ptr.add(i), (*s).into());
-            }
-            for (i, s) in strides.iter().enumerate() {
-                std::ptr::write(strides_ptr.add(i), (*s).into());
-            }
-
-            std::ptr::write(
-                std::ptr::addr_of_mut!((*raw_ptr).managed_tensor),
-                DLManagedTensorVersioned {
-                    version: crate::ffi::DLPackVersion::default(),
-                    manager_ctx: ctx.into_raw(),
-                    deleter: Some(static_deleter::<N, C, _>),
-                    flags: DlpackFlags::empty(),
-                    dl_tensor: DLTensor {
-                        data: std::ptr::null_mut(),
-                        device: DLDevice::CPU,
-                        ndim: ndim as i32,
-                        dtype: DLDataType::default(),
-                        shape: shape_ptr,
-                        strides: strides_ptr,
-                        byte_offset: 0,
-                    },
-                },
-            );
-
-            Ok(DlpackBuilder::new(NonNull::new_unchecked(raw_ptr)))
-        }
-    }
-
-    pub fn with_array_layout<C, T>(
-        ctx: C,
-        shape: &[T; N],
-        strides: &[T; N],
-    ) -> DlpackBuilder<DLManagedTensorVersioned, N>
-    where
-        C: OpaqueContext,
-        T: Into<i64> + Copy,
-    {
-        assert!(N <= i32::MAX as usize, "N must fit in i32");
-
-        unsafe {
-            let raw_ptr = alloc_uninit_storage::<DLManagedTensorVersioned, N>();
-
-            let shape_ptr = std::ptr::addr_of_mut!((*raw_ptr).shape) as *mut i64;
-            let strides_ptr = std::ptr::addr_of_mut!((*raw_ptr).strides) as *mut i64;
-
-            for (i, s) in shape.iter().enumerate() {
-                std::ptr::write(shape_ptr.add(i), (*s).into());
-            }
-            for (i, s) in strides.iter().enumerate() {
-                std::ptr::write(strides_ptr.add(i), (*s).into());
-            }
-
-            std::ptr::write(
-                std::ptr::addr_of_mut!((*raw_ptr).managed_tensor),
-                DLManagedTensorVersioned {
-                    version: crate::ffi::DLPackVersion::default(),
-                    manager_ctx: ctx.into_raw(),
-                    deleter: Some(static_deleter::<N, C, _>),
-                    flags: DlpackFlags::empty(),
-                    dl_tensor: DLTensor {
-                        data: std::ptr::null_mut(),
-                        device: DLDevice::CPU,
-                        ndim: N as i32,
-                        dtype: DLDataType::default(),
-                        shape: shape_ptr,
-                        strides: strides_ptr,
-                        byte_offset: 0,
-                    },
-                },
-            );
-
-            DlpackBuilder::new(NonNull::new_unchecked(raw_ptr))
-        }
-    }
-
+impl<const N: usize> Builder<DLManagedTensorVersioned, N> {
     pub fn flags(mut self, flags: DlpackFlags) -> Self {
         self.managed_tensor.flags = flags;
         self
     }
 }
 
-impl DlpackBuilder<DLManagedTensor, 0> {
+impl Builder<DLManagedTensor, 0> {
     /// # Safety
     ///
     /// TODO
@@ -405,7 +297,7 @@ impl DlpackBuilder<DLManagedTensor, 0> {
         shape_ptr: *mut i64,
         strides_ptr: *mut i64,
         ndim: i32,
-    ) -> Result<DlpackBuilder<DLManagedTensor, 0>, Error>
+    ) -> Result<Builder<DLManagedTensor, 0>, Error>
     where
         C: OpaqueContext,
     {
@@ -433,90 +325,18 @@ impl DlpackBuilder<DLManagedTensor, 0> {
                 },
             );
 
-            Ok(DlpackBuilder::new(NonNull::new_unchecked(raw_ptr)))
-        }
-    }
-
-    pub fn with_dynamic_layout<C, T>(
-        ctx: C,
-        shape: &[T],
-        strides: &[T],
-    ) -> Result<DlpackBuilder<DLManagedTensor, 0>, Error>
-    where
-        C: OpaqueContext,
-        T: Into<i64> + Copy,
-    {
-        ensure!(
-            shape.len() == strides.len(),
-            MismatchedLengthSnafu {
-                shape_len: shape.len(),
-                strides_len: strides.len()
-            }
-        );
-        let ndim_usize = shape.len();
-        let ndim: i32 = ndim_usize
-            .try_into()
-            .context(NdimOverflowSnafu { ndim: ndim_usize })?;
-
-        let total_size = size_of::<DlpackTensorStorage<DLManagedTensor, 0>>()
-            + 2 * ndim_usize * size_of::<i64>();
-        // SAFETY: align=8 is a valid power of two, and `total_size` doesn't
-        // overflow `isize::MAX` for any `ndim` that fits in `i32` (checked
-        // above). `from_size_align`'s runtime validation of exactly these
-        // two properties measurably costs more than `Layout::new::<T>()`'s
-        // compiler-known-valid path even for constant-equivalent inputs
-        // (benchmarked: ~40ns vs ~29ns for the same resulting layout).
-        let layout = unsafe { std::alloc::Layout::from_size_align_unchecked(total_size, 8) };
-
-        unsafe {
-            let ptr = std::alloc::alloc(layout) as *mut DlpackTensorStorage<DLManagedTensor, 0>;
-            if ptr.is_null() {
-                std::alloc::handle_alloc_error(layout);
-            }
-
-            let shape_ptr = (ptr as *mut u8)
-                .add(size_of::<DlpackTensorStorage<DLManagedTensor, 0>>())
-                as *mut i64;
-            let strides_ptr = shape_ptr.add(ndim_usize);
-
-            for (i, s) in shape.iter().enumerate() {
-                std::ptr::write(shape_ptr.add(i), (*s).into());
-            }
-            for (i, s) in strides.iter().enumerate() {
-                std::ptr::write(strides_ptr.add(i), (*s).into());
-            }
-
-            let managed_tensor = DLManagedTensor {
-                dl_tensor: DLTensor {
-                    data: std::ptr::null_mut(),
-                    device: DLDevice::CPU,
-                    ndim,
-                    dtype: DLDataType::default(),
-                    shape: shape_ptr,
-                    strides: strides_ptr,
-                    byte_offset: 0,
-                },
-                manager_ctx: ctx.into_raw(),
-                deleter: Some(dynamic_deleter::<C, _>),
-            };
-
-            std::ptr::write(
-                std::ptr::addr_of_mut!((*ptr).managed_tensor),
-                managed_tensor,
-            );
-
-            Ok(DlpackBuilder::new(NonNull::new_unchecked(ptr)))
+            Ok(Builder::new(NonNull::new_unchecked(raw_ptr)))
         }
     }
 }
 
-impl DlpackBuilder<DLManagedTensorVersioned, 0> {
+impl Builder<DLManagedTensorVersioned, 0> {
     pub fn with_pointer_layout<C>(
         ctx: C,
         shape_ptr: *mut i64,
         strides_ptr: *mut i64,
         ndim: i32,
-    ) -> Result<DlpackBuilder<DLManagedTensorVersioned, 0>, Error>
+    ) -> Result<Builder<DLManagedTensorVersioned, 0>, Error>
     where
         C: OpaqueContext,
     {
@@ -546,15 +366,20 @@ impl DlpackBuilder<DLManagedTensorVersioned, 0> {
                 },
             );
 
-            Ok(DlpackBuilder::new(NonNull::new_unchecked(raw_ptr)))
+            Ok(Builder::new(NonNull::new_unchecked(raw_ptr)))
         }
     }
+}
 
+impl<M: ManagedTensorBase> Builder<M, 0> {
+    /// For when the rank isn't known until runtime: `shape`/`strides` can be
+    /// any length, and everything (including the metadata allocation itself)
+    /// is sized dynamically.
     pub fn with_dynamic_layout<C, T>(
         ctx: C,
         shape: &[T],
         strides: &[T],
-    ) -> Result<DlpackBuilder<DLManagedTensorVersioned, 0>, Error>
+    ) -> Result<Builder<M, 0>, Error>
     where
         C: OpaqueContext,
         T: Into<i64> + Copy,
@@ -563,7 +388,7 @@ impl DlpackBuilder<DLManagedTensorVersioned, 0> {
             shape.len() == strides.len(),
             MismatchedLengthSnafu {
                 shape_len: shape.len(),
-                strides_len: strides.len(),
+                strides_len: strides.len()
             }
         );
         let ndim_usize = shape.len();
@@ -571,22 +396,23 @@ impl DlpackBuilder<DLManagedTensorVersioned, 0> {
             .try_into()
             .context(NdimOverflowSnafu { ndim: ndim_usize })?;
 
-        let total_size = size_of::<DlpackTensorStorage<DLManagedTensorVersioned, 0>>()
-            + 2 * ndim_usize * size_of::<i64>();
-        // SAFETY: see the matching comment in `DlpackBuilder<DLManagedTensor,
-        // 0>::with_dynamic_layout` above.
+        let total_size = size_of::<DlpackTensorStorage<M, 0>>() + 2 * ndim_usize * size_of::<i64>();
+        // SAFETY: align=8 is a valid power of two, and `total_size` doesn't
+        // overflow `isize::MAX` for any `ndim` that fits in `i32` (checked
+        // above). `from_size_align`'s runtime validation of exactly these
+        // two properties measurably costs more than `Layout::new::<T>()`'s
+        // compiler-known-valid path even for constant-equivalent inputs
+        // (benchmarked: ~40ns vs ~29ns for the same resulting layout).
         let layout = unsafe { std::alloc::Layout::from_size_align_unchecked(total_size, 8) };
 
         unsafe {
-            let ptr =
-                std::alloc::alloc(layout) as *mut DlpackTensorStorage<DLManagedTensorVersioned, 0>;
+            let ptr = std::alloc::alloc(layout) as *mut DlpackTensorStorage<M, 0>;
             if ptr.is_null() {
                 std::alloc::handle_alloc_error(layout);
             }
 
-            let shape_ptr = (ptr as *mut u8)
-                .add(size_of::<DlpackTensorStorage<DLManagedTensorVersioned, 0>>())
-                as *mut i64;
+            let shape_ptr =
+                (ptr as *mut u8).add(size_of::<DlpackTensorStorage<M, 0>>()) as *mut i64;
             let strides_ptr = shape_ptr.add(ndim_usize);
 
             for (i, s) in shape.iter().enumerate() {
@@ -596,28 +422,24 @@ impl DlpackBuilder<DLManagedTensorVersioned, 0> {
                 std::ptr::write(strides_ptr.add(i), (*s).into());
             }
 
-            let managed_tensor = DLManagedTensorVersioned {
-                version: crate::ffi::DLPackVersion::default(),
-                manager_ctx: ctx.into_raw(),
-                deleter: Some(dynamic_deleter::<C, _>),
-                flags: DlpackFlags::empty(),
-                dl_tensor: DLTensor {
-                    data: std::ptr::null_mut(),
-                    device: DLDevice::CPU,
-                    ndim,
-                    dtype: DLDataType::default(),
-                    shape: shape_ptr,
-                    strides: strides_ptr,
-                    byte_offset: 0,
-                },
-            };
-
             std::ptr::write(
                 std::ptr::addr_of_mut!((*ptr).managed_tensor),
-                managed_tensor,
+                M::new(
+                    DLTensor {
+                        data: std::ptr::null_mut(),
+                        device: DLDevice::CPU,
+                        ndim,
+                        dtype: DLDataType::default(),
+                        shape: shape_ptr,
+                        strides: strides_ptr,
+                        byte_offset: 0,
+                    },
+                    ctx.into_raw(),
+                    Some(dynamic_deleter::<C, M>),
+                ),
             );
 
-            Ok(DlpackBuilder::new(NonNull::new_unchecked(ptr)))
+            Ok(Builder::new(NonNull::new_unchecked(ptr)))
         }
     }
 }
@@ -655,8 +477,7 @@ mod tests {
         };
 
         let dlpack =
-            DlpackBuilder::<DLManagedTensor, 3>::with_array_layout(ctx, &[1, 2, 3], &[6, 3, 1])
-                .build();
+            Builder::<DLManagedTensor, 3>::with_array_layout(ctx, &[1, 2, 3], &[6, 3, 1]).build();
 
         assert_eq!(dlpack.dl_tensor().ndim, 3);
         unsafe {
@@ -680,9 +501,8 @@ mod tests {
             drop_count: drop_count.clone(),
         };
 
-        let raw =
-            DlpackBuilder::<DLManagedTensor, 3>::with_array_layout(ctx, &[1, 2, 3], &[6, 3, 1])
-                .build_raw();
+        let raw = Builder::<DLManagedTensor, 3>::with_array_layout(ctx, &[1, 2, 3], &[6, 3, 1])
+            .build_raw();
 
         assert_eq!(drop_count.load(Ordering::SeqCst), 0);
         // Reconstruct via the unsafe half of the contract build_raw defers to.
@@ -699,10 +519,9 @@ mod tests {
             drop_count: drop_count.clone(),
         };
 
-        let dlpack =
-            DlpackBuilder::<DLManagedTensor, 3>::with_slice_layout(ctx, &[2, 4, 8], &[32, 8, 1])
-                .unwrap()
-                .build();
+        let dlpack = Builder::<DLManagedTensor, 3>::with_slice_layout(ctx, &[2, 4, 8], &[32, 8, 1])
+            .unwrap()
+            .build();
 
         assert_eq!(dlpack.dl_tensor().ndim, 3);
         assert_eq!(drop_count.load(Ordering::SeqCst), 0);
@@ -711,14 +530,59 @@ mod tests {
     }
 
     #[test]
-    fn test_slice_layout_length_mismatch_returns_error() {
+    fn test_slice_layout_shorter_than_n_succeeds() {
+        let drop_count = Arc::new(AtomicUsize::new(0));
+        let ctx = TestContext {
+            drop_count: drop_count.clone(),
+        };
+
+        let dlpack = Builder::<DLManagedTensor, 3>::with_slice_layout(ctx, &[2, 4], &[8, 1])
+            .unwrap()
+            .build();
+
+        assert_eq!(dlpack.dl_tensor().ndim, 2);
+        unsafe {
+            assert_eq!(*dlpack.dl_tensor().shape.add(0), 2);
+            assert_eq!(*dlpack.dl_tensor().shape.add(1), 4);
+        }
+
+        assert_eq!(drop_count.load(Ordering::SeqCst), 0);
+        drop(dlpack);
+        assert_eq!(drop_count.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn test_slice_layout_mismatched_shape_strides_returns_error() {
         let ctx = TestContext {
             drop_count: Arc::new(AtomicUsize::new(0)),
         };
 
-        let result = DlpackBuilder::<DLManagedTensor, 3>::with_slice_layout(ctx, &[2, 4], &[8, 1]);
+        let result = Builder::<DLManagedTensor, 3>::with_slice_layout(ctx, &[2, 4], &[8, 1, 1]);
 
-        assert!(result.is_ok());
+        assert!(matches!(
+            result,
+            Err(Error::MismatchedLength {
+                shape_len: 2,
+                strides_len: 3
+            })
+        ));
+    }
+
+    #[test]
+    fn test_slice_layout_exceeding_n_returns_error() {
+        let ctx = TestContext {
+            drop_count: Arc::new(AtomicUsize::new(0)),
+        };
+
+        let result = Builder::<DLManagedTensor, 2>::with_slice_layout(ctx, &[2, 4, 8], &[32, 8, 1]);
+
+        assert!(matches!(
+            result,
+            Err(Error::NdimExceedsLimit {
+                ndim: 3,
+                expected: 2
+            })
+        ));
     }
 
     #[test]
@@ -728,10 +592,9 @@ mod tests {
             drop_count: drop_count.clone(),
         };
 
-        let dlpack =
-            DlpackBuilder::<DLManagedTensor, 0>::with_dynamic_layout(ctx, &[3, 5], &[5, 1])
-                .unwrap()
-                .build();
+        let dlpack = Builder::<DLManagedTensor, 0>::with_dynamic_layout(ctx, &[3, 5], &[5, 1])
+            .unwrap()
+            .build();
 
         assert_eq!(dlpack.dl_tensor().ndim, 2);
         unsafe {
@@ -757,7 +620,7 @@ mod tests {
         let mut strides = [20, 1];
 
         let dlpack = unsafe {
-            DlpackBuilder::<DLManagedTensor, 0>::with_pointer_layout(
+            Builder::<DLManagedTensor, 0>::with_pointer_layout(
                 ctx,
                 shape.as_mut_ptr(),
                 strides.as_mut_ptr(),

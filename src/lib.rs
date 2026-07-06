@@ -12,8 +12,11 @@ mod device;
 mod managed_tensor;
 pub mod tensor;
 
-pub use builder::{DlpackBuilder, DlpackTensorStorage};
+pub mod legacy;
+pub mod versioned;
+
+pub use builder::{Builder, DlpackTensorStorage};
 pub use context::OpaqueContext;
 pub use data_type::DlpackElement;
-pub use dlpack::{Dlpack, DlpackVersioned, ManagedBox};
+pub use dlpack::ManagedBox;
 pub use managed_tensor::{DlpackFlags, ManagedTensorBase};

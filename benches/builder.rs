@@ -7,7 +7,7 @@
 //! metadata allocation strategy, not context boxing.
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
-use dlpark::DlpackBuilder;
+use dlpark::Builder;
 use dlpark::ffi::DLManagedTensor;
 use dlpark::tensor::compact_strides_array;
 use std::ptr::NonNull;
@@ -32,7 +32,7 @@ fn bench_ndim<const N: usize>(c: &mut Criterion) {
 
     group.bench_function(BenchmarkId::new("with_array_layout", N), |b| {
         b.iter(|| {
-            let dlpack = DlpackBuilder::<DLManagedTensor, N>::with_array_layout(
+            let dlpack = Builder::<DLManagedTensor, N>::with_array_layout(
                 context(),
                 std::hint::black_box(&shape),
                 std::hint::black_box(&strides),
@@ -44,7 +44,7 @@ fn bench_ndim<const N: usize>(c: &mut Criterion) {
 
     group.bench_function(BenchmarkId::new("with_slice_layout", N), |b| {
         b.iter(|| {
-            let dlpack = DlpackBuilder::<DLManagedTensor, N>::with_slice_layout(
+            let dlpack = Builder::<DLManagedTensor, N>::with_slice_layout(
                 context(),
                 std::hint::black_box(shape.as_slice()),
                 std::hint::black_box(strides.as_slice()),
@@ -57,7 +57,7 @@ fn bench_ndim<const N: usize>(c: &mut Criterion) {
 
     group.bench_function(BenchmarkId::new("with_dynamic_layout", N), |b| {
         b.iter(|| {
-            let dlpack = DlpackBuilder::<DLManagedTensor, 0>::with_dynamic_layout(
+            let dlpack = Builder::<DLManagedTensor, 0>::with_dynamic_layout(
                 context(),
                 std::hint::black_box(shape.as_slice()),
                 std::hint::black_box(strides.as_slice()),
@@ -73,7 +73,7 @@ fn bench_ndim<const N: usize>(c: &mut Criterion) {
     group.bench_function(BenchmarkId::new("with_pointer_layout", N), |b| {
         b.iter(|| {
             let dlpack = unsafe {
-                DlpackBuilder::<DLManagedTensor, 0>::with_pointer_layout(
+                Builder::<DLManagedTensor, 0>::with_pointer_layout(
                     context(),
                     std::hint::black_box(shape_mut.as_mut_ptr()),
                     std::hint::black_box(strides_mut.as_mut_ptr()),

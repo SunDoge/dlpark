@@ -33,7 +33,7 @@
 
 use crate::{
     Dlpack, DlpackFlags, DlpackVersioned, ManagedBox, ManagedTensorBase,
-    builder::DlpackBuilder,
+    builder::Builder,
     ffi::{DLDataType, DLDataTypeCode, DLDevice, DLManagedTensor, DLManagedTensorVersioned},
 };
 use candle_core::{
@@ -232,15 +232,11 @@ pub fn candle_tensor_to_dlpack(tensor: Tensor) -> Result<Dlpack, Error> {
         strides,
     } = dlpack_layout_from_candle(&tensor)?;
     Ok(
-        DlpackBuilder::<DLManagedTensor, 0>::with_dynamic_layout(
-            Box::new(tensor),
-            &dims,
-            &strides,
-        )?
-        .data(data_ptr)
-        .dtype(dtype)
-        .device(DLDevice::CPU)
-        .build(),
+        Builder::<DLManagedTensor, 0>::with_dynamic_layout(Box::new(tensor), &dims, &strides)?
+            .data(data_ptr)
+            .dtype(dtype)
+            .device(DLDevice::CPU)
+            .build(),
     )
 }
 
@@ -256,18 +252,16 @@ pub fn candle_tensor_to_versioned_dlpack(tensor: Tensor) -> Result<DlpackVersion
         dims,
         strides,
     } = dlpack_layout_from_candle(&tensor)?;
-    Ok(
-        DlpackBuilder::<DLManagedTensorVersioned, 0>::with_dynamic_layout(
-            Box::new(tensor),
-            &dims,
-            &strides,
-        )?
-        .data(data_ptr)
-        .dtype(dtype)
-        .device(DLDevice::CPU)
-        .flags(DlpackFlags::READ_ONLY)
-        .build(),
-    )
+    Ok(Builder::<DLManagedTensorVersioned, 0>::with_dynamic_layout(
+        Box::new(tensor),
+        &dims,
+        &strides,
+    )?
+    .data(data_ptr)
+    .dtype(dtype)
+    .device(DLDevice::CPU)
+    .flags(DlpackFlags::READ_ONLY)
+    .build())
 }
 
 impl TryFrom<Tensor> for Dlpack {
@@ -483,7 +477,7 @@ mod tests {
     fn dlpack_f4_converts_to_candle_tensor_with_matching_dtype() {
         let data = Box::new(vec![0xABu8, 0xCD, 0xEF]);
         let data_ptr = data.as_ptr() as *mut c_void;
-        let dlpack = DlpackBuilder::<DLManagedTensor, 1>::with_array_layout(data, &[6i64], &[1i64])
+        let dlpack = Builder::<DLManagedTensor, 1>::with_array_layout(data, &[6i64], &[1i64])
             .data(data_ptr)
             .dtype(DLDataType {
                 code: DLDataTypeCode::FLOAT4_E2M1FN,
@@ -504,7 +498,7 @@ mod tests {
         let data_ptr = data.as_ptr() as *mut c_void;
         // [3, 2] compact strides would be [2, 1]; [1, 3] is a (nonsensical
         // but sufficient) non-compact stride to exercise the rejection path.
-        let dlpack = DlpackBuilder::<DLManagedTensor, 2>::with_array_layout(data, &[3, 2], &[1, 3])
+        let dlpack = Builder::<DLManagedTensor, 2>::with_array_layout(data, &[3, 2], &[1, 3])
             .data(data_ptr)
             .dtype(DLDataType {
                 code: DLDataTypeCode::FLOAT4_E2M1FN,
@@ -521,7 +515,7 @@ mod tests {
     fn compact_dlpack_to_candle_tensor_copies_values() {
         let data = Box::new(vec![1i32, 2, 3, 4, 5, 6]);
         let data_ptr = data.as_ptr() as *mut c_void;
-        let dlpack = DlpackBuilder::<DLManagedTensor, 2>::with_array_layout(data, &[2, 3], &[3, 1])
+        let dlpack = Builder::<DLManagedTensor, 2>::with_array_layout(data, &[2, 3], &[3, 1])
             .data(data_ptr)
             .dtype(<i32 as DlpackElement>::DTYPE)
             .build();
@@ -541,7 +535,7 @@ mod tests {
         // strides — not compact for shape [3, 2].
         let data = Box::new(vec![1i32, 2, 3, 4, 5, 6]);
         let data_ptr = data.as_ptr() as *mut c_void;
-        let dlpack = DlpackBuilder::<DLManagedTensor, 2>::with_array_layout(data, &[3, 2], &[1, 3])
+        let dlpack = Builder::<DLManagedTensor, 2>::with_array_layout(data, &[3, 2], &[1, 3])
             .data(data_ptr)
             .dtype(<i32 as DlpackElement>::DTYPE)
             .build();
@@ -559,7 +553,7 @@ mod tests {
     fn dlpack_f8e4m3_converts_to_candle_tensor_with_matching_dtype() {
         let data = Box::new(vec![0u8; 6]);
         let data_ptr = data.as_ptr() as *mut c_void;
-        let dlpack = DlpackBuilder::<DLManagedTensor, 2>::with_array_layout(data, &[2, 3], &[3, 1])
+        let dlpack = Builder::<DLManagedTensor, 2>::with_array_layout(data, &[2, 3], &[3, 1])
             .data(data_ptr)
             .dtype(DLDataType {
                 code: DLDataTypeCode::FLOAT8_E4M3,
@@ -578,7 +572,7 @@ mod tests {
     fn dlpack_with_unmatched_dtype_is_rejected() {
         let data = Box::new(vec![0u8; 3]);
         let data_ptr = data.as_ptr() as *mut c_void;
-        let dlpack = DlpackBuilder::<DLManagedTensor, 1>::with_array_layout(data, &[3i64], &[1i64])
+        let dlpack = Builder::<DLManagedTensor, 1>::with_array_layout(data, &[3i64], &[1i64])
             .data(data_ptr)
             .dtype(crate::ffi::DLDataType {
                 code: DLDataTypeCode(99),

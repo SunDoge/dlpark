@@ -1,9 +1,6 @@
 use crate::{
-    Dlpack, DlpackElement, DlpackVersioned,
-    builder::DlpackBuilder,
-    dlpack::ManagedBox,
-    ffi::{DLDevice, DLManagedTensor, DLManagedTensorVersioned},
-    managed_tensor::ManagedTensorBase,
+    DlpackElement, builder::Builder, dlpack::ManagedBox, ffi::DLDevice, legacy,
+    managed_tensor::ManagedTensorBase, versioned,
 };
 use ndarray::{ArrayBase, ArrayViewD, Dimension, IxDyn, OwnedRepr, ShapeBuilder};
 use snafu::{ResultExt, Snafu, ensure};
@@ -36,27 +33,16 @@ pub enum Error {
     Builder { source: crate::builder::Error },
 }
 
-impl<T, D> TryFrom<ArrayBase<OwnedRepr<T>, D>> for Dlpack
+impl<T, D, M> TryFrom<ArrayBase<OwnedRepr<T>, D>> for ManagedBox<M>
 where
     T: DlpackElement,
     D: Dimension,
+    M: ManagedTensorBase,
 {
     type Error = Error;
 
     fn try_from(array: ArrayBase<OwnedRepr<T>, D>) -> Result<Self, Self::Error> {
         dlpack_from_ndarray(array)
-    }
-}
-
-impl<T, D> TryFrom<ArrayBase<OwnedRepr<T>, D>> for DlpackVersioned
-where
-    T: DlpackElement,
-    D: Dimension,
-{
-    type Error = Error;
-
-    fn try_from(array: ArrayBase<OwnedRepr<T>, D>) -> Result<Self, Self::Error> {
-        dlpack_versioned_from_ndarray(array)
     }
 }
 
@@ -72,37 +58,13 @@ where
     }
 }
 
-pub fn dlpack_from_ndarray<T, D>(array: ArrayBase<OwnedRepr<T>, D>) -> Result<Dlpack, Error>
-where
-    T: DlpackElement,
-    D: Dimension,
-{
-    let (shape, strides) = ndarray_layout(&array)?;
-    let data_ptr = if array.is_empty() {
-        std::ptr::null_mut()
-    } else {
-        array.as_ptr() as *mut c_void
-    };
-
-    Ok(
-        DlpackBuilder::<DLManagedTensor, 0>::with_dynamic_layout(
-            Box::new(array),
-            &shape,
-            &strides,
-        )?
-        .data(data_ptr)
-        .dtype(T::DTYPE)
-        .device(DLDevice::CPU)
-        .build(),
-    )
-}
-
-pub fn dlpack_versioned_from_ndarray<T, D>(
+pub fn dlpack_from_ndarray<T, D, M>(
     array: ArrayBase<OwnedRepr<T>, D>,
-) -> Result<DlpackVersioned, Error>
+) -> Result<ManagedBox<M>, Error>
 where
     T: DlpackElement,
     D: Dimension,
+    M: ManagedTensorBase,
 {
     let (shape, strides) = ndarray_layout(&array)?;
     let data_ptr = if array.is_empty() {
@@ -112,15 +74,11 @@ where
     };
 
     Ok(
-        DlpackBuilder::<DLManagedTensorVersioned, 0>::with_dynamic_layout(
-            Box::new(array),
-            &shape,
-            &strides,
-        )?
-        .data(data_ptr)
-        .dtype(T::DTYPE)
-        .device(DLDevice::CPU)
-        .build(),
+        Builder::<M, 0>::with_dynamic_layout(Box::new(array), &shape, &strides)?
+            .data(data_ptr)
+            .dtype(T::DTYPE)
+            .device(DLDevice::CPU)
+            .build(),
     )
 }
 
@@ -223,12 +181,13 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cudarc::runtime::result::version;
     use ndarray::{Array, arr2};
 
     #[test]
     fn owned_ndarray_to_legacy_dlpack_keeps_layout_and_data() {
         let array = arr2(&[[1i32, 2, 3], [4, 5, 6]]);
-        let dlpack = Dlpack::try_from(array).unwrap();
+        let dlpack = legacy::Dlpack::try_from(array).unwrap();
 
         assert_eq!(dlpack.shape().unwrap(), &[2, 3]);
         assert_eq!(dlpack.strides().unwrap().unwrap(), &[3, 1]);
@@ -241,7 +200,7 @@ mod tests {
     #[test]
     fn owned_ndarray_to_versioned_dlpack_keeps_layout_and_data() {
         let array = Array::from_shape_vec((2, 2), vec![1f32, 2., 3., 4.]).unwrap();
-        let dlpack = DlpackVersioned::try_from(array).unwrap();
+        let dlpack = versioned::Dlpack::try_from(array).unwrap();
 
         assert_eq!(dlpack.shape().unwrap(), &[2, 2]);
         assert_eq!(dlpack.strides().unwrap().unwrap(), &[2, 1]);
@@ -254,7 +213,7 @@ mod tests {
     #[test]
     fn owned_arrayd_to_dlpack_keeps_dynamic_shape() {
         let array = arr2(&[[1i32, 2], [3, 4]]).into_dyn();
-        let dlpack = Dlpack::try_from(array).unwrap();
+        let dlpack = legacy::Dlpack::try_from(array).unwrap();
 
         assert_eq!(dlpack.shape().unwrap(), &[2, 2]);
         assert_eq!(dlpack.strides().unwrap().unwrap(), &[2, 1]);
@@ -267,7 +226,7 @@ mod tests {
     #[test]
     fn borrowed_dlpack_to_ndarray_view_is_zero_copy() {
         let array = arr2(&[[1i32, 2, 3], [4, 5, 6]]);
-        let dlpack = Dlpack::try_from(array).unwrap();
+        let dlpack = legacy::Dlpack::try_from(array).unwrap();
         let view = ArrayViewD::<i32>::try_from(&dlpack).unwrap();
 
         assert_eq!(view.shape(), &[2, 3]);

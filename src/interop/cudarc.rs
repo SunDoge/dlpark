@@ -46,7 +46,7 @@
 
 use crate::{
     Dlpack, DlpackElement, DlpackVersioned,
-    builder::DlpackBuilder,
+    builder::Builder,
     dlpack::ManagedBox,
     ffi::{DLDevice, DLDeviceType, DLManagedTensor, DLManagedTensorVersioned},
     managed_tensor::ManagedTensorBase,
@@ -107,7 +107,7 @@ pub fn from_cuda_slice<T: DlpackElement>(
     let data_ptr = device_ptr_of(&slice);
 
     Ok(
-        DlpackBuilder::<DLManagedTensor, 0>::with_dynamic_layout(Box::new(slice), shape, strides)?
+        Builder::<DLManagedTensor, 0>::with_dynamic_layout(Box::new(slice), shape, strides)?
             .device(DLDevice::cuda(device_id))
             .data(data_ptr)
             .dtype(T::DTYPE)
@@ -124,17 +124,15 @@ pub fn from_cuda_slice_versioned<T: DlpackElement>(
     let device_id = slice.ordinal() as i32;
     let data_ptr = device_ptr_of(&slice);
 
-    Ok(
-        DlpackBuilder::<DLManagedTensorVersioned, 0>::with_dynamic_layout(
-            Box::new(slice),
-            shape,
-            strides,
-        )?
-        .device(DLDevice::cuda(device_id))
-        .data(data_ptr)
-        .dtype(T::DTYPE)
-        .build(),
-    )
+    Ok(Builder::<DLManagedTensorVersioned, 0>::with_dynamic_layout(
+        Box::new(slice),
+        shape,
+        strides,
+    )?
+    .device(DLDevice::cuda(device_id))
+    .data(data_ptr)
+    .dtype(T::DTYPE)
+    .build())
 }
 
 // ---------------------------------------------------------------------------

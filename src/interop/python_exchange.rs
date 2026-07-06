@@ -156,7 +156,7 @@ fn fetch_python_error() -> PyErr {
 mod tests {
     use super::*;
     use crate::{
-        DlpackBuilder,
+        Builder,
         ffi::{DLDataType, DLDevice, DLDeviceType, DLPACK_MINOR_VERSION, DLPackVersion},
     };
     use pyo3::conversion::FromPyObject;
@@ -179,11 +179,10 @@ mod tests {
     ) -> c_int {
         let data = Box::new(vec![7i32, 8, 9]);
         let data_ptr = data.as_ptr() as *mut c_void;
-        let raw =
-            DlpackBuilder::<DLManagedTensorVersioned, 1>::with_array_layout(data, &[3i64], &[1i64])
-                .data(data_ptr)
-                .dtype(DLDataType::of::<i32>())
-                .build_raw();
+        let raw = Builder::<DLManagedTensorVersioned, 1>::with_array_layout(data, &[3i64], &[1i64])
+            .data(data_ptr)
+            .dtype(DLDataType::of::<i32>())
+            .build_raw();
 
         unsafe {
             *out = raw;

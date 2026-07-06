@@ -240,7 +240,7 @@ impl<'py> IntoPyObject<'py> for ManagedBox<DLManagedTensorVersioned> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{DlpackBuilder, ffi::DLDataType};
+    use crate::{Builder, ffi::DLDataType};
     use pyo3::conversion::IntoPyObject;
     use pyo3::types::PyModule;
     use std::ffi::c_void;
@@ -248,7 +248,7 @@ mod tests {
     fn legacy_tensor() -> ManagedBox<DLManagedTensor> {
         let data = Box::new(vec![1i32, 2, 3]);
         let data_ptr = data.as_ptr() as *mut c_void;
-        DlpackBuilder::<DLManagedTensor, 1>::with_array_layout(data, &[3i64], &[1i64])
+        Builder::<DLManagedTensor, 1>::with_array_layout(data, &[3i64], &[1i64])
             .data(data_ptr)
             .dtype(DLDataType::of::<i32>())
             .build()
@@ -257,7 +257,7 @@ mod tests {
     fn versioned_tensor() -> ManagedBox<DLManagedTensorVersioned> {
         let data = Box::new(vec![4i32, 5, 6]);
         let data_ptr = data.as_ptr() as *mut c_void;
-        DlpackBuilder::<DLManagedTensorVersioned, 1>::with_array_layout(data, &[3i64], &[1i64])
+        Builder::<DLManagedTensorVersioned, 1>::with_array_layout(data, &[3i64], &[1i64])
             .data(data_ptr)
             .dtype(DLDataType::of::<i32>())
             .build()

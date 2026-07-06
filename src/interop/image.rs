@@ -1,5 +1,5 @@
 use crate::{
-    Dlpack, DlpackBuilder, DlpackElement, DlpackVersioned, ManagedBox, ManagedTensorBase,
+    Builder, Dlpack, DlpackElement, DlpackVersioned, ManagedBox, ManagedTensorBase,
     ffi::{DLDevice, DLManagedTensor, DLManagedTensorVersioned},
     tensor::{compact_strides_array, is_compact_strides},
 };
@@ -70,7 +70,7 @@ where
         let shape = [height as i64, width as i64, channels as i64];
         let strides = compact_strides_array(shape).expect("image shape must fit compact strides");
 
-        DlpackBuilder::<DLManagedTensor, 3>::with_array_layout(Box::new(img), &shape, &strides)
+        Builder::<DLManagedTensor, 3>::with_array_layout(Box::new(img), &shape, &strides)
             .data(data_ptr)
             .dtype(P::Subpixel::DTYPE)
             .device(DLDevice::CPU)
@@ -91,15 +91,11 @@ where
         let shape = [height as i64, width as i64, channels as i64];
         let strides = compact_strides_array(shape).expect("image shape must fit compact strides");
 
-        DlpackBuilder::<DLManagedTensorVersioned, 3>::with_array_layout(
-            Box::new(img),
-            &shape,
-            &strides,
-        )
-        .data(data_ptr)
-        .dtype(P::Subpixel::DTYPE)
-        .device(DLDevice::CPU)
-        .build()
+        Builder::<DLManagedTensorVersioned, 3>::with_array_layout(Box::new(img), &shape, &strides)
+            .data(data_ptr)
+            .dtype(P::Subpixel::DTYPE)
+            .device(DLDevice::CPU)
+            .build()
     }
 }
 
@@ -303,7 +299,7 @@ mod tests {
         let data_ptr = data.as_ptr() as *mut c_void;
         let shape = [1, 1, 3];
         let strides = [3, 3, 1];
-        let dlpack = DlpackBuilder::<DLManagedTensor, 3>::with_array_layout(data, &shape, &strides)
+        let dlpack = Builder::<DLManagedTensor, 3>::with_array_layout(data, &shape, &strides)
             .data(data_ptr)
             .byte_offset(1)
             .dtype(u8::DTYPE)
@@ -318,7 +314,7 @@ mod tests {
         let data = Box::new(vec![0u8; 3]);
         let shape = [1, 1, 3];
         let strides = [3, 3, 1];
-        let dlpack = DlpackBuilder::<DLManagedTensor, 3>::with_array_layout(data, &shape, &strides)
+        let dlpack = Builder::<DLManagedTensor, 3>::with_array_layout(data, &shape, &strides)
             .dtype(u8::DTYPE)
             .build();
 
@@ -337,7 +333,7 @@ mod tests {
         let data_ptr = data.as_ptr() as *mut c_void;
         let shape = [1, 1, 3];
         let strides = [6, 3, 1];
-        let dlpack = DlpackBuilder::<DLManagedTensor, 3>::with_array_layout(data, &shape, &strides)
+        let dlpack = Builder::<DLManagedTensor, 3>::with_array_layout(data, &shape, &strides)
             .data(data_ptr)
             .dtype(u8::DTYPE)
             .build();

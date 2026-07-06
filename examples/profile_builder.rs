@@ -11,7 +11,7 @@
 //! Run: `cargo run --release --example profile_builder`
 //! Output: `target/flamegraph-<variant>.svg` per variant, viewable in a browser.
 
-use dlpark::DlpackBuilder;
+use dlpark::Builder;
 use dlpark::ffi::DLManagedTensor;
 use dlpark::tensor::compact_strides_array;
 use std::ptr::NonNull;
@@ -74,7 +74,7 @@ fn main() {
     // Order swapped vs the last run, to test whether allocator warm-up
     // ordering (not the approach itself) explains the alloc-time gap.
     profile("dynamic_layout_first", || {
-        let dlpack = DlpackBuilder::<DLManagedTensor, 0>::with_dynamic_layout(
+        let dlpack = Builder::<DLManagedTensor, 0>::with_dynamic_layout(
             context(),
             std::hint::black_box(shape.as_slice()),
             std::hint::black_box(strides.as_slice()),
@@ -85,7 +85,7 @@ fn main() {
     });
 
     profile("array_layout_second", || {
-        let dlpack = DlpackBuilder::<DLManagedTensor, N>::with_array_layout(
+        let dlpack = Builder::<DLManagedTensor, N>::with_array_layout(
             context(),
             std::hint::black_box(&shape),
             std::hint::black_box(&strides),
