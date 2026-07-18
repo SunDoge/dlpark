@@ -3,16 +3,14 @@
 //! Provides zero-copy conversion between [`CudaSlice<T>`] and DLPack managed
 //! tensors in both directions.
 //!
-//! # `from_cuda_slice` direction (`CudaSlice<T>` → `ManagedBox`)
+//! # `CudaSlice<T>` → [`Builder`]
 //!
-//! The slice is heap-boxed and stored as the `manager_ctx`; the underlying
-//! CUDA allocation is freed when the DLPack deleter fires.
-//!
-//! This stays a plain function rather than `TryFrom` because the DLPack shape
-//! and strides are not derivable from a bare `CudaSlice<T>` (it is just a flat
-//! device buffer) — the conversion genuinely needs more than one argument, so
-//! forcing it through `TryFrom`'s single-argument contract would not simplify
-//! anything.
+//! [`CudaBuilder::try_from`] treats the flat device buffer as a contiguous 1-D
+//! tensor with shape `[slice.len()]` and strides `[1]`. Call
+//! [`Builder::metadata`] to replace that default before building a tensor with
+//! a higher-rank layout. The slice is heap-boxed and stored as the
+//! `manager_ctx`; the underlying CUDA allocation is freed when the DLPack
+//! deleter fires.
 //!
 //! # `to_cuda_slice` direction (`ManagedBox` → [`BorrowedCudaSlice`])
 //!
@@ -37,7 +35,8 @@
 //!
 //! # Stream synchronization
 //!
-//! `from_cuda_slice` records a read fence on the slice's stream via
+//! Converting a [`CudaSlice`] into a builder records a read fence on the
+//! slice's stream via
 //! [`DevicePtr::device_ptr`] before capturing the pointer. The consumer must
 //! wait on that stream before reading the data.
 //!
@@ -70,6 +69,18 @@ pub enum Error {
     #[snafu(display("tensor data pointer is null"))]
     NullData,
 
+    #[snafu(display("CUDA slice length {len} does not fit in i64"))]
+    LengthOverflow {
+        len: usize,
+        source: std::num::TryFromIntError,
+    },
+
+    #[snafu(display("CUDA device ordinal {ordinal} does not fit in i32"))]
+    DeviceIdOverflow {
+        ordinal: usize,
+        source: std::num::TryFromIntError,
+    },
+
     #[snafu(display("dtype mismatch: expected {expected:?}, got {actual:?}"))]
     DtypeMismatch {
         expected: crate::ffi::DLDataType,
@@ -90,6 +101,33 @@ pub enum Error {
 // Forward: CudaSlice<T> → ManagedBox
 // ---------------------------------------------------------------------------
 
+/// A [`Builder`] that owns a CUDA slice with a contiguous 1-D default layout.
+pub type CudaBuilder<T> = Builder<Box<CudaSlice<T>>, metadata::CopiedArray<[i64; 1], [i64; 1], 1>>;
+
+impl<T: DlpackElement> TryFrom<CudaSlice<T>> for CudaBuilder<T> {
+    type Error = Error;
+
+    fn try_from(slice: CudaSlice<T>) -> Result<Self, Self::Error> {
+        let len = i64::try_from(slice.len()).map_err(|source| Error::LengthOverflow {
+            len: slice.len(),
+            source,
+        })?;
+        let device_id =
+            i32::try_from(slice.ordinal()).map_err(|source| Error::DeviceIdOverflow {
+                ordinal: slice.ordinal(),
+                source,
+            })?;
+        let data_ptr = device_ptr_of(&slice);
+
+        Ok(
+            Builder::new(Box::new(slice), metadata::CopiedArray::new([len], [1]))
+                .device(DLDevice::cuda(device_id))
+                .data(data_ptr)
+                .dtype(T::DTYPE),
+        )
+    }
+}
+
 /// Wrap a [`CudaSlice<T>`] as a [`Dlpack`].
 ///
 /// - `slice` — owned GPU buffer; ownership is transferred into the DLPack
@@ -99,23 +137,16 @@ pub enum Error {
 ///
 /// # Errors
 ///
-/// - [`Error::MismatchedLength`] if `shape.len() != strides.len()`
-/// - [`Error::NdimOverflow`] if `shape.len()` overflows `i32`
+/// - [`metadata::Error::MismatchedLength`] if `shape.len() != strides.len()`
+/// - [`metadata::Error::NdimOverflow`] if `shape.len()` overflows `i32`
 pub fn from_cuda_slice<T: DlpackElement>(
     slice: CudaSlice<T>,
     shape: &[i64],
     strides: &[i64],
 ) -> Result<legacy::Dlpack, Error> {
-    let device_id = slice.ordinal() as i32;
-    let data_ptr = device_ptr_of(&slice);
-
-    Ok(
-        Builder::new(Box::new(slice), metadata::CopiedSlice::new(shape, strides))
-            .device(DLDevice::cuda(device_id))
-            .data(data_ptr)
-            .dtype(T::DTYPE)
-            .try_build::<DLManagedTensor>()?,
-    )
+    Ok(CudaBuilder::try_from(slice)?
+        .metadata(metadata::CopiedSlice::new(shape, strides))
+        .try_build::<DLManagedTensor>()?)
 }
 
 /// Same as [`from_cuda_slice`] but produces a [`DLManagedTensorVersioned`] (DLPack ≥ 1.0).
@@ -124,16 +155,9 @@ pub fn from_cuda_slice_versioned<T: DlpackElement>(
     shape: &[i64],
     strides: &[i64],
 ) -> Result<versioned::Dlpack, Error> {
-    let device_id = slice.ordinal() as i32;
-    let data_ptr = device_ptr_of(&slice);
-
-    Ok(
-        Builder::new(Box::new(slice), metadata::CopiedSlice::new(shape, strides))
-            .device(DLDevice::cuda(device_id))
-            .data(data_ptr)
-            .dtype(T::DTYPE)
-            .try_build::<DLManagedTensorVersioned>()?,
-    )
+    Ok(CudaBuilder::try_from(slice)?
+        .metadata(metadata::CopiedSlice::new(shape, strides))
+        .try_build::<DLManagedTensorVersioned>()?)
 }
 
 // ---------------------------------------------------------------------------

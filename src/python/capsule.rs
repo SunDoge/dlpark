@@ -1,13 +1,13 @@
 use pyo3::conversion::{FromPyObject, IntoPyObject};
 use pyo3::exceptions::{PyBufferError, PyRuntimeError, PyTypeError, PyValueError};
 use pyo3::types::{PyAnyMethods, PyDict, PyString};
-use pyo3::{Borrowed, Bound, PyAny, PyErr, Python};
+use pyo3::{Borrowed, Bound, PyAny, PyErr};
 use std::ffi::CStr;
 
 use crate::{
     ManagedBox,
     ffi::{DLManagedTensor, DLManagedTensorVersioned},
-    interop::python_exchange::DlpackExchangeApiRef,
+    python::{DlpackStream, device::dlpack_device, exchange::DlpackExchangeApiRef},
 };
 
 const DLTENSOR: &CStr = c"dltensor";
@@ -19,12 +19,6 @@ fn fetch_python_error() -> PyErr {
     // These helpers are only called while PyO3 is extracting or creating Python
     // objects, so the current thread is attached to the Python interpreter.
     unsafe { PyErr::fetch(pyo3::Python::assume_attached()) }
-}
-
-fn attached_python() -> Python<'static> {
-    // These helpers run while PyO3 is converting Python objects, so the current
-    // thread is attached to the Python interpreter.
-    unsafe { pyo3::Python::assume_attached() }
 }
 
 unsafe extern "C" fn dlpack_capsule_deleter(capsule: *mut pyo3::ffi::PyObject) {
@@ -109,19 +103,45 @@ fn is_dlpack_capsule<'py>(ob: Borrowed<'_, 'py, PyAny>, name: &CStr, used_name: 
 fn call_dlpack<'py>(
     ob: Borrowed<'_, 'py, PyAny>,
     max_version: Option<(u32, u32)>,
+    stream: Option<&Bound<'py, PyAny>>,
+    copy: Option<bool>,
 ) -> pyo3::PyResult<Bound<'py, PyAny>> {
-    let Some(max_version) = max_version else {
+    if max_version.is_none() && stream.is_none() && copy.is_none() {
         return ob.call_method0(PyString::intern(ob.py(), "__dlpack__"));
-    };
+    }
 
-    let py = attached_python();
+    let py = ob.py();
     let kwargs = PyDict::new(py);
-    kwargs.set_item(PyString::intern(py, "max_version"), max_version)?;
+    if let Some(max_version) = max_version {
+        kwargs.set_item(PyString::intern(py, "max_version"), max_version)?;
+    }
+    if let Some(stream) = &stream {
+        kwargs.set_item(PyString::intern(py, "stream"), stream)?;
+    }
+    if let Some(copy) = copy {
+        kwargs.set_item(PyString::intern(py, "copy"), copy)?;
+    }
     let method = PyString::intern(py, "__dlpack__");
     match ob.call_method(&method, (), Some(&kwargs)) {
         Ok(capsule) => Ok(capsule),
-        Err(err) if err.is_instance_of::<PyTypeError>(py) && err.traceback(py).is_none() => {
-            ob.call_method0(method)
+        Err(err)
+            if max_version.is_some()
+                && err.is_instance_of::<PyTypeError>(py)
+                && err.traceback(py).is_none() =>
+        {
+            match stream {
+                None if copy.is_none() => ob.call_method0(method),
+                stream => {
+                    let kwargs = PyDict::new(py);
+                    if let Some(stream) = stream {
+                        kwargs.set_item(PyString::intern(py, "stream"), stream)?;
+                    }
+                    if let Some(copy) = copy {
+                        kwargs.set_item(PyString::intern(py, "copy"), copy)?;
+                    }
+                    ob.call_method(&method, (), Some(&kwargs))
+                }
+            }
         }
         Err(err) => Err(err),
     }
@@ -152,7 +172,7 @@ impl<'py> FromPyObject<'_, 'py> for ManagedBox<DLManagedTensor> {
         let capsule = if is_dlpack_capsule(ob, DLTENSOR, USED_DLTENSOR) {
             ob.as_ptr()
         } else {
-            owned_capsule = call_dlpack(ob, None)?;
+            owned_capsule = call_dlpack(ob, None, None, None)?;
             owned_capsule.as_ptr()
         };
         let ptr = capsule_to_raw_dlpack(capsule, DLTENSOR, USED_DLTENSOR)?;
@@ -203,6 +223,8 @@ impl<'py> FromPyObject<'_, 'py> for ManagedBox<DLManagedTensorVersioned> {
                     crate::ffi::DLPACK_MAJOR_VERSION,
                     crate::ffi::DLPACK_MINOR_VERSION,
                 )),
+                None,
+                None,
             )?;
             owned_capsule.as_ptr()
         };
@@ -213,6 +235,69 @@ impl<'py> FromPyObject<'_, 'py> for ManagedBox<DLManagedTensorVersioned> {
             ));
         }
         unsafe { Ok(Self::new_unchecked(ptr as *mut _)) }
+    }
+}
+
+impl ManagedBox<DLManagedTensorVersioned> {
+    /// Extracts a versioned DLPack tensor with optional stream and copy
+    /// requests.
+    pub fn extract_with_options(
+        ob: Borrowed<'_, '_, PyAny>,
+        stream: Option<&dyn DlpackStream>,
+        copy: Option<bool>,
+    ) -> pyo3::PyResult<Self> {
+        if is_dlpack_capsule(ob, DLTENSOR_VERSIONED, USED_DLTENSOR_VERSIONED) {
+            return Err(PyValueError::new_err(
+                "an existing DLPack capsule cannot negotiate stream or copy options",
+            ));
+        }
+
+        let stream = match stream {
+            Some(stream) => {
+                let device = dlpack_device(ob)?;
+                stream
+                    .as_python_arg(ob.py(), device)?
+                    .into_python(ob.py())?
+            }
+            None => None,
+        };
+        let capsule = call_dlpack(
+            ob,
+            Some((
+                crate::ffi::DLPACK_MAJOR_VERSION,
+                crate::ffi::DLPACK_MINOR_VERSION,
+            )),
+            stream.as_ref(),
+            copy,
+        )?;
+        let ptr = capsule_to_raw_dlpack(
+            capsule.as_ptr(),
+            DLTENSOR_VERSIONED,
+            USED_DLTENSOR_VERSIONED,
+        )?;
+        if ptr.is_null() {
+            return Err(PyRuntimeError::new_err(
+                "DLPack capsule pointer is unexpectedly null",
+            ));
+        }
+        unsafe { Ok(Self::new_unchecked(ptr.cast())) }
+    }
+
+    /// Extracts a versioned DLPack tensor using an explicit consumer stream.
+    ///
+    /// This follows the Python DLPack consumer protocol: it queries
+    /// `__dlpack_device__()`, maps `stream` for that device, and passes the
+    /// result to `__dlpack__(stream=..., max_version=..., copy=...)`.
+    /// `copy` maps directly to Python's tri-state copy request.
+    pub fn extract_with_stream<'py, S>(
+        ob: Borrowed<'_, 'py, PyAny>,
+        stream: &S,
+        copy: Option<bool>,
+    ) -> pyo3::PyResult<Self>
+    where
+        S: DlpackStream,
+    {
+        Self::extract_with_options(ob, Some(stream), copy)
     }
 }
 
@@ -243,10 +328,30 @@ impl<'py> IntoPyObject<'py> for ManagedBox<DLManagedTensorVersioned> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Builder, ffi::DLDataType, metadata};
+    use crate::{
+        Builder,
+        ffi::{DLDataType, DLDevice, DLDeviceType},
+        metadata,
+    };
     use pyo3::conversion::IntoPyObject;
     use pyo3::types::PyModule;
     use std::ffi::c_void;
+
+    struct TestStream;
+
+    unsafe impl DlpackStream for TestStream {
+        fn as_python_arg(
+            &self,
+            _py: pyo3::Python<'_>,
+            device: DLDevice,
+        ) -> pyo3::PyResult<crate::python::StreamArg> {
+            assert_eq!(device.device_type, DLDeviceType::CUDA);
+            assert_eq!(device.device_id, 3);
+            Ok(crate::python::stream::cuda(
+                std::ptr::without_provenance_mut(42),
+            ))
+        }
+    }
 
     fn legacy_tensor() -> ManagedBox<DLManagedTensor> {
         let data = Box::new(vec![1i32, 2, 3]);
@@ -313,7 +418,13 @@ mod tests {
             let capsule = legacy_tensor().into_pyobject(py)?;
             let module = PyModule::from_code(
                 py,
-                c"class Producer:\n    def __init__(self, capsule):\n        self.capsule = capsule\n    def __dlpack__(self):\n        return self.capsule\n",
+                cr#"class Producer:
+    def __init__(self, capsule):
+        self.capsule = capsule
+
+    def __dlpack__(self):
+        return self.capsule
+"#,
                 c"producer.py",
                 c"producer",
             )?;
@@ -334,7 +445,15 @@ mod tests {
             let capsule = versioned_tensor().into_pyobject(py)?;
             let module = PyModule::from_code(
                 py,
-                c"class Producer:\n    def __init__(self, capsule):\n        self.capsule = capsule\n        self.seen_max_version = None\n    def __dlpack__(self, *, max_version=None):\n        self.seen_max_version = max_version\n        return self.capsule\n",
+                cr#"class Producer:
+    def __init__(self, capsule):
+        self.capsule = capsule
+        self.seen_max_version = None
+
+    def __dlpack__(self, *, max_version=None):
+        self.seen_max_version = max_version
+        return self.capsule
+"#,
                 c"versioned_producer.py",
                 c"versioned_producer",
             )?;
@@ -343,12 +462,97 @@ mod tests {
             let dlpack = ManagedBox::<DLManagedTensorVersioned>::extract(producer.as_borrowed())?;
             assert_eq!(dlpack.cpu_data_slice::<i32>().unwrap(), &[4, 5, 6]);
             assert_eq!(
-                producer.getattr("seen_max_version")?.extract::<(u32, u32)>()?,
+                producer
+                    .getattr("seen_max_version")?
+                    .extract::<(u32, u32)>()?,
                 (
                     crate::ffi::DLPACK_MAJOR_VERSION,
                     crate::ffi::DLPACK_MINOR_VERSION
                 )
             );
+
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn versioned_extract_with_stream_maps_device_and_passes_stream() {
+        pyo3::Python::initialize();
+        pyo3::Python::attach(|py| -> pyo3::PyResult<()> {
+            let capsule = versioned_tensor().into_pyobject(py)?;
+            let module = PyModule::from_code(
+                py,
+                cr#"class Producer:
+    def __init__(self, capsule):
+        self.capsule = capsule
+        self.seen_stream = None
+        self.seen_max_version = None
+        self.seen_copy = None
+
+    def __dlpack_device__(self):
+        return (2, 3)
+
+    def __dlpack__(self, *, stream=None, max_version=None, copy=None):
+        self.seen_stream = stream
+        self.seen_max_version = max_version
+        self.seen_copy = copy
+        return self.capsule
+"#,
+                c"stream_producer.py",
+                c"stream_producer",
+            )?;
+            let producer = module.getattr("Producer")?.call1((capsule,))?;
+
+            let _dlpack = ManagedBox::<DLManagedTensorVersioned>::extract_with_stream(
+                producer.as_borrowed(),
+                &TestStream,
+                Some(false),
+            )?;
+            assert_eq!(producer.getattr("seen_stream")?.extract::<usize>()?, 42);
+            assert!(!producer.getattr("seen_copy")?.extract::<bool>()?);
+            assert_eq!(
+                producer
+                    .getattr("seen_max_version")?
+                    .extract::<(u32, u32)>()?,
+                (
+                    crate::ffi::DLPACK_MAJOR_VERSION,
+                    crate::ffi::DLPACK_MINOR_VERSION
+                )
+            );
+
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn versioned_extract_with_options_passes_copy_without_stream() {
+        pyo3::Python::initialize();
+        pyo3::Python::attach(|py| -> pyo3::PyResult<()> {
+            let capsule = versioned_tensor().into_pyobject(py)?;
+            let module = PyModule::from_code(
+                py,
+                cr#"class Producer:
+    def __init__(self, capsule):
+        self.capsule = capsule
+        self.seen_copy = None
+
+    def __dlpack__(self, *, max_version=None, copy=None):
+        self.seen_copy = copy
+        return self.capsule
+"#,
+                c"copy_producer.py",
+                c"copy_producer",
+            )?;
+            let producer = module.getattr("Producer")?.call1((capsule,))?;
+
+            let _dlpack = ManagedBox::<DLManagedTensorVersioned>::extract_with_options(
+                producer.as_borrowed(),
+                None,
+                Some(true),
+            )?;
+            assert!(producer.getattr("seen_copy")?.extract::<bool>()?);
 
             Ok(())
         })
@@ -362,7 +566,15 @@ mod tests {
             let capsule = versioned_tensor().into_pyobject(py)?;
             let module = PyModule::from_code(
                 py,
-                c"class Producer:\n    def __init__(self, capsule):\n        self.capsule = capsule\n        self.calls = 0\n    def __dlpack__(self):\n        self.calls += 1\n        return self.capsule\n",
+                cr#"class Producer:
+    def __init__(self, capsule):
+        self.capsule = capsule
+        self.calls = 0
+
+    def __dlpack__(self):
+        self.calls += 1
+        return self.capsule
+"#,
                 c"old_versioned_producer.py",
                 c"old_versioned_producer",
             )?;
@@ -383,7 +595,14 @@ mod tests {
         pyo3::Python::attach(|py| -> pyo3::PyResult<()> {
             let module = PyModule::from_code(
                 py,
-                c"class Producer:\n    def __init__(self):\n        self.calls = 0\n    def __dlpack__(self, *, max_version=None):\n        self.calls += 1\n        raise TypeError('producer failed')\n",
+                cr#"class Producer:
+    def __init__(self):
+        self.calls = 0
+
+    def __dlpack__(self, *, max_version=None):
+        self.calls += 1
+        raise TypeError("producer failed")
+"#,
                 c"broken_versioned_producer.py",
                 c"broken_versioned_producer",
             )?;

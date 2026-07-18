@@ -289,7 +289,9 @@ mod tests {
         pyo3::Python::attach(|py| -> pyo3::PyResult<()> {
             let module = PyModule::from_code(
                 py,
-                c"class MockTensor:\n    pass\n",
+                cr#"class MockTensor:
+    pass
+"#,
                 c"mock_tensor.py",
                 c"mock_tensor",
             )?;
@@ -326,7 +328,14 @@ mod tests {
         pyo3::Python::attach(|py| -> pyo3::PyResult<()> {
             let module = PyModule::from_code(
                 py,
-                c"class BrokenDescriptor:\n    def __get__(self, instance, owner):\n        raise RuntimeError('boom')\n\nclass MockTensor:\n    __dlpack_c_exchange_api__ = BrokenDescriptor()\n",
+                cr#"class BrokenDescriptor:
+    def __get__(self, instance, owner):
+        raise RuntimeError("boom")
+
+
+class MockTensor:
+    __dlpack_c_exchange_api__ = BrokenDescriptor()
+"#,
                 c"broken_exchange.py",
                 c"broken_exchange",
             )?;

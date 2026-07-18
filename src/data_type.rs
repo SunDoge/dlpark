@@ -77,12 +77,38 @@ impl DLDataType {
     }
 }
 
+impl DLDataTypeCode {
+    /// Returns whether this data type code is defined by the bundled DLPack
+    /// headers.
+    pub const fn is_known(self) -> bool {
+        const INT: u8 = DLDataTypeCode::INT.0;
+        const FLOAT4_E2M1FN: u8 = DLDataTypeCode::FLOAT4_E2M1FN.0;
+
+        matches!(self.0, INT..=FLOAT4_E2M1FN)
+    }
+}
+
 impl Default for DLDataType {
     fn default() -> Self {
         Self {
             code: DLDataTypeCode(0),
             bits: 0,
             lanes: 0,
+        }
+    }
+}
+
+#[cfg(test)]
+mod knownness_tests {
+    use super::*;
+
+    #[test]
+    fn data_type_code_knownness_tracks_bundled_header() {
+        for value in 0..=17 {
+            assert!(DLDataTypeCode(value).is_known());
+        }
+        for value in [18, 99, u8::MAX] {
+            assert!(!DLDataTypeCode(value).is_known());
         }
     }
 }
