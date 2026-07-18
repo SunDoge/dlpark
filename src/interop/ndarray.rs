@@ -1,6 +1,6 @@
 use crate::{
     DlpackElement, builder::Builder, dlpack::ManagedBox, ffi::DLDevice,
-    managed_tensor::ManagedTensorBase,
+    managed_tensor::ManagedTensorBase, metadata,
 };
 use ndarray::{ArrayBase, ArrayViewD, Dimension, IxDyn, OwnedRepr, ShapeBuilder};
 use snafu::{ResultExt, Snafu, ensure};
@@ -74,11 +74,11 @@ where
     };
 
     Ok(
-        Builder::<M, 0>::with_dynamic_layout(Box::new(array), &shape, &strides)?
+        Builder::new(Box::new(array), metadata::CopiedSlice::new(shape, strides))
             .data(data_ptr)
             .dtype(T::DTYPE)
             .device(DLDevice::CPU)
-            .build(),
+            .try_build::<M>()?,
     )
 }
 
@@ -89,7 +89,7 @@ where
     T: DlpackElement,
     M: ManagedTensorBase,
 {
-    let tensor = dlpack.dl_tensor();
+    let tensor = dlpack.tensor();
     let shape = tensor
         .shape()?
         .iter()
@@ -180,10 +180,7 @@ mod tests {
 
         assert_eq!(dlpack.shape().unwrap(), &[2, 3]);
         assert_eq!(dlpack.strides().unwrap().unwrap(), &[3, 1]);
-        assert_eq!(
-            dlpack.dl_tensor().cpu_data_slice::<i32>().unwrap(),
-            &[1, 2, 3, 4, 5, 6]
-        );
+        assert_eq!(dlpack.cpu_data_slice::<i32>().unwrap(), &[1, 2, 3, 4, 5, 6]);
     }
 
     #[test]
@@ -193,10 +190,7 @@ mod tests {
 
         assert_eq!(dlpack.shape().unwrap(), &[2, 2]);
         assert_eq!(dlpack.strides().unwrap().unwrap(), &[2, 1]);
-        assert_eq!(
-            dlpack.dl_tensor().cpu_data_slice::<f32>().unwrap(),
-            &[1., 2., 3., 4.]
-        );
+        assert_eq!(dlpack.cpu_data_slice::<f32>().unwrap(), &[1., 2., 3., 4.]);
     }
 
     #[test]
@@ -206,10 +200,7 @@ mod tests {
 
         assert_eq!(dlpack.shape().unwrap(), &[2, 2]);
         assert_eq!(dlpack.strides().unwrap().unwrap(), &[2, 1]);
-        assert_eq!(
-            dlpack.dl_tensor().cpu_data_slice::<i32>().unwrap(),
-            &[1, 2, 3, 4]
-        );
+        assert_eq!(dlpack.cpu_data_slice::<i32>().unwrap(), &[1, 2, 3, 4]);
     }
 
     #[test]

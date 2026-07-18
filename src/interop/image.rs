@@ -1,7 +1,7 @@
 use crate::{
     Builder, DlpackElement, ManagedBox, ManagedTensorBase,
     ffi::{DLDevice, DLManagedTensor, DLManagedTensorVersioned},
-    legacy,
+    legacy, metadata,
     tensor::{compact_strides_array, is_compact_strides},
     versioned,
 };
@@ -72,11 +72,11 @@ where
         let shape = [height as i64, width as i64, channels as i64];
         let strides = compact_strides_array(shape).expect("image shape must fit compact strides");
 
-        Builder::<DLManagedTensor, 3>::with_array_layout(Box::new(img), &shape, &strides)
+        Builder::new(Box::new(img), metadata::CopiedArray::new(&shape, &strides))
             .data(data_ptr)
             .dtype(P::Subpixel::DTYPE)
             .device(DLDevice::CPU)
-            .build()
+            .build::<DLManagedTensor>()
     }
 }
 
@@ -93,11 +93,11 @@ where
         let shape = [height as i64, width as i64, channels as i64];
         let strides = compact_strides_array(shape).expect("image shape must fit compact strides");
 
-        Builder::<DLManagedTensorVersioned, 3>::with_array_layout(Box::new(img), &shape, &strides)
+        Builder::new(Box::new(img), metadata::CopiedArray::new(&shape, &strides))
             .data(data_ptr)
             .dtype(P::Subpixel::DTYPE)
             .device(DLDevice::CPU)
-            .build()
+            .build::<DLManagedTensorVersioned>()
     }
 }
 
@@ -117,7 +117,7 @@ where
     type Error = Error;
 
     fn try_from(dlpack: &'a ManagedBox<M>) -> Result<Self, Self::Error> {
-        let tensor = dlpack.dl_tensor();
+        let tensor = dlpack.tensor();
         let layout = validated_hwc::<P>(tensor)?;
 
         let data_slice = unsafe {
@@ -163,7 +163,7 @@ where
 
     fn try_from(dlpack: ManagedBox<M>) -> Result<Self, Self::Error> {
         let layout = {
-            let tensor = dlpack.dl_tensor();
+            let tensor = dlpack.tensor();
             validated_hwc::<P>(tensor)?
         };
 
@@ -301,11 +301,11 @@ mod tests {
         let data_ptr = data.as_ptr() as *mut c_void;
         let shape = [1, 1, 3];
         let strides = [3, 3, 1];
-        let dlpack = Builder::<DLManagedTensor, 3>::with_array_layout(data, &shape, &strides)
+        let dlpack = Builder::new(data, metadata::CopiedArray::new(&shape, &strides))
             .data(data_ptr)
             .byte_offset(1)
             .dtype(u8::DTYPE)
-            .build();
+            .build::<DLManagedTensor>();
 
         let img = ImageBuffer::<Rgb<u8>, _>::try_from(&dlpack).unwrap();
         assert_eq!(img.as_raw(), &[10, 20, 30]);
@@ -316,9 +316,9 @@ mod tests {
         let data = Box::new(vec![0u8; 3]);
         let shape = [1, 1, 3];
         let strides = [3, 3, 1];
-        let dlpack = Builder::<DLManagedTensor, 3>::with_array_layout(data, &shape, &strides)
+        let dlpack = Builder::new(data, metadata::CopiedArray::new(&shape, &strides))
             .dtype(u8::DTYPE)
-            .build();
+            .build::<DLManagedTensor>();
 
         let err = ImageBuffer::<Rgb<u8>, _>::try_from(&dlpack).unwrap_err();
         assert!(matches!(
@@ -335,10 +335,10 @@ mod tests {
         let data_ptr = data.as_ptr() as *mut c_void;
         let shape = [1, 1, 3];
         let strides = [6, 3, 1];
-        let dlpack = Builder::<DLManagedTensor, 3>::with_array_layout(data, &shape, &strides)
+        let dlpack = Builder::new(data, metadata::CopiedArray::new(&shape, &strides))
             .data(data_ptr)
             .dtype(u8::DTYPE)
-            .build();
+            .build::<DLManagedTensor>();
 
         let err = ImageBuffer::<Rgb<u8>, _>::try_from(&dlpack).unwrap_err();
         assert!(matches!(err, Error::UnsupportedStrides { .. }));

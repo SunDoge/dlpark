@@ -46,27 +46,16 @@ Other key features:
 - Python interoperability through PyO3
 - Optional DLPack 1.3 C Exchange API fast path when a producer type exposes `__dlpack_c_exchange_api__`
 
-### Choosing a `DlpackBuilder` Constructor
+### Choosing Builder Metadata
 
-`DlpackBuilder<M, N>` has four ways to supply `shape`/`strides`. The right one to reach for depends on **whether the tensor's rank is known at compile time**, not on raw speed — for typical tensors (rank ≤ 16), all four are within a few nanoseconds of each other:
+`Builder<C, L>` uses the metadata type `L` to select its allocation strategy:
 
-- **`with_array_layout`** — `shape`/`strides` as fixed-size arrays `&[T; N]`, `N` known at compile time. Use this whenever the producer has a fixed rank (e.g. the `image` HWC layout is always rank 3). A shape/strides length mismatch is a compile error here, not a runtime failure — there's no `Result` to handle for that case, because it can't happen.
-- **`with_slice_layout`** — the same fixed-rank `N` as `with_array_layout`, but takes `&[T]` for when you don't already have a `[T; N]` array in hand (e.g. built at runtime into a `Vec`). Since a slice's length isn't checked at compile time, it returns `Result`, failing with `Error::SliceLengthMismatch` if `shape`/`strides` don't both have length `N`.
-- **`with_dynamic_layout`** — for when the rank genuinely isn't known until runtime (wrapping a tensor from a library with dynamic rank — this is what the `ndarray` and `candle` interop use internally). Returns `Result`, since a shape/strides length mismatch and rank overflow are both real possibilities here.
-- **`with_pointer_layout`** (`unsafe`) — pass raw `*mut i64` pointers to `shape`/`strides` you already own and guarantee will outlive the built tensor. The only variant that never copies `shape`/`strides` at all.
+- **`CopiedArray<S, T, N>`** — fixed rank known at compile time. Shape and strides are copied into the managed tensor allocation. `build` and `build_raw` are infallible.
+- **`CopiedSlice<S, T>`** — dynamic rank. The containers may be borrowed slices or owned values such as `Vec<i64>`. Use `try_build` or `try_build_raw`.
+- **`BorrowedArray<N>`** — fixed-rank, zero-copy metadata. Its `build` methods are unsafe because the arrays must outlive the managed tensor.
+- **`BorrowedSlice`** — dynamic-rank, zero-copy metadata. Its `try_build` methods are unsafe for the same lifetime reason.
 
-The const-generic variants (`with_array_layout`/`with_slice_layout`) exist for **correctness, not performance**: they turn a shape/strides length mismatch from a runtime failure mode into a compile error, and let the fixed-rank case skip `Result` handling entirely. Benchmarks below (`cargo bench --bench builder`, ns, lower is better; reproduce with the same command — numbers will vary by machine) show why performance isn't the deciding factor: `with_pointer_layout` is the only one that stays flat, because it's the only one that skips copying `shape`/`strides`. The other three all pay for that copy and converge to similar cost at high rank, regardless of whether `N` was known at compile time:
-
-| ndim | `with_array_layout` | `with_slice_layout` | `with_dynamic_layout` | `with_pointer_layout` |
-| ---: | ------------------: | ------------------: | --------------------: | --------------------: |
-|    1 |                 7.7 |                 8.6 |                  11.6 |               **7.3** |
-|    4 |               8.6\* |                 8.6 |                  10.5 |               **7.4** |
-|   16 |                 9.5 |                11.2 |                  11.9 |               **7.4** |
-|   64 |                41.0 |                45.0 |                  43.6 |               **7.6** |
-
-\* run-to-run noise is normal at this scale (single-digit nanoseconds); treat differences smaller than ~2ns between `with_array_layout`/`with_slice_layout`/`with_dynamic_layout` as noise, not a real ranking.
-
-If you don't already own `shape`/`strides` memory that will outlive the tensor, `with_pointer_layout` isn't an option — pick `with_array_layout`/`with_slice_layout` if the rank is fixed at compile time, otherwise `with_dynamic_layout`.
+Copied metadata and the managed tensor share one allocation. Borrowed metadata only allocates the managed tensor header.
 
 ### Python Exchange Paths
 
@@ -152,24 +141,30 @@ Zero-copy from `candle::Tensor` to DLPack; the reverse direction (DLPack to `can
 
 ```rust
 use candle_core::Tensor;
-use dlpark::legacy;
+use dlpark::{Builder, DlpackFlags, ffi::DLManagedTensorVersioned, legacy};
 
 let tensor = Tensor::new(&[1f32, 2., 3., 4.], &candle_core::Device::Cpu)?;
 let dlpack = legacy::Dlpack::try_from(tensor)?;
 
 let tensor2 = Tensor::try_from(&dlpack)?;
 assert_eq!(tensor2.to_vec1::<f32>()?, vec![1., 2., 3., 4.]);
+
+let tensor = Tensor::new(&[1f32, 2., 3., 4.], &candle_core::Device::Cpu)?;
+let builder = Builder::try_from(tensor)?;
+let dlpack = builder
+    .flags(DlpackFlags::READ_ONLY)
+    .try_build::<DLManagedTensorVersioned>()?;
 ```
 
 ### cudarc
 
-Zero-copy in both directions between a [cudarc] `CudaSlice<T>` and a DLPack tensor. `from_cuda_slice`/`from_cuda_slice_versioned` take `shape`/`strides` explicitly (not derivable from a flat device buffer alone); the reverse direction is `TryFrom<&ManagedBox<M>> for BorrowedCudaSlice<T>`.
+Zero-copy in both directions between a [cudarc] `CudaSlice<T>` and a DLPack tensor. `from_cuda_slice`/`from_cuda_slice_versioned` take `shape`/`strides` explicitly (not derivable from a flat device buffer alone); the reverse direction consumes the managed tensor through `TryFrom<ManagedBox<M>> for BorrowedCudaSlice<M, T>`, keeping it alive for as long as the CUDA view exists.
 
 ```rust
 use dlpark::interop::cudarc::{from_cuda_slice, BorrowedCudaSlice};
 
 let dlpack = from_cuda_slice(cuda_slice, &[2, 3], &[3, 1])?;
-let borrowed: BorrowedCudaSlice<f32> = (&dlpack).try_into()?;
+let borrowed = BorrowedCudaSlice::<_, f32>::try_from(dlpack)?;
 ```
 
 [pyo3]: https://github.com/PyO3/pyo3

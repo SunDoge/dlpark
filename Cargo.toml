@@ -59,6 +59,14 @@ ndarray = ["dep:ndarray"]
 
 candle = ["dep:candle-core"]
 
+# CPU-only interop surface for regular tests. This intentionally excludes
+# `cudarc` (CUDA runtime).
+cpu-all = ["pyo3", "half", "image", "ndarray", "candle"]
+
+# Feature set suitable for Miri. This intentionally excludes `pyo3`, whose
+# tests call the Python C API.
+miri = ["half", "image", "ndarray", "candle"]
+
 cudarc = [
   "cudarc/cuda-version-from-build-system",
   "cudarc/fallback-latest",
@@ -74,7 +82,7 @@ opt-level = 2
 # For profiling with pprof/flamegraph: release-level optimizations, but with
 # debug info kept so the symbolizer can resolve inlined-frame boundaries
 # (plain `--release` strips this, which is why inlined functions like
-# `with_array_layout` collapse into their caller in a flamegraph).
+# fixed-rank builder calls collapse into their caller in a flamegraph).
 [profile.profiling]
 inherits = "release"
 debug = true

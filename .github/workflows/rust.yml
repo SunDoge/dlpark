@@ -19,7 +19,7 @@ jobs:
       - name: Build
         run: cargo build --verbose --all-features
       - name: Run tests
-        run: cargo test --verbose --features "pyo3 half ndarray image candle"
+        run: cargo test --verbose --features cpu-all
 
   miri:
     name: cargo miri test
@@ -32,3 +32,5 @@ jobs:
           components: miri
       - name: Run Miri tests
         run: cargo miri test
+      - name: Run Miri tests with CPU features
+        run: cargo miri test --features miri

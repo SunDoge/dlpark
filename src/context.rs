@@ -7,9 +7,14 @@ pub trait OpaqueContext {
 
     /// Drops the raw context pointer and deallocates the underlying resources.
     ///
+    /// The context must carry any allocation metadata needed to destroy itself.
+    /// DLPack tensor fields are public mutable ABI state and are intentionally
+    /// not provided to this method.
+    ///
     /// # Safety
     ///
-    /// The caller must ensure that `raw` was obtained from `into_raw` and has not been dropped yet.
+    /// The caller must ensure that `raw` was obtained from `into_raw` and has
+    /// not been dropped yet. Implementations must not unwind.
     unsafe fn drop_raw(raw: *mut c_void);
 }
 

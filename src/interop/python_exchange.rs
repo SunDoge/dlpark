@@ -1,5 +1,5 @@
 use pyo3::exceptions::{PyAttributeError, PyBufferError, PyRuntimeError};
-use pyo3::{Borrowed, PyAny, PyErr, PyTypeInfo};
+use pyo3::{Borrowed, Bound, PyAny, PyErr, PyTypeInfo, Python};
 use std::ffi::CStr;
 use std::ptr::NonNull;
 
@@ -12,7 +12,6 @@ use crate::{
 };
 
 const DLPACK_EXCHANGE_API: &CStr = c"dlpack_exchange_api";
-const DLPACK_C_EXCHANGE_API_ATTR: &CStr = c"__dlpack_c_exchange_api__";
 
 /// Borrowed reference to a producer's `DLPackExchangeAPI` function table.
 ///
@@ -26,8 +25,8 @@ impl DlpackExchangeApiRef {
     pub fn from_object(obj: Borrowed<'_, '_, PyAny>) -> pyo3::PyResult<Option<Self>> {
         let capsule = unsafe {
             let ty = pyo3::ffi::Py_TYPE(obj.as_ptr()) as *mut pyo3::ffi::PyObject;
-            let capsule =
-                pyo3::ffi::PyObject_GetAttrString(ty, DLPACK_C_EXCHANGE_API_ATTR.as_ptr());
+            let attr = pyo3::intern!(obj.py(), "__dlpack_c_exchange_api__");
+            let capsule = pyo3::ffi::PyObject_GetAttr(ty, attr.as_ptr());
             if capsule.is_null() {
                 let attr_error =
                     PyAttributeError::type_object_raw(pyo3::Python::assume_attached()).cast();
@@ -86,6 +85,35 @@ impl DlpackExchangeApiRef {
         }
 
         Ok(unsafe { ManagedBox::new_unchecked(out) })
+    }
+
+    /// Transfers an owning managed tensor directly into a Python tensor
+    /// without creating an intermediate DLPack capsule.
+    pub fn managed_tensor_to_py_object_no_sync<'py>(
+        &self,
+        tensor: ManagedBox<DLManagedTensorVersioned>,
+        py: Python<'py>,
+    ) -> pyo3::PyResult<Bound<'py, PyAny>> {
+        let api = unsafe { self.api.as_ref() };
+        let Some(to_py_object) = api.managed_tensor_to_py_object_no_sync else {
+            return Err(PyRuntimeError::new_err(
+                "DLPackExchangeAPI managed_tensor_to_py_object_no_sync is null",
+            ));
+        };
+
+        let raw = tensor.into_raw();
+        let mut out = std::ptr::null_mut();
+        let rc = unsafe { to_py_object(raw, &mut out) };
+        if rc != 0 {
+            return Err(fetch_python_error());
+        }
+        if out.is_null() {
+            return Err(PyRuntimeError::new_err(
+                "DLPackExchangeAPI returned a null Python object",
+            ));
+        }
+
+        unsafe { Bound::from_owned_ptr_or_err(py, out.cast()) }
     }
 
     /// Returns the producer's current work stream for `device`.
@@ -156,7 +184,7 @@ fn fetch_python_error() -> PyErr {
 mod tests {
     use super::*;
     use crate::{
-        Builder,
+        Builder, ManagedTensorBase,
         ffi::{DLDataType, DLDevice, DLDeviceType, DLPACK_MINOR_VERSION, DLPackVersion},
     };
     use pyo3::conversion::FromPyObject;
@@ -179,10 +207,10 @@ mod tests {
     ) -> c_int {
         let data = Box::new(vec![7i32, 8, 9]);
         let data_ptr = data.as_ptr() as *mut c_void;
-        let raw = Builder::<DLManagedTensorVersioned, 1>::with_array_layout(data, &[3i64], &[1i64])
+        let raw = Builder::new(data, crate::metadata::CopiedArray::new([3i64], [1i64]))
             .data(data_ptr)
             .dtype(DLDataType::of::<i32>())
-            .build_raw();
+            .build_raw::<DLManagedTensorVersioned>();
 
         unsafe {
             *out = raw;
@@ -228,10 +256,14 @@ mod tests {
     }
 
     unsafe extern "C" fn mock_tensor_to_py_object(
-        _tensor: *mut DLManagedTensorVersioned,
-        _out_py_object: *mut *mut c_void,
+        tensor: *mut DLManagedTensorVersioned,
+        out_py_object: *mut *mut c_void,
     ) -> c_int {
-        -1
+        unsafe {
+            DLManagedTensorVersioned::drop_raw(tensor);
+            *out_py_object = pyo3::ffi::PyLong_FromLong(42).cast();
+        }
+        0
     }
 
     fn leak_mock_api() -> *mut DLPackExchangeAPI {
@@ -278,7 +310,7 @@ mod tests {
             })?;
 
             let dlpack = ManagedBox::<DLManagedTensorVersioned>::extract(obj.as_borrowed())?;
-            let tensor = dlpack.dl_tensor();
+            let tensor = dlpack.tensor();
             assert_eq!(tensor.ndim, 1);
             assert_eq!(tensor.shape().unwrap(), &[3]);
             assert_eq!(tensor.cpu_data_slice::<i32>().unwrap(), &[7, 8, 9]);
@@ -306,6 +338,27 @@ mod tests {
             };
             assert!(err.is_instance_of::<PyRuntimeError>(py));
 
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn exchange_api_exports_without_capsule() {
+        pyo3::Python::initialize();
+        pyo3::Python::attach(|py| -> pyo3::PyResult<()> {
+            let api = NonNull::new(leak_mock_api()).unwrap();
+            let api = DlpackExchangeApiRef { api };
+            let data = Box::new(vec![7i32, 8, 9]);
+            let data_ptr = data.as_ptr() as *mut c_void;
+            let tensor = Builder::new(data, crate::metadata::CopiedArray::new([3i64], [1i64]))
+                .data(data_ptr)
+                .dtype(DLDataType::of::<i32>())
+                .build::<DLManagedTensorVersioned>();
+
+            let object = api.managed_tensor_to_py_object_no_sync(tensor, py)?;
+
+            assert_eq!(object.extract::<i64>()?, 42);
             Ok(())
         })
         .unwrap();

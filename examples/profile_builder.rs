@@ -1,4 +1,4 @@
-//! Ad-hoc CPU profiler for `DlpackBuilder`'s construction paths.
+//! Ad-hoc CPU profiler for the DLPack builder's construction paths.
 //!
 //! `pprof`'s signal-based sampling (`SIGPROF`/`setitimer`) doesn't touch the
 //! `perf_event` subsystem, so it works even with `perf_event_paranoid`
@@ -13,6 +13,7 @@
 
 use dlpark::Builder;
 use dlpark::ffi::DLManagedTensor;
+use dlpark::metadata::{CopiedArray, CopiedSlice};
 use dlpark::tensor::compact_strides_array;
 use std::ptr::NonNull;
 
@@ -74,23 +75,24 @@ fn main() {
     // Order swapped vs the last run, to test whether allocator warm-up
     // ordering (not the approach itself) explains the alloc-time gap.
     profile("dynamic_layout_first", || {
-        let dlpack = Builder::<DLManagedTensor, 0>::with_dynamic_layout(
+        let dlpack = Builder::new(
             context(),
-            std::hint::black_box(shape.as_slice()),
-            std::hint::black_box(strides.as_slice()),
+            CopiedSlice::new(
+                std::hint::black_box(shape.as_slice()),
+                std::hint::black_box(strides.as_slice()),
+            ),
         )
-        .unwrap()
-        .build();
+        .try_build::<DLManagedTensor>()
+        .unwrap();
         std::hint::black_box(dlpack);
     });
 
     profile("array_layout_second", || {
-        let dlpack = Builder::<DLManagedTensor, N>::with_array_layout(
+        let dlpack = Builder::new(
             context(),
-            std::hint::black_box(&shape),
-            std::hint::black_box(&strides),
+            CopiedArray::new(std::hint::black_box(&shape), std::hint::black_box(&strides)),
         )
-        .build();
+        .build::<DLManagedTensor>();
         std::hint::black_box(dlpack);
     });
 }

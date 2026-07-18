@@ -28,6 +28,9 @@ pub enum Error {
         strides_len: usize,
     },
 
+    #[snafu(display("a contiguous Rust slice requires compact row-major strides"))]
+    NonCompactStrides,
+
     #[snafu(display("tensor must be on CPU to expose a Rust slice, got {device_type:?}"))]
     NotCpu { device_type: DLDeviceType },
 
@@ -36,6 +39,9 @@ pub enum Error {
         expected: DLDataType,
         actual: DLDataType,
     },
+
+    #[snafu(display("tensor is read-only"))]
+    ReadOnly,
 
     #[snafu(display("tensor data pointer is null for a non-empty tensor"))]
     NullData,
@@ -224,6 +230,11 @@ impl DLTensor {
         Ok(total_bits.div_ceil(8))
     }
 
+    /// Returns whether this tensor has compact row-major strides.
+    pub fn is_compact(&self) -> Result<bool, Error> {
+        is_compact_strides(self.shape()?, self.strides()?)
+    }
+
     /// Returns the tensor data as a typed Rust slice.
     ///
     /// This is only valid for CPU tensors. Device tensors cannot be safely
@@ -233,6 +244,7 @@ impl DLTensor {
     ///
     /// - [`Error::NotCpu`] if the tensor is not on CPU.
     /// - [`Error::DtypeMismatch`] if `T` does not match `self.dtype`.
+    /// - [`Error::NonCompactStrides`] if the tensor is not compact row-major.
     /// - Shape, pointer, offset, and alignment errors if the DLPack metadata
     ///   cannot satisfy Rust slice requirements.
     pub fn cpu_data_slice<T: DlpackElement>(&self) -> Result<&[T], Error> {
@@ -249,6 +261,7 @@ impl DLTensor {
                 actual: self.dtype
             }
         );
+        ensure!(self.is_compact()?, NonCompactStridesSnafu);
 
         let num_elements = self.num_elements()?;
         if num_elements == 0 {
@@ -321,7 +334,9 @@ impl DLTensor {
             usize::try_from(self.byte_offset).map_err(|_| Error::ByteOffsetOverflow {
                 byte_offset: self.byte_offset,
             })?;
-        let data_addr = (self.data as usize)
+        let data = self.data.cast::<u8>();
+        let data_addr = data
+            .addr()
             .checked_add(byte_offset)
             .ok_or(Error::DataPointerOverflow)?;
         let align = mem::align_of::<T>();
@@ -333,11 +348,20 @@ impl DLTensor {
             }
         );
 
-        Ok(data_addr as *const T)
+        Ok(data.with_addr(data_addr).cast::<T>())
     }
 
     pub fn data_ptr(&self) -> *const c_void {
         self.data as *const c_void
+    }
+
+    pub(crate) fn from_parts(shape: *mut i64, strides: *mut i64, ndim: i32) -> Self {
+        Self {
+            ndim,
+            shape,
+            strides,
+            ..Default::default()
+        }
     }
 }
 
@@ -386,5 +410,27 @@ mod tests {
 
         assert!(matches!(actual, Cow::Borrowed(_)));
         assert!(actual.is_empty());
+    }
+
+    #[test]
+    fn cpu_data_slice_rejects_non_compact_strides_but_pointer_is_available() {
+        let data = [1i32, 2, 3, 4];
+        let shape = [2i64, 2];
+        let strides = [1i64, 2];
+        let tensor = DLTensor {
+            data: data.as_ptr().cast_mut().cast(),
+            device: DLDevice::CPU,
+            ndim: 2,
+            dtype: i32::DTYPE,
+            shape: shape.as_ptr().cast_mut(),
+            strides: strides.as_ptr().cast_mut(),
+            ..DLTensor::default()
+        };
+
+        assert!(matches!(
+            tensor.cpu_data_slice::<i32>(),
+            Err(Error::NonCompactStrides)
+        ));
+        assert_eq!(tensor.cpu_data_ptr::<i32>().unwrap(), data.as_ptr());
     }
 }

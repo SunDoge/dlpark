@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cargo metadata *)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); [print\\(p['name'],p['version']\\) for p in d['packages']]\")",
+      "WebFetch(domain:docs.rs)",
+      "Bash(cargo check *)"
+    ]
+  }
+}

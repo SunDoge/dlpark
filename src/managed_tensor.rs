@@ -29,10 +29,20 @@ pub trait ManagedTensorBase {
         deleter: Option<unsafe extern "C" fn(self_: *mut Self)>,
     ) -> Self;
 
-    fn dl_tensor(&self) -> &DLTensor;
-    fn dl_tensor_mut(&mut self) -> &mut DLTensor;
+    fn tensor(&self) -> &DLTensor;
+    fn tensor_mut(&mut self) -> &mut DLTensor;
     fn manager_ctx(&self) -> *mut c_void;
     fn deleter(&self) -> Option<unsafe extern "C" fn(self_: *mut Self)>;
+    fn flags(&self) -> DlpackFlags {
+        DlpackFlags::empty()
+    }
+
+    /// Applies DLPack flags to this managed tensor.
+    ///
+    /// Only `DLManagedTensorVersioned` carries a `flags` field; the legacy
+    /// `DLManagedTensor` has none and inherits the default no-op, so callers
+    /// can set flags generically over `M` without knowing which ABI it is.
+    fn set_flags(&mut self, _flags: crate::DlpackFlags) {}
 
     /// Drops a raw managed tensor pointer through its DLPack deleter.
     ///
@@ -59,10 +69,10 @@ impl ManagedTensorBase for DLManagedTensor {
         }
     }
 
-    fn dl_tensor(&self) -> &DLTensor {
+    fn tensor(&self) -> &DLTensor {
         &self.dl_tensor
     }
-    fn dl_tensor_mut(&mut self) -> &mut DLTensor {
+    fn tensor_mut(&mut self) -> &mut DLTensor {
         &mut self.dl_tensor
     }
     fn manager_ctx(&self) -> *mut c_void {
@@ -89,10 +99,10 @@ impl ManagedTensorBase for DLManagedTensorVersioned {
         }
     }
 
-    fn dl_tensor(&self) -> &DLTensor {
+    fn tensor(&self) -> &DLTensor {
         &self.dl_tensor
     }
-    fn dl_tensor_mut(&mut self) -> &mut DLTensor {
+    fn tensor_mut(&mut self) -> &mut DLTensor {
         &mut self.dl_tensor
     }
     fn manager_ctx(&self) -> *mut c_void {
@@ -101,5 +111,13 @@ impl ManagedTensorBase for DLManagedTensorVersioned {
 
     fn deleter(&self) -> Option<unsafe extern "C" fn(self_: *mut Self)> {
         self.deleter
+    }
+
+    fn set_flags(&mut self, flags: crate::DlpackFlags) {
+        self.flags = flags;
+    }
+
+    fn flags(&self) -> DlpackFlags {
+        self.flags
     }
 }

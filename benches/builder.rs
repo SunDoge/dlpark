@@ -1,4 +1,4 @@
-//! Compares the four `DlpackBuilder` construction paths against each other,
+//! Compares the four metadata construction paths against each other,
 //! across several tensor ranks (`ndim`), to see whether the gap between
 //! variants shrinks, stays flat, or grows as shape/strides get bigger.
 //!
@@ -9,6 +9,7 @@
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use dlpark::Builder;
 use dlpark::ffi::DLManagedTensor;
+use dlpark::metadata::{BorrowedArray, BorrowedSlice, CopiedArray, CopiedSlice};
 use dlpark::tensor::compact_strides_array;
 use std::ptr::NonNull;
 
@@ -18,9 +19,8 @@ fn context() -> NonNull<()> {
 }
 
 /// Registers all four variants at rank `N` under a `builder/ndim=N` group.
-/// `with_array_layout`/`with_slice_layout` need `N` as a const generic
-/// anyway, so a generic function is all the per-size fixture needs — no
-/// macro required.
+/// The array variants need `N` as a const generic, so a generic function is
+/// all the per-size fixture needs.
 fn bench_ndim<const N: usize>(c: &mut Criterion) {
     // Dims are all 1 regardless of N: the values are never read (this
     // benchmark never dereferences `data`), and it keeps the cumulative
@@ -30,57 +30,60 @@ fn bench_ndim<const N: usize>(c: &mut Criterion) {
     let strides = compact_strides_array(shape).unwrap();
     let mut group = c.benchmark_group(format!("builder/ndim={N}"));
 
-    group.bench_function(BenchmarkId::new("with_array_layout", N), |b| {
+    group.bench_function(BenchmarkId::new("copied_array", N), |b| {
         b.iter(|| {
-            let dlpack = Builder::<DLManagedTensor, N>::with_array_layout(
+            let dlpack = Builder::new(
                 context(),
-                std::hint::black_box(&shape),
-                std::hint::black_box(&strides),
+                CopiedArray::new(std::hint::black_box(&shape), std::hint::black_box(&strides)),
             )
-            .build();
+            .build::<DLManagedTensor>();
             std::hint::black_box(dlpack);
         });
     });
 
-    group.bench_function(BenchmarkId::new("with_slice_layout", N), |b| {
-        b.iter(|| {
-            let dlpack = Builder::<DLManagedTensor, N>::with_slice_layout(
-                context(),
-                std::hint::black_box(shape.as_slice()),
-                std::hint::black_box(strides.as_slice()),
-            )
-            .unwrap()
-            .build();
-            std::hint::black_box(dlpack);
-        });
-    });
-
-    group.bench_function(BenchmarkId::new("with_dynamic_layout", N), |b| {
-        b.iter(|| {
-            let dlpack = Builder::<DLManagedTensor, 0>::with_dynamic_layout(
-                context(),
-                std::hint::black_box(shape.as_slice()),
-                std::hint::black_box(strides.as_slice()),
-            )
-            .unwrap()
-            .build();
-            std::hint::black_box(dlpack);
-        });
-    });
-
-    let mut shape_mut = shape;
-    let mut strides_mut = strides;
-    group.bench_function(BenchmarkId::new("with_pointer_layout", N), |b| {
+    group.bench_function(BenchmarkId::new("borrowed_array", N), |b| {
         b.iter(|| {
             let dlpack = unsafe {
-                Builder::<DLManagedTensor, 0>::with_pointer_layout(
+                Builder::new(
                     context(),
-                    std::hint::black_box(shape_mut.as_mut_ptr()),
-                    std::hint::black_box(strides_mut.as_mut_ptr()),
-                    N as i32,
+                    BorrowedArray::new(
+                        std::hint::black_box(&shape),
+                        std::hint::black_box(&strides),
+                    ),
                 )
+                .build::<DLManagedTensor>()
+            };
+            std::hint::black_box(dlpack);
+        });
+    });
+
+    group.bench_function(BenchmarkId::new("copied_slice", N), |b| {
+        b.iter(|| {
+            let dlpack = Builder::new(
+                context(),
+                CopiedSlice::new(
+                    std::hint::black_box(shape.as_slice()),
+                    std::hint::black_box(strides.as_slice()),
+                ),
+            )
+            .try_build::<DLManagedTensor>()
+            .unwrap();
+            std::hint::black_box(dlpack);
+        });
+    });
+
+    group.bench_function(BenchmarkId::new("borrowed_slice", N), |b| {
+        b.iter(|| {
+            let dlpack = unsafe {
+                Builder::new(
+                    context(),
+                    BorrowedSlice::new(
+                        std::hint::black_box(shape.as_slice()),
+                        std::hint::black_box(strides.as_slice()),
+                    ),
+                )
+                .try_build::<DLManagedTensor>()
                 .unwrap()
-                .build()
             };
             std::hint::black_box(dlpack);
         });
@@ -91,7 +94,7 @@ fn bench_ndim<const N: usize>(c: &mut Criterion) {
 
 /// Isolates the allocator call itself (no shape/strides writes, no
 /// `DLManagedTensor` construction) for the exact byte size/align that
-/// `with_array_layout`/`with_dynamic_layout` both request at `ndim=64`
+/// copied array/slice metadata both request at `ndim=64`
 /// (verified equal: 1088 bytes, align 8) — a clean baseline to compare
 /// against those functions' full measured cost, since pprof's signal-based
 /// sampling only had a few hundred samples to attribute time with, too few

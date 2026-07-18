@@ -1,6 +1,6 @@
 use pyo3::conversion::{FromPyObject, IntoPyObject};
 use pyo3::exceptions::{PyBufferError, PyRuntimeError, PyTypeError, PyValueError};
-use pyo3::types::{PyAnyMethods, PyDict};
+use pyo3::types::{PyAnyMethods, PyDict, PyString};
 use pyo3::{Borrowed, Bound, PyAny, PyErr, Python};
 use std::ffi::CStr;
 
@@ -111,15 +111,18 @@ fn call_dlpack<'py>(
     max_version: Option<(u32, u32)>,
 ) -> pyo3::PyResult<Bound<'py, PyAny>> {
     let Some(max_version) = max_version else {
-        return ob.call_method0("__dlpack__");
+        return ob.call_method0(PyString::intern(ob.py(), "__dlpack__"));
     };
 
     let py = attached_python();
     let kwargs = PyDict::new(py);
-    kwargs.set_item("max_version", max_version)?;
-    match ob.call_method("__dlpack__", (), Some(&kwargs)) {
+    kwargs.set_item(PyString::intern(py, "max_version"), max_version)?;
+    let method = PyString::intern(py, "__dlpack__");
+    match ob.call_method(&method, (), Some(&kwargs)) {
         Ok(capsule) => Ok(capsule),
-        Err(err) if err.is_instance_of::<PyTypeError>(py) => ob.call_method0("__dlpack__"),
+        Err(err) if err.is_instance_of::<PyTypeError>(py) && err.traceback(py).is_none() => {
+            ob.call_method0(method)
+        }
         Err(err) => Err(err),
     }
 }
@@ -240,7 +243,7 @@ impl<'py> IntoPyObject<'py> for ManagedBox<DLManagedTensorVersioned> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Builder, ffi::DLDataType};
+    use crate::{Builder, ffi::DLDataType, metadata};
     use pyo3::conversion::IntoPyObject;
     use pyo3::types::PyModule;
     use std::ffi::c_void;
@@ -248,19 +251,19 @@ mod tests {
     fn legacy_tensor() -> ManagedBox<DLManagedTensor> {
         let data = Box::new(vec![1i32, 2, 3]);
         let data_ptr = data.as_ptr() as *mut c_void;
-        Builder::<DLManagedTensor, 1>::with_array_layout(data, &[3i64], &[1i64])
+        Builder::new(data, metadata::CopiedArray::new([3i64], [1i64]))
             .data(data_ptr)
             .dtype(DLDataType::of::<i32>())
-            .build()
+            .build::<DLManagedTensor>()
     }
 
     fn versioned_tensor() -> ManagedBox<DLManagedTensorVersioned> {
         let data = Box::new(vec![4i32, 5, 6]);
         let data_ptr = data.as_ptr() as *mut c_void;
-        Builder::<DLManagedTensorVersioned, 1>::with_array_layout(data, &[3i64], &[1i64])
+        Builder::new(data, metadata::CopiedArray::new([3i64], [1i64]))
             .data(data_ptr)
             .dtype(DLDataType::of::<i32>())
-            .build()
+            .build::<DLManagedTensorVersioned>()
     }
 
     #[test]
@@ -270,10 +273,7 @@ mod tests {
             let capsule = legacy_tensor().into_pyobject(py)?;
 
             let dlpack = ManagedBox::<DLManagedTensor>::extract(capsule.as_borrowed())?;
-            assert_eq!(
-                dlpack.dl_tensor().cpu_data_slice::<i32>().unwrap(),
-                &[1, 2, 3]
-            );
+            assert_eq!(dlpack.cpu_data_slice::<i32>().unwrap(), &[1, 2, 3]);
 
             let err = match ManagedBox::<DLManagedTensor>::extract(capsule.as_borrowed()) {
                 Ok(_) => panic!("consuming the same DLPack capsule twice should fail"),
@@ -293,10 +293,7 @@ mod tests {
             let capsule = versioned_tensor().into_pyobject(py)?;
 
             let dlpack = ManagedBox::<DLManagedTensorVersioned>::extract(capsule.as_borrowed())?;
-            assert_eq!(
-                dlpack.dl_tensor().cpu_data_slice::<i32>().unwrap(),
-                &[4, 5, 6]
-            );
+            assert_eq!(dlpack.cpu_data_slice::<i32>().unwrap(), &[4, 5, 6]);
 
             let err = match ManagedBox::<DLManagedTensorVersioned>::extract(capsule.as_borrowed()) {
                 Ok(_) => panic!("consuming the same DLPack capsule twice should fail"),
@@ -323,7 +320,7 @@ mod tests {
             let producer = module.getattr("Producer")?.call1((capsule,))?;
 
             let dlpack = ManagedBox::<DLManagedTensor>::extract(producer.as_borrowed())?;
-            assert_eq!(dlpack.dl_tensor().cpu_data_slice::<i32>().unwrap(), &[1, 2, 3]);
+            assert_eq!(dlpack.cpu_data_slice::<i32>().unwrap(), &[1, 2, 3]);
 
             Ok(())
         })
@@ -344,7 +341,7 @@ mod tests {
             let producer = module.getattr("Producer")?.call1((capsule,))?;
 
             let dlpack = ManagedBox::<DLManagedTensorVersioned>::extract(producer.as_borrowed())?;
-            assert_eq!(dlpack.dl_tensor().cpu_data_slice::<i32>().unwrap(), &[4, 5, 6]);
+            assert_eq!(dlpack.cpu_data_slice::<i32>().unwrap(), &[4, 5, 6]);
             assert_eq!(
                 producer.getattr("seen_max_version")?.extract::<(u32, u32)>()?,
                 (
@@ -372,9 +369,34 @@ mod tests {
             let producer = module.getattr("Producer")?.call1((capsule,))?;
 
             let dlpack = ManagedBox::<DLManagedTensorVersioned>::extract(producer.as_borrowed())?;
-            assert_eq!(dlpack.dl_tensor().cpu_data_slice::<i32>().unwrap(), &[4, 5, 6]);
+            assert_eq!(dlpack.cpu_data_slice::<i32>().unwrap(), &[4, 5, 6]);
             assert_eq!(producer.getattr("calls")?.extract::<u32>()?, 1);
 
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn versioned_extract_does_not_retry_internal_type_error() {
+        pyo3::Python::initialize();
+        pyo3::Python::attach(|py| -> pyo3::PyResult<()> {
+            let module = PyModule::from_code(
+                py,
+                c"class Producer:\n    def __init__(self):\n        self.calls = 0\n    def __dlpack__(self, *, max_version=None):\n        self.calls += 1\n        raise TypeError('producer failed')\n",
+                c"broken_versioned_producer.py",
+                c"broken_versioned_producer",
+            )?;
+            let producer = module.getattr("Producer")?.call0()?;
+
+            let err = match ManagedBox::<DLManagedTensorVersioned>::extract(producer.as_borrowed())
+            {
+                Ok(_) => panic!("producer TypeError should propagate"),
+                Err(err) => err,
+            };
+
+            assert!(err.is_instance_of::<PyTypeError>(py));
+            assert_eq!(producer.getattr("calls")?.extract::<u32>()?, 1);
             Ok(())
         })
         .unwrap();
