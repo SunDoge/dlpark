@@ -12,7 +12,7 @@
 //! Output: `target/flamegraph-<variant>.svg` per variant, viewable in a browser.
 
 use dlpark::Builder;
-use dlpark::ffi::DLManagedTensor;
+use dlpark::ffi::DLManagedTensorVersioned;
 use dlpark::metadata::{CopiedArray, CopiedSlice};
 use dlpark::tensor::compact_strides_array;
 use std::ptr::NonNull;
@@ -82,7 +82,7 @@ fn main() {
                 std::hint::black_box(strides.as_slice()),
             ),
         )
-        .try_build::<DLManagedTensor>()
+        .try_build::<DLManagedTensorVersioned>()
         .unwrap();
         std::hint::black_box(dlpack);
     });
@@ -92,7 +92,7 @@ fn main() {
             context(),
             CopiedArray::new(std::hint::black_box(&shape), std::hint::black_box(&strides)),
         )
-        .build::<DLManagedTensor>();
+        .build::<DLManagedTensorVersioned>();
         std::hint::black_box(dlpack);
     });
 }

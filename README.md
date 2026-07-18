@@ -84,26 +84,26 @@ The C Exchange API is intended for extension/library use where the consumer can 
 Two runnable examples:
 
 - [`examples/dlparkimg`](./examples/dlparkimg/) — a Python extension module (via `pyo3`) transferring `image::RgbImage` to/from Python (e.g. `torch.Tensor`).
-- [`examples/ndarray-candle`](./examples/ndarray-candle/) — a plain binary round-tripping data through DLPack: `ndarray::Array2` → `legacy::Dlpack` → `candle::Tensor` → `legacy::Dlpack` → `ndarray` view, run with `cargo run -p ndarray-candle`.
+- [`examples/ndarray-candle`](./examples/ndarray-candle/) — a plain binary round-tripping data through DLPack: `ndarray::Array2` → `versioned::Dlpack` → `candle::Tensor` → `versioned::Dlpack` → `ndarray` view, run with `cargo run -p ndarray-candle`.
 
 ## Usage Examples
 
 ### Converting between Rust and Python
 
 ```rust
-use dlpark::legacy;
+use dlpark::versioned;
 use pyo3::prelude::*;
 
 // Rust to Python
 #[pyfunction]
-fn read_image(filename: &str) -> legacy::Dlpack {
+fn read_image(filename: &str) -> versioned::Dlpack {
     let img = image::open(filename).unwrap().to_rgb8();
-    legacy::Dlpack::from(img)
+    versioned::Dlpack::from(img)
 }
 
 // Python to Rust
 #[pyfunction]
-fn write_image(filename: &str, tensor: legacy::Dlpack) {
+fn write_image(filename: &str, tensor: versioned::Dlpack) {
     let img: image::RgbImage = (&tensor).try_into().unwrap();
     img.save(filename).unwrap();
 }
@@ -112,28 +112,28 @@ fn write_image(filename: &str, tensor: legacy::Dlpack) {
 ### Image Processing
 
 ```rust
-use dlpark::legacy;
+use dlpark::versioned;
 use image::{ImageBuffer, Rgb};
 
 let img = ImageBuffer::<Rgb<u8>, _>::from_vec(100, 100, vec![0; 100 * 100 * 3])?;
-let tensor = legacy::Dlpack::from(img);
+let tensor = versioned::Dlpack::from(img);
 let img2 = ImageBuffer::<Rgb<u8>, _>::try_from(&tensor)?;
 ```
 
 ### ndarray
 
 ```rust
-use dlpark::legacy;
+use dlpark::versioned;
 use ndarray::{ArrayD, ArrayViewD, arr2};
 
 let array = arr2(&[[1i32, 2, 3], [4, 5, 6]]);
-let tensor = legacy::Dlpack::try_from(array)?;
+let tensor = versioned::Dlpack::try_from(array)?;
 let view = ArrayViewD::<i32>::try_from(&tensor)?;
 
 assert_eq!(view[[1, 2]], 6);
 
 let dynamic: ArrayD<i32> = arr2(&[[1, 2], [3, 4]]).into_dyn();
-let dynamic_tensor = legacy::Dlpack::try_from(dynamic)?;
+let dynamic_tensor = versioned::Dlpack::try_from(dynamic)?;
 ```
 
 ### candle
@@ -142,10 +142,10 @@ Zero-copy from `candle::Tensor` to DLPack; the reverse direction (DLPack to `can
 
 ```rust
 use candle_core::Tensor;
-use dlpark::{Builder, DlpackFlags, ffi::DLManagedTensorVersioned, legacy};
+use dlpark::{Builder, DlpackFlags, ffi::DLManagedTensorVersioned, versioned};
 
 let tensor = Tensor::new(&[1f32, 2., 3., 4.], &candle_core::Device::Cpu)?;
-let dlpack = legacy::Dlpack::try_from(tensor)?;
+let dlpack = versioned::Dlpack::try_from(tensor)?;
 
 let tensor2 = Tensor::try_from(&dlpack)?;
 assert_eq!(tensor2.to_vec1::<f32>()?, vec![1., 2., 3., 4.]);
@@ -162,9 +162,9 @@ let dlpack = builder
 Zero-copy in both directions between a [cudarc] `CudaSlice<T>` and a DLPack tensor. `from_cuda_slice`/`from_cuda_slice_versioned` take `shape`/`strides` explicitly (not derivable from a flat device buffer alone); the reverse direction consumes the managed tensor through `TryFrom<ManagedBox<M>> for BorrowedCudaSlice<M, T>`, keeping it alive for as long as the CUDA view exists.
 
 ```rust
-use dlpark::interop::cudarc::{from_cuda_slice, BorrowedCudaSlice};
+use dlpark::interop::cudarc::{from_cuda_slice_versioned, BorrowedCudaSlice};
 
-let dlpack = from_cuda_slice(cuda_slice, &[2, 3], &[3, 1])?;
+let dlpack = from_cuda_slice_versioned(cuda_slice, &[2, 3], &[3, 1])?;
 let borrowed = BorrowedCudaSlice::<_, f32>::try_from(dlpack)?;
 ```
 

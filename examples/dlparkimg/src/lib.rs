@@ -1,34 +1,17 @@
-use dlpark::{legacy, versioned};
+use dlpark::versioned;
 use image::{ImageBuffer, Rgb};
 use pyo3::exceptions::{PyIOError, PyValueError};
 use pyo3::prelude::*;
 
 #[pyfunction]
-fn read_image(filename: &str) -> PyResult<legacy::Dlpack> {
-    let img = image::open(filename).map_err(|err| PyIOError::new_err(err.to_string()))?;
-    let rgb_img = img.to_rgb8();
-    Ok(legacy::Dlpack::from(rgb_img))
-}
-
-#[pyfunction]
-fn read_image_versioned(filename: &str) -> PyResult<versioned::Dlpack> {
+fn read_image(filename: &str) -> PyResult<versioned::Dlpack> {
     let img = image::open(filename).map_err(|err| PyIOError::new_err(err.to_string()))?;
     let rgb_img = img.to_rgb8();
     Ok(versioned::Dlpack::from(rgb_img))
 }
 
 #[pyfunction]
-fn write_image(filename: &str, tensor: legacy::Dlpack) -> PyResult<()> {
-    let rgb_img: ImageBuffer<Rgb<u8>, _> = (&tensor)
-        .try_into()
-        .map_err(|err: dlpark::interop::image::Error| PyValueError::new_err(err.to_string()))?;
-    rgb_img
-        .save(filename)
-        .map_err(|err| PyIOError::new_err(err.to_string()))
-}
-
-#[pyfunction]
-fn write_image_versioned(filename: &str, tensor: versioned::Dlpack) -> PyResult<()> {
+fn write_image(filename: &str, tensor: versioned::Dlpack) -> PyResult<()> {
     let rgb_img: ImageBuffer<Rgb<u8>, _> = (&tensor)
         .try_into()
         .map_err(|err: dlpark::interop::image::Error| PyValueError::new_err(err.to_string()))?;
@@ -43,8 +26,6 @@ fn write_image_versioned(filename: &str, tensor: versioned::Dlpack) -> PyResult<
 #[pymodule]
 fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(read_image, m)?)?;
-    m.add_function(wrap_pyfunction!(read_image_versioned, m)?)?;
     m.add_function(wrap_pyfunction!(write_image, m)?)?;
-    m.add_function(wrap_pyfunction!(write_image_versioned, m)?)?;
     Ok(())
 }
