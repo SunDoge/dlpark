@@ -145,6 +145,45 @@ fn bench_alloc_dealloc_baseline(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_generic_metadata_copy(c: &mut Criterion) {
+    const N: usize = 64;
+    let source = [1u32; N];
+    let mut destination = [0i64; N];
+    let mut group = c.benchmark_group("generic_metadata_copy/len=64");
+
+    group.bench_function("allocate_i64_then_copy_nonoverlapping", |b| {
+        b.iter(|| {
+            let converted: Vec<i64> = std::hint::black_box(&source)
+                .iter()
+                .copied()
+                .map(Into::into)
+                .collect();
+            unsafe {
+                std::ptr::copy_nonoverlapping(
+                    converted.as_ptr(),
+                    std::hint::black_box(destination.as_mut_ptr()),
+                    N,
+                );
+            }
+            std::hint::black_box(&destination);
+        });
+    });
+
+    group.bench_function("convert_directly_into_destination", |b| {
+        b.iter(|| {
+            for (destination, &source) in std::hint::black_box(&mut destination)
+                .iter_mut()
+                .zip(std::hint::black_box(&source))
+            {
+                *destination = source.into();
+            }
+            std::hint::black_box(&destination);
+        });
+    });
+
+    group.finish();
+}
+
 fn bench_all(c: &mut Criterion) {
     bench_ndim::<1>(c);
     bench_ndim::<2>(c);
@@ -154,6 +193,7 @@ fn bench_all(c: &mut Criterion) {
     bench_ndim::<16>(c);
     bench_ndim::<64>(c);
     bench_alloc_dealloc_baseline(c);
+    bench_generic_metadata_copy(c);
 }
 
 criterion_group!(benches, bench_all);

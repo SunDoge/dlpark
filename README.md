@@ -53,10 +53,39 @@ Other key features:
 
 - **`CopiedArray<S, T, N>`** — fixed rank known at compile time. Shape and strides are copied into the managed tensor allocation. `build` and `build_raw` are infallible.
 - **`CopiedSlice<S, T>`** — dynamic rank. The containers may be borrowed slices or owned values such as `Vec<i64>`. Use `try_build` or `try_build_raw`.
+- **`GenericArray<S, T, A, B, N>`** — fixed-rank metadata with non-`i64` elements. Values are converted with `Into<i64>` directly into the managed tensor allocation.
+- **`GenericSlice<S, T, A, B>`** — dynamic-rank metadata with non-`i64` elements. It avoids allocating temporary `Vec<i64>` values.
 - **`BorrowedArray<N>`** — fixed-rank, zero-copy metadata. Its `build` methods are unsafe because the arrays must outlive the managed tensor.
 - **`BorrowedSlice`** — dynamic-rank, zero-copy metadata. Its `try_build` methods are unsafe for the same lifetime reason.
 
 Copied metadata and the managed tensor share one allocation. Borrowed metadata only allocates the managed tensor header.
+
+Use `GenericArray` or `GenericSlice` when a framework exposes dimensions or
+strides as an integer type other than `i64`:
+
+```rust
+use dlpark::{Builder, legacy};
+use dlpark::metadata::GenericArray;
+
+let shape = [2u32, 3];
+let strides = [3i16, 1];
+let mut data = vec![0f32; 6];
+let data_ptr = data.as_mut_ptr().cast();
+let dlpack: legacy::Dlpack =
+    Builder::new(Box::new(data), GenericArray::new(&shape, &strides))
+        .data(data_ptr)
+        .build();
+```
+
+The generic path converts each value directly into the trailing `i64`
+metadata storage. In the included length-64 microbenchmark, direct conversion
+takes approximately 11.7 ns, while allocating temporary `Vec<i64>` storage
+and then calling `copy_nonoverlapping` takes approximately 54.9 ns on the
+development machine. Reproduce it with:
+
+```bash
+cargo bench --bench builder -- generic_metadata_copy
+```
 
 ### Python Exchange Paths
 
