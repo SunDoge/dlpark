@@ -33,6 +33,22 @@
 //! become dangling. Calling `view.device_ptr()` would then be UB.
 //! `BorrowedCudaSlice` avoids this by keeping the slice alive.
 //!
+//! In particular, the workaround sometimes shown for older cudarc releases
+//! cannot be used with the current API:
+//!
+//! 1. create a temporary `CudaSlice` with `CudaDevice::upgrade_device_ptr`;
+//! 2. create a `CudaView` from that slice;
+//! 3. extend the view lifetime with `transmute`;
+//! 4. call `CudaSlice::leak` to avoid freeing the DLPack allocation.
+//!
+//! Step 4 drops the exact event and stream fields borrowed by the view, so the
+//! returned view contains dangling references. dlpark instead retains the
+//! temporary `CudaSlice` for the whole lifetime of `BorrowedCudaSlice`, calls
+//! `CudaSlice::leak` only when that wrapper is dropped, and then releases the
+//! owning DLPack tensor. This adapter can be simplified if cudarc gains a
+//! public non-owning raw-device-buffer type that does not require this
+//! ownership workaround.
+//!
 //! # Stream synchronization
 //!
 //! Converting a [`CudaSlice`] into a builder records a read fence on the
@@ -81,6 +97,9 @@ pub enum Error {
         source: std::num::TryFromIntError,
     },
 
+    #[snafu(display("CUDA device ID must be non-negative, got {device_id}"))]
+    InvalidDeviceId { device_id: i32 },
+
     #[snafu(display("dtype mismatch: expected {expected:?}, got {actual:?}"))]
     DtypeMismatch {
         expected: crate::ffi::DLDataType,
@@ -128,7 +147,7 @@ impl<T: DlpackElement> TryFrom<CudaSlice<T>> for CudaBuilder<T> {
     }
 }
 
-/// Wrap a [`CudaSlice<T>`] as a [`Dlpack`].
+/// Wrap a [`CudaSlice<T>`] as a [`legacy::Dlpack`].
 ///
 /// - `slice` — owned GPU buffer; ownership is transferred into the DLPack
 ///   tensor's `manager_ctx` via `Box<CudaSlice<T>>`
@@ -215,7 +234,7 @@ impl<M: ManagedTensorBase, T> Deref for BorrowedCudaSlice<M, T> {
 /// Converts a [`ManagedBox`] tensor into an owning CUDA slice view.
 ///
 /// Creates a new [`CudaContext`] and default stream for the tensor's device,
-/// then uses [`upgrade_device_ptr`] to construct a `CudaSlice<T>` over the
+/// then uses `CudaDevice::upgrade_device_ptr` to construct a `CudaSlice<T>` over the
 /// tensor's raw device pointer without taking ownership of the allocation.
 ///
 /// The returned [`BorrowedCudaSlice`] implements `Deref<Target = CudaSlice<T>>`,
@@ -228,8 +247,10 @@ impl<M: ManagedTensorBase, T> Deref for BorrowedCudaSlice<M, T> {
 /// - [`Error::NotCuda`] if the tensor is not on a CUDA device
 /// - [`Error::DtypeMismatch`] if the element type does not match `T`
 /// - [`Error::NullData`] if the data pointer is null
+/// - [`Error::InvalidDeviceId`] if the CUDA device ID is negative
 /// - [`Error::Driver`] if `CudaContext::new` fails
-/// - [`Error::Tensor`] for shape/element-count errors
+/// - [`Error::Tensor`] for non-compact layouts or shape, element-count,
+///   byte-offset, and alignment errors
 ///
 /// # Stream synchronization
 ///
@@ -245,32 +266,15 @@ where
 
     fn try_from(dlpack: ManagedBox<M>) -> Result<Self, Self::Error> {
         let tensor = dlpack.tensor();
+        let (cu_device_ptr, len, device_id) = validated_cuda_parts::<T>(tensor)?;
 
-        ensure!(
-            tensor.device.device_type == DLDeviceType::CUDA,
-            NotCudaSnafu {
-                device_type: tensor.device.device_type
-            }
-        );
-        ensure!(
-            tensor.dtype.is::<T>(),
-            DtypeMismatchSnafu {
-                expected: T::DTYPE,
-                actual: tensor.dtype,
-            }
-        );
-        ensure!(!tensor.data.is_null(), NullDataSnafu);
-
-        let len = tensor.num_elements()?;
-        let cu_device_ptr = tensor.data as usize as u64;
-
-        let ctx = CudaContext::new(tensor.device.device_id as usize)
-            .map_err(|source| Error::Driver { source })?;
+        let ctx = CudaContext::new(device_id).map_err(|source| Error::Driver { source })?;
         let stream: Arc<CudaStream> = ctx.default_stream();
 
         // SAFETY:
-        // - cu_device_ptr comes from the DLPack tensor's data field, which must be
-        //   a valid CUDA allocation for at least `len * size_of::<T>()` bytes.
+        // - cu_device_ptr is the checked, byte-offset-adjusted DLPack data pointer,
+        //   which must reference a valid compact CUDA allocation for at least
+        //   `len * size_of::<T>()` bytes.
         // - CudaSliceView::drop calls leak() instead of allowing cudaFree to run.
         let slice = unsafe { stream.upgrade_device_ptr::<T>(cu_device_ptr, len) };
 
@@ -285,6 +289,38 @@ where
 // Internal helper
 // ---------------------------------------------------------------------------
 
+fn validated_cuda_parts<T: DlpackElement>(
+    tensor: &crate::ffi::DLTensor,
+) -> Result<(u64, usize, usize), Error> {
+    ensure!(
+        tensor.device.device_type == DLDeviceType::CUDA,
+        NotCudaSnafu {
+            device_type: tensor.device.device_type
+        }
+    );
+    ensure!(
+        tensor.dtype.is::<T>(),
+        DtypeMismatchSnafu {
+            expected: T::DTYPE,
+            actual: tensor.dtype,
+        }
+    );
+    ensure!(!tensor.data.is_null(), NullDataSnafu);
+    let device_id =
+        usize::try_from(tensor.device.device_id).map_err(|_| Error::InvalidDeviceId {
+            device_id: tensor.device.device_id,
+        })?;
+
+    let len = tensor.num_elements()?;
+    if !tensor.is_compact()? {
+        return Err(Error::Tensor {
+            source: crate::tensor::Error::NonCompactStrides,
+        });
+    }
+    let cu_device_ptr = tensor.offset_data_ptr::<T>()? as usize as u64;
+    Ok((cu_device_ptr, len, device_id))
+}
+
 /// Returns the CUDA device pointer of `slice` as a `*mut c_void` and records
 /// a read fence on the slice's stream.
 ///
@@ -298,4 +334,75 @@ fn device_ptr_of<T>(slice: &CudaSlice<T>) -> *mut c_void {
     drop(sync); // commits the read-fence event; releases the borrow of slice
 
     cu_ptr as usize as *mut c_void
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ffi::{DLDataType, DLTensor};
+
+    #[test]
+    fn validated_cuda_parts_applies_byte_offset() {
+        let data = [0i32; 3];
+        let shape = [2i64];
+        let strides = [1i64];
+        let tensor = DLTensor {
+            data: data.as_ptr().cast_mut().cast(),
+            device: DLDevice::cuda(0),
+            ndim: 1,
+            dtype: DLDataType::of::<i32>(),
+            shape: shape.as_ptr().cast_mut(),
+            strides: strides.as_ptr().cast_mut(),
+            byte_offset: std::mem::size_of::<i32>() as u64,
+        };
+
+        let (ptr, len, device_id) = validated_cuda_parts::<i32>(&tensor).unwrap();
+        assert_eq!(ptr, unsafe { data.as_ptr().add(1) } as usize as u64);
+        assert_eq!(len, 2);
+        assert_eq!(device_id, 0);
+    }
+
+    #[test]
+    fn validated_cuda_parts_rejects_non_compact_strides() {
+        let data = [0i32; 5];
+        let shape = [2i64, 2];
+        let strides = [3i64, 1];
+        let tensor = DLTensor {
+            data: data.as_ptr().cast_mut().cast(),
+            device: DLDevice::cuda(0),
+            ndim: 2,
+            dtype: DLDataType::of::<i32>(),
+            shape: shape.as_ptr().cast_mut(),
+            strides: strides.as_ptr().cast_mut(),
+            byte_offset: 0,
+        };
+
+        assert!(matches!(
+            validated_cuda_parts::<i32>(&tensor),
+            Err(Error::Tensor {
+                source: crate::tensor::Error::NonCompactStrides
+            })
+        ));
+    }
+
+    #[test]
+    fn validated_cuda_parts_rejects_negative_device_id() {
+        let data = [0i32; 1];
+        let shape = [1i64];
+        let strides = [1i64];
+        let tensor = DLTensor {
+            data: data.as_ptr().cast_mut().cast(),
+            device: DLDevice::cuda(-1),
+            ndim: 1,
+            dtype: DLDataType::of::<i32>(),
+            shape: shape.as_ptr().cast_mut(),
+            strides: strides.as_ptr().cast_mut(),
+            byte_offset: 0,
+        };
+
+        assert!(matches!(
+            validated_cuda_parts::<i32>(&tensor),
+            Err(Error::InvalidDeviceId { device_id: -1 })
+        ));
+    }
 }

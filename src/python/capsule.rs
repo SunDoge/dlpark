@@ -1,5 +1,5 @@
 use pyo3::conversion::{FromPyObject, IntoPyObject};
-use pyo3::exceptions::{PyBufferError, PyRuntimeError, PyTypeError, PyValueError};
+use pyo3::exceptions::{PyBufferError, PyRuntimeError, PyValueError};
 use pyo3::types::{PyAnyMethods, PyDict, PyString};
 use pyo3::{Borrowed, Bound, PyAny, PyErr};
 use std::ffi::CStr;
@@ -121,30 +121,7 @@ fn call_dlpack<'py>(
     if let Some(copy) = copy {
         kwargs.set_item(PyString::intern(py, "copy"), copy)?;
     }
-    let method = PyString::intern(py, "__dlpack__");
-    match ob.call_method(&method, (), Some(&kwargs)) {
-        Ok(capsule) => Ok(capsule),
-        Err(err)
-            if max_version.is_some()
-                && err.is_instance_of::<PyTypeError>(py)
-                && err.traceback(py).is_none() =>
-        {
-            match stream {
-                None if copy.is_none() => ob.call_method0(method),
-                stream => {
-                    let kwargs = PyDict::new(py);
-                    if let Some(stream) = stream {
-                        kwargs.set_item(PyString::intern(py, "stream"), stream)?;
-                    }
-                    if let Some(copy) = copy {
-                        kwargs.set_item(PyString::intern(py, "copy"), copy)?;
-                    }
-                    ob.call_method(&method, (), Some(&kwargs))
-                }
-            }
-        }
-        Err(err) => Err(err),
-    }
+    ob.call_method(PyString::intern(py, "__dlpack__"), (), Some(&kwargs))
 }
 
 fn raw_dlpack_to_capsule(
@@ -560,29 +537,30 @@ mod tests {
     }
 
     #[test]
-    fn versioned_extract_falls_back_to_no_arg_dunder_dlpack_on_type_error() {
+    fn versioned_extract_rejects_producers_without_version_negotiation() {
         pyo3::Python::initialize();
         pyo3::Python::attach(|py| -> pyo3::PyResult<()> {
-            let capsule = versioned_tensor().into_pyobject(py)?;
             let module = PyModule::from_code(
                 py,
                 cr#"class Producer:
-    def __init__(self, capsule):
-        self.capsule = capsule
+    def __init__(self):
         self.calls = 0
 
     def __dlpack__(self):
         self.calls += 1
-        return self.capsule
 "#,
-                c"old_versioned_producer.py",
-                c"old_versioned_producer",
+                c"legacy_producer.py",
+                c"legacy_producer",
             )?;
-            let producer = module.getattr("Producer")?.call1((capsule,))?;
+            let producer = module.getattr("Producer")?.call0()?;
 
-            let dlpack = ManagedBox::<DLManagedTensorVersioned>::extract(producer.as_borrowed())?;
-            assert_eq!(dlpack.cpu_data_slice::<i32>().unwrap(), &[4, 5, 6]);
-            assert_eq!(producer.getattr("calls")?.extract::<u32>()?, 1);
+            let err = match ManagedBox::<DLManagedTensorVersioned>::extract(producer.as_borrowed())
+            {
+                Ok(_) => panic!("versioned extraction requires max_version support"),
+                Err(err) => err,
+            };
+            assert!(err.is_instance_of::<pyo3::exceptions::PyTypeError>(py));
+            assert_eq!(producer.getattr("calls")?.extract::<u32>()?, 0);
 
             Ok(())
         })
@@ -614,7 +592,7 @@ mod tests {
                 Err(err) => err,
             };
 
-            assert!(err.is_instance_of::<PyTypeError>(py));
+            assert!(err.is_instance_of::<pyo3::exceptions::PyTypeError>(py));
             assert_eq!(producer.getattr("calls")?.extract::<u32>()?, 1);
             Ok(())
         })

@@ -327,7 +327,7 @@ impl DLTensor {
         self.offset_data_ptr::<u8>()
     }
 
-    fn offset_data_ptr<T>(&self) -> Result<*const T, Error> {
+    pub(crate) fn offset_data_ptr<T>(&self) -> Result<*const T, Error> {
         ensure!(!self.data.is_null(), NullDataSnafu);
 
         let byte_offset =

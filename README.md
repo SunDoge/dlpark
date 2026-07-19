@@ -65,7 +65,7 @@ The `pyo3` feature supports the standard Python DLPack capsule protocol:
 - `legacy::Dlpack` consumes or produces legacy `"dltensor"` capsules.
 - `versioned::Dlpack` consumes or produces `"dltensor_versioned"` capsules.
 - `python::dlpack_device(obj)` calls and validates `obj.__dlpack_device__()`, returning a Rust `DLDevice`.
-- When extracting a versioned tensor from a Python object, dlpark first checks the object's type for a `__dlpack_c_exchange_api__` PyCapsule named `"dlpack_exchange_api"`. If present, it uses the DLPack C Exchange API no-sync function table. Otherwise it falls back to `obj.__dlpack__(max_version=(1, 3))`, and then to no-arg `obj.__dlpack__()` for older producers.
+- When extracting a versioned tensor from a Python object, dlpark first checks the object's type for a `__dlpack_c_exchange_api__` PyCapsule named `"dlpack_exchange_api"`. If present, it uses the DLPack C Exchange API no-sync function table. Otherwise it calls `obj.__dlpack__(max_version=(1, 3))`. Producers that only implement the legacy no-argument protocol must be extracted as `legacy::Dlpack`, because they return the incompatible `"dltensor"` capsule ABI.
 - Consumers can call `versioned::Dlpack::extract_with_options(obj, stream, copy)` to pass optional stream and tri-state copy requests to `__dlpack__`; `extract_with_stream` is the typed convenience path for GPU consumers. The `cudarc` feature implements stream mapping for `CudaStream`; other backends can implement the unsafe `python::DlpackStream` trait.
 
 The C Exchange API is intended for extension/library use where the consumer can borrow tensors and coordinate work on the producer's current stream. It is not a replacement for the normal `__dlpack__` ingestion path.
