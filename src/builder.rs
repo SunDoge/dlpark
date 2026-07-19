@@ -461,6 +461,38 @@ mod tests {
     }
 
     #[test]
+    fn generic_array_converts_metadata_without_temporary_i64_arrays() {
+        let (ctx, _) = context();
+        let shape = [2u32, 3];
+        let strides = [3i16, 1];
+
+        let tensor: ManagedBox<DLManagedTensor> =
+            Builder::new(ctx, metadata::GenericArray::new(&shape, &strides)).build();
+
+        assert_eq!(tensor.shape().unwrap(), &[2, 3]);
+        assert_eq!(tensor.strides().unwrap().unwrap(), &[3, 1]);
+    }
+
+    #[test]
+    fn generic_slice_converts_metadata_and_validates_lengths() {
+        let (ctx, _) = context();
+        let shape = vec![2u32, 3];
+        let strides = vec![3i16, 1];
+
+        let tensor: ManagedBox<DLManagedTensor> =
+            Builder::new(ctx, metadata::GenericSlice::new(&shape, &strides))
+                .try_build()
+                .unwrap();
+        assert_eq!(tensor.shape().unwrap(), &[2, 3]);
+        assert_eq!(tensor.strides().unwrap().unwrap(), &[3, 1]);
+
+        let (ctx, _) = context();
+        let result: Result<ManagedBox<DLManagedTensor>, Error> =
+            Builder::new(ctx, metadata::GenericSlice::new(&[1u32, 2], &[1i16])).try_build();
+        assert!(matches!(result, Err(Error::MismatchedLength { .. })));
+    }
+
+    #[test]
     fn borrowed_array_reuses_metadata() {
         let (ctx, _) = context();
         let shape = [2, 4];

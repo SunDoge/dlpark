@@ -1,6 +1,6 @@
 use crate::{OpaqueContext, ffi::DLTensor, managed_tensor::ManagedTensorBase};
 use snafu::{ResultExt, Snafu, ensure};
-use std::{alloc::Layout, borrow::Borrow, convert::Infallible, ptr::NonNull};
+use std::{alloc::Layout, borrow::Borrow, convert::Infallible, marker::PhantomData, ptr::NonNull};
 
 #[derive(Debug, Snafu)]
 pub enum Error {
@@ -226,6 +226,122 @@ where
     }
 }
 
+impl<S, T, A, B, const N: usize> Metadata for GenericArray<S, T, A, B, N>
+where
+    S: Borrow<[A; N]>,
+    T: Borrow<[B; N]>,
+    A: Copy + Into<i64>,
+    B: Copy + Into<i64>,
+{
+    type Error = Infallible;
+
+    #[inline]
+    fn try_allocate<C, M>(self, ctx: C) -> Result<NonNull<M>, Self::Error>
+    where
+        C: OpaqueContext,
+        M: ManagedTensorBase,
+    {
+        Ok(self.allocate(ctx))
+    }
+
+    #[inline]
+    unsafe fn allocate_unchecked<C, M>(self, ctx: C) -> NonNull<M>
+    where
+        C: OpaqueContext,
+        M: ManagedTensorBase,
+    {
+        self.allocate(ctx)
+    }
+}
+
+impl<S, T, A, B, const N: usize> InfallibleMetadata for GenericArray<S, T, A, B, N>
+where
+    S: Borrow<[A; N]>,
+    T: Borrow<[B; N]>,
+    A: Copy + Into<i64>,
+    B: Copy + Into<i64>,
+{
+    #[inline]
+    fn allocate<C, M>(self, ctx: C) -> NonNull<M>
+    where
+        C: OpaqueContext,
+        M: ManagedTensorBase,
+    {
+        self.allocate(ctx)
+    }
+}
+
+/// Converts fixed-rank metadata into `i64` storage trailing the managed tensor.
+///
+/// This uses the same single allocation as [`CopiedArray`], but accepts
+/// non-`i64` shape and stride elements and converts them while writing.
+/// Shape and stride elements may use different source types. Both must
+/// implement `Copy + Into<i64>`.
+///
+/// The rank is known at compile time, so allocation and construction are
+/// infallible. The element conversions themselves are also infallible by
+/// construction.
+///
+/// # Example
+///
+/// ```
+/// use dlpark::{Builder, legacy, metadata::GenericArray};
+///
+/// let shape = [2u32, 3];
+/// let strides = [3i16, 1];
+/// let tensor: legacy::Dlpack =
+///     Builder::new(Box::new(()), GenericArray::new(&shape, &strides)).build();
+///
+/// assert_eq!(tensor.shape().unwrap(), &[2, 3]);
+/// assert_eq!(tensor.strides().unwrap().unwrap(), &[3, 1]);
+/// ```
+#[derive(Debug, Clone, Copy)]
+pub struct GenericArray<S, T, A, B, const N: usize> {
+    shape: S,
+    strides: T,
+    marker: PhantomData<fn() -> (A, B)>,
+}
+
+impl<S, T, A, B, const N: usize> GenericArray<S, T, A, B, N>
+where
+    S: Borrow<[A; N]>,
+    T: Borrow<[B; N]>,
+    A: Copy + Into<i64>,
+    B: Copy + Into<i64>,
+{
+    #[inline]
+    pub fn new(shape: S, strides: T) -> Self {
+        Self {
+            shape,
+            strides,
+            marker: PhantomData,
+        }
+    }
+
+    #[inline]
+    pub fn allocate<C, M>(self, ctx: C) -> NonNull<M>
+    where
+        C: OpaqueContext,
+        M: ManagedTensorBase,
+    {
+        const { assert!(N <= i32::MAX as usize, "N must fit in i32") };
+
+        unsafe {
+            let (managed_tensor, shape, strides) = allocate_copied_array::<M, N>();
+            copy_generic_metadata(self.shape.borrow(), shape);
+            copy_generic_metadata(self.strides.borrow(), strides);
+            initialize(
+                managed_tensor,
+                shape,
+                strides,
+                N as i32,
+                ctx,
+                drop_copied_array::<C, M, N>,
+            )
+        }
+    }
+}
+
 impl<S, T> Metadata for CopiedSlice<S, T>
 where
     S: AsRef<[i64]>,
@@ -305,6 +421,128 @@ where
             let (managed_tensor, shape, strides) = allocate_copied_slice::<M>(ndim as usize);
             copy_i64_metadata(self.shape.as_ref(), shape);
             copy_i64_metadata(self.strides.as_ref(), strides);
+
+            Ok(initialize(
+                managed_tensor,
+                shape,
+                strides,
+                ndim,
+                ctx,
+                drop_copied_slice::<C, M>,
+            ))
+        }
+    }
+}
+
+impl<S, T, A, B> Metadata for GenericSlice<S, T, A, B>
+where
+    S: AsRef<[A]>,
+    T: AsRef<[B]>,
+    A: Copy + Into<i64>,
+    B: Copy + Into<i64>,
+{
+    type Error = Error;
+
+    #[inline]
+    fn try_allocate<C, M>(self, ctx: C) -> Result<NonNull<M>, Self::Error>
+    where
+        C: OpaqueContext,
+        M: ManagedTensorBase,
+    {
+        self.allocate(ctx)
+    }
+
+    #[inline]
+    unsafe fn allocate_unchecked<C, M>(self, ctx: C) -> NonNull<M>
+    where
+        C: OpaqueContext,
+        M: ManagedTensorBase,
+    {
+        let shape_src = self.shape.as_ref();
+        let strides_src = self.strides.as_ref();
+        let ndim = shape_src.len();
+        debug_assert_eq!(shape_src.len(), strides_src.len());
+        debug_assert!(ndim <= i32::MAX as usize);
+
+        unsafe {
+            let (managed_tensor, shape, strides) = allocate_copied_slice::<M>(ndim);
+            copy_generic_metadata(shape_src, shape);
+            copy_generic_metadata_n(strides_src, strides, ndim);
+            initialize(
+                managed_tensor,
+                shape,
+                strides,
+                ndim as i32,
+                ctx,
+                drop_copied_slice::<C, M>,
+            )
+        }
+    }
+}
+
+/// Converts runtime-rank metadata into `i64` storage trailing the managed tensor.
+///
+/// This uses the same single allocation as [`CopiedSlice`], but accepts
+/// non-`i64` shape and stride elements and converts them while writing.
+/// Shape and stride elements may use different source types. Both must
+/// implement `Copy + Into<i64>`.
+///
+/// Construction validates that shape and strides have equal lengths and that
+/// the resulting rank fits in `i32`. Use [`crate::Builder::try_build`] or
+/// [`crate::Builder::try_build_raw`] with this metadata type.
+///
+/// # Example
+///
+/// ```
+/// use dlpark::{Builder, legacy, metadata::GenericSlice};
+///
+/// let shape = vec![2u32, 3];
+/// let strides = vec![3i16, 1];
+/// let tensor: legacy::Dlpack =
+///     Builder::new(Box::new(()), GenericSlice::new(&shape, &strides))
+///         .try_build()
+///         .unwrap();
+///
+/// assert_eq!(tensor.shape().unwrap(), &[2, 3]);
+/// assert_eq!(tensor.strides().unwrap().unwrap(), &[3, 1]);
+/// ```
+#[derive(Debug, Clone, Copy)]
+pub struct GenericSlice<S, T, A, B> {
+    shape: S,
+    strides: T,
+    marker: PhantomData<fn() -> (A, B)>,
+}
+
+impl<S, T, A, B> GenericSlice<S, T, A, B>
+where
+    S: AsRef<[A]>,
+    T: AsRef<[B]>,
+    A: Copy + Into<i64>,
+    B: Copy + Into<i64>,
+{
+    #[inline]
+    pub fn new(shape: S, strides: T) -> Self {
+        Self {
+            shape,
+            strides,
+            marker: PhantomData,
+        }
+    }
+
+    #[inline]
+    pub fn allocate<C, M>(self, ctx: C) -> Result<NonNull<M>, Error>
+    where
+        C: OpaqueContext,
+        M: ManagedTensorBase,
+    {
+        let shape = self.shape.as_ref();
+        let strides = self.strides.as_ref();
+        let ndim = checked_ndim(shape.len(), strides.len())?;
+
+        unsafe {
+            let (managed_tensor, shape, strides) = allocate_copied_slice::<M>(ndim as usize);
+            copy_generic_metadata(self.shape.as_ref(), shape);
+            copy_generic_metadata(self.strides.as_ref(), strides);
 
             Ok(initialize(
                 managed_tensor,
@@ -440,6 +678,18 @@ unsafe fn copy_i64_metadata(src: &[i64], dst: *mut i64) {
 #[inline]
 unsafe fn copy_i64_metadata_n(src: &[i64], dst: *mut i64, len: usize) {
     unsafe { std::ptr::copy_nonoverlapping(src.as_ptr(), dst, len) };
+}
+
+#[inline]
+unsafe fn copy_generic_metadata<T: Copy + Into<i64>>(src: &[T], dst: *mut i64) {
+    unsafe { copy_generic_metadata_n(src, dst, src.len()) };
+}
+
+#[inline]
+unsafe fn copy_generic_metadata_n<T: Copy + Into<i64>>(src: &[T], dst: *mut i64, len: usize) {
+    for (index, &value) in src[..len].iter().enumerate() {
+        unsafe { dst.add(index).write(value.into()) };
+    }
 }
 
 #[inline]
