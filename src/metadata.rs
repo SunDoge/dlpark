@@ -498,7 +498,7 @@ where
         unsafe {
             let (managed_tensor, shape, strides) = allocate_copied_slice::<M>(ndim);
             copy_generic_metadata_unchecked(shape_src, shape);
-            copy_generic_metadata_n_unchecked(strides_src, strides, ndim);
+            copy_generic_metadata_unchecked(strides_src, strides);
             initialize(
                 managed_tensor,
                 shape,
@@ -786,16 +786,7 @@ unsafe fn try_copy_generic_metadata<T: Copy + TryInto<i64>>(
 
 #[inline]
 unsafe fn copy_generic_metadata_unchecked<T: Copy + TryInto<i64>>(src: &[T], dst: *mut i64) {
-    unsafe { copy_generic_metadata_n_unchecked(src, dst, src.len()) };
-}
-
-#[inline]
-unsafe fn copy_generic_metadata_n_unchecked<T: Copy + TryInto<i64>>(
-    src: &[T],
-    dst: *mut i64,
-    len: usize,
-) {
-    for (index, &value) in src[..len].iter().enumerate() {
+    for (index, &value) in src.iter().enumerate() {
         let value = match value.try_into() {
             Ok(value) => value,
             Err(_) => unsafe { std::hint::unreachable_unchecked() },
