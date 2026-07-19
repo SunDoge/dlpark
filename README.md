@@ -53,8 +53,8 @@ Other key features:
 
 - **`CopiedArray<S, T, N>`** — fixed rank known at compile time. Shape and strides are copied into the managed tensor allocation. `build` and `build_raw` are infallible.
 - **`CopiedSlice<S, T>`** — dynamic rank. The containers may be borrowed slices or owned values such as `Vec<i64>`. Use `try_build` or `try_build_raw`.
-- **`GenericArray<S, T, A, B, N>`** — fixed-rank metadata with non-`i64` elements. Values are converted with `Into<i64>` directly into the managed tensor allocation.
-- **`GenericSlice<S, T, A, B>`** — dynamic-rank metadata with non-`i64` elements. It avoids allocating temporary `Vec<i64>` values.
+- **`GenericArray<S, T, A, B, N>`** — fixed-rank metadata with elements that implement `TryInto<i64>`. Values are converted directly into the managed tensor allocation; use `try_build` or `try_build_raw`.
+- **`GenericSlice<S, T, A, B>`** — dynamic-rank metadata with elements that implement `TryInto<i64>`. It avoids allocating temporary `Vec<i64>` values.
 - **`BorrowedArray<N>`** — fixed-rank, zero-copy metadata. Its `build` methods are unsafe because the arrays must outlive the managed tensor.
 - **`BorrowedSlice`** — dynamic-rank, zero-copy metadata. Its `try_build` methods are unsafe for the same lifetime reason.
 
@@ -86,6 +86,10 @@ development machine. Reproduce it with:
 ```bash
 cargo bench --bench builder -- generic_metadata_copy
 ```
+
+The ndarray exporter uses the same direct path for its `usize` shape and
+`isize` strides, so exporting an owned array does not allocate temporary
+`Vec<i64>` metadata.
 
 ### Python Exchange Paths
 

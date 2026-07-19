@@ -1,6 +1,5 @@
 use crate::{
-    DlpackElement, builder::Builder, dlpack::ManagedBox, ffi::DLDevice,
-    managed_tensor::ManagedTensorBase, metadata,
+    DlpackElement, dlpack::ManagedBox, ffi::DLDevice, managed_tensor::ManagedTensorBase, metadata,
 };
 use ndarray::{ArrayBase, ArrayViewD, Dimension, IxDyn, OwnedRepr, ShapeBuilder};
 use snafu::{ResultExt, Snafu, ensure};
@@ -8,12 +7,6 @@ use std::os::raw::c_void;
 
 #[derive(Debug, Snafu)]
 pub enum Error {
-    #[snafu(display("shape dimension {axis} with value {value} does not fit in i64"))]
-    DimensionOverflow { axis: usize, value: usize },
-
-    #[snafu(display("stride {axis} with value {value} does not fit in i64"))]
-    StrideOverflow { axis: usize, value: isize },
-
     #[snafu(display("DLPack stride {axis} is negative: {value}"))]
     NegativeStride { axis: usize, value: i64 },
 
@@ -66,20 +59,23 @@ where
     D: Dimension,
     M: ManagedTensorBase,
 {
-    let (shape, strides) = ndarray_layout(&array)?;
+    // Read metadata after the array has moved into its stable Box, then copy it
+    // directly into the final managed-tensor allocation.
     let data_ptr = if array.is_empty() {
         std::ptr::null_mut()
     } else {
         array.as_ptr() as *mut c_void
     };
+    let mut managed = metadata::allocate_generic_slice_from_context::<_, M, usize, isize, _>(
+        Box::new(array),
+        |array| (array.shape(), array.strides()),
+    )?;
+    let tensor = unsafe { managed.as_mut() }.tensor_mut();
+    tensor.data = data_ptr;
+    tensor.dtype = T::DTYPE;
+    tensor.device = DLDevice::CPU;
 
-    Ok(
-        Builder::new(Box::new(array), metadata::CopiedSlice::new(shape, strides))
-            .data(data_ptr)
-            .dtype(T::DTYPE)
-            .device(DLDevice::CPU)
-            .try_build::<M>()?,
-    )
+    Ok(unsafe { ManagedBox::new_unchecked(managed.as_ptr()) })
 }
 
 pub fn array_view_from_dlpack<'a, T, M>(
@@ -141,30 +137,6 @@ fn strided_span_len(shape: &[usize], strides: &[usize]) -> Result<usize, Error> 
             let axis_span = (dim - 1).checked_mul(stride).ok_or(Error::SpanOverflow)?;
             span.checked_add(axis_span).ok_or(Error::SpanOverflow)
         })
-}
-
-fn ndarray_layout<T, D>(array: &ArrayBase<OwnedRepr<T>, D>) -> Result<(Vec<i64>, Vec<i64>), Error>
-where
-    D: Dimension,
-{
-    let shape = array
-        .shape()
-        .iter()
-        .enumerate()
-        .map(|(axis, &value)| {
-            i64::try_from(value).map_err(|_| Error::DimensionOverflow { axis, value })
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    let strides = array
-        .strides()
-        .iter()
-        .enumerate()
-        .map(|(axis, &value)| {
-            i64::try_from(value).map_err(|_| Error::StrideOverflow { axis, value })
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-
-    Ok((shape, strides))
 }
 
 #[cfg(test)]

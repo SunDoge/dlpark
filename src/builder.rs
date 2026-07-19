@@ -464,10 +464,12 @@ mod tests {
     fn generic_array_converts_metadata_without_temporary_i64_arrays() {
         let (ctx, _) = context();
         let shape = [2u32, 3];
-        let strides = [3i16, 1];
+        let strides = [3isize, 1];
 
         let tensor: ManagedBox<DLManagedTensor> =
-            Builder::new(ctx, metadata::GenericArray::new(&shape, &strides)).build();
+            Builder::new(ctx, metadata::GenericArray::new(&shape, &strides))
+                .try_build()
+                .unwrap();
 
         assert_eq!(tensor.shape().unwrap(), &[2, 3]);
         assert_eq!(tensor.strides().unwrap().unwrap(), &[3, 1]);
@@ -477,7 +479,7 @@ mod tests {
     fn generic_slice_converts_metadata_and_validates_lengths() {
         let (ctx, _) = context();
         let shape = vec![2u32, 3];
-        let strides = vec![3i16, 1];
+        let strides = vec![3isize, 1];
 
         let tensor: ManagedBox<DLManagedTensor> =
             Builder::new(ctx, metadata::GenericSlice::new(&shape, &strides))
@@ -488,8 +490,21 @@ mod tests {
 
         let (ctx, _) = context();
         let result: Result<ManagedBox<DLManagedTensor>, Error> =
-            Builder::new(ctx, metadata::GenericSlice::new(&[1u32, 2], &[1i16])).try_build();
+            Builder::new(ctx, metadata::GenericSlice::new(&[1usize, 2], &[1isize])).try_build();
         assert!(matches!(result, Err(Error::MismatchedLength { .. })));
+    }
+
+    #[test]
+    fn generic_metadata_reports_conversion_axis() {
+        let (ctx, drop_count) = context();
+        let result: Result<ManagedBox<DLManagedTensor>, Error> = Builder::new(
+            ctx,
+            metadata::GenericArray::new(&[1u64, i64::MAX as u64 + 1], &[1u64, 1]),
+        )
+        .try_build();
+
+        assert!(matches!(result, Err(Error::ShapeValueOverflow { axis: 1 })));
+        assert_eq!(Arc::strong_count(&drop_count), 1);
     }
 
     #[test]

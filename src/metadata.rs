@@ -15,6 +15,12 @@ pub enum Error {
         ndim: usize,
         source: std::num::TryFromIntError,
     },
+
+    #[snafu(display("shape value at axis {axis} does not fit in i64"))]
+    ShapeValueOverflow { axis: usize },
+
+    #[snafu(display("stride value at axis {axis} does not fit in i64"))]
+    StrideValueOverflow { axis: usize },
 }
 
 pub trait Metadata {
@@ -32,8 +38,9 @@ pub trait Metadata {
     /// The caller must uphold the metadata type's runtime invariants. For
     /// dynamic metadata this includes matching shape/strides lengths,
     /// `ndim <= i32::MAX`, and readable shape/strides storage for `ndim`
-    /// `i64` values. Violating these requirements may cause out-of-bounds
-    /// reads or an invalid `DLTensor`.
+    /// values. Generic metadata additionally requires every value to convert
+    /// successfully to `i64`. Violating these requirements may cause
+    /// out-of-bounds reads or undefined behavior.
     unsafe fn allocate_unchecked<C, M>(self, ctx: C) -> NonNull<M>
     where
         C: OpaqueContext,
@@ -230,10 +237,10 @@ impl<S, T, A, B, const N: usize> Metadata for GenericArray<S, T, A, B, N>
 where
     S: Borrow<[A; N]>,
     T: Borrow<[B; N]>,
-    A: Copy + Into<i64>,
-    B: Copy + Into<i64>,
+    A: Copy + TryInto<i64>,
+    B: Copy + TryInto<i64>,
 {
-    type Error = Infallible;
+    type Error = Error;
 
     #[inline]
     fn try_allocate<C, M>(self, ctx: C) -> Result<NonNull<M>, Self::Error>
@@ -241,7 +248,7 @@ where
         C: OpaqueContext,
         M: ManagedTensorBase,
     {
-        Ok(self.allocate(ctx))
+        self.allocate(ctx)
     }
 
     #[inline]
@@ -250,24 +257,7 @@ where
         C: OpaqueContext,
         M: ManagedTensorBase,
     {
-        self.allocate(ctx)
-    }
-}
-
-impl<S, T, A, B, const N: usize> InfallibleMetadata for GenericArray<S, T, A, B, N>
-where
-    S: Borrow<[A; N]>,
-    T: Borrow<[B; N]>,
-    A: Copy + Into<i64>,
-    B: Copy + Into<i64>,
-{
-    #[inline]
-    fn allocate<C, M>(self, ctx: C) -> NonNull<M>
-    where
-        C: OpaqueContext,
-        M: ManagedTensorBase,
-    {
-        self.allocate(ctx)
+        unsafe { self.allocate_unchecked(ctx) }
     }
 }
 
@@ -276,11 +266,10 @@ where
 /// This uses the same single allocation as [`CopiedArray`], but accepts
 /// non-`i64` shape and stride elements and converts them while writing.
 /// Shape and stride elements may use different source types. Both must
-/// implement `Copy + Into<i64>`.
+/// implement `Copy + TryInto<i64>`.
 ///
-/// The rank is known at compile time, so allocation and construction are
-/// infallible. The element conversions themselves are also infallible by
-/// construction.
+/// The rank is known at compile time, but element conversion can fail, so use
+/// [`crate::Builder::try_build`] or [`crate::Builder::try_build_raw`].
 ///
 /// # Example
 ///
@@ -288,9 +277,11 @@ where
 /// use dlpark::{Builder, legacy, metadata::GenericArray};
 ///
 /// let shape = [2u32, 3];
-/// let strides = [3i16, 1];
+/// let strides = [3isize, 1];
 /// let tensor: legacy::Dlpack =
-///     Builder::new(Box::new(()), GenericArray::new(&shape, &strides)).build();
+///     Builder::new(Box::new(()), GenericArray::new(&shape, &strides))
+///         .try_build()
+///         .unwrap();
 ///
 /// assert_eq!(tensor.shape().unwrap(), &[2, 3]);
 /// assert_eq!(tensor.strides().unwrap().unwrap(), &[3, 1]);
@@ -306,8 +297,8 @@ impl<S, T, A, B, const N: usize> GenericArray<S, T, A, B, N>
 where
     S: Borrow<[A; N]>,
     T: Borrow<[B; N]>,
-    A: Copy + Into<i64>,
-    B: Copy + Into<i64>,
+    A: Copy + TryInto<i64>,
+    B: Copy + TryInto<i64>,
 {
     #[inline]
     pub fn new(shape: S, strides: T) -> Self {
@@ -319,7 +310,7 @@ where
     }
 
     #[inline]
-    pub fn allocate<C, M>(self, ctx: C) -> NonNull<M>
+    pub fn allocate<C, M>(self, ctx: C) -> Result<NonNull<M>, Error>
     where
         C: OpaqueContext,
         M: ManagedTensorBase,
@@ -328,8 +319,48 @@ where
 
         unsafe {
             let (managed_tensor, shape, strides) = allocate_copied_array::<M, N>();
-            copy_generic_metadata(self.shape.borrow(), shape);
-            copy_generic_metadata(self.strides.borrow(), strides);
+            if let Err(axis) = try_copy_generic_metadata(self.shape.borrow(), shape) {
+                std::alloc::dealloc(
+                    managed_tensor.as_ptr().cast(),
+                    copied_array_layout::<M, N>().0,
+                );
+                return Err(Error::ShapeValueOverflow { axis });
+            }
+            if let Err(axis) = try_copy_generic_metadata(self.strides.borrow(), strides) {
+                std::alloc::dealloc(
+                    managed_tensor.as_ptr().cast(),
+                    copied_array_layout::<M, N>().0,
+                );
+                return Err(Error::StrideValueOverflow { axis });
+            }
+            Ok(initialize(
+                managed_tensor,
+                shape,
+                strides,
+                N as i32,
+                ctx,
+                drop_copied_array::<C, M, N>,
+            ))
+        }
+    }
+
+    /// Allocates without checking whether metadata values fit in `i64`.
+    ///
+    /// # Safety
+    ///
+    /// Every shape and stride value must convert successfully to `i64`.
+    #[inline]
+    pub unsafe fn allocate_unchecked<C, M>(self, ctx: C) -> NonNull<M>
+    where
+        C: OpaqueContext,
+        M: ManagedTensorBase,
+    {
+        const { assert!(N <= i32::MAX as usize, "N must fit in i32") };
+
+        unsafe {
+            let (managed_tensor, shape, strides) = allocate_copied_array::<M, N>();
+            copy_generic_metadata_unchecked(self.shape.borrow(), shape);
+            copy_generic_metadata_unchecked(self.strides.borrow(), strides);
             initialize(
                 managed_tensor,
                 shape,
@@ -438,8 +469,8 @@ impl<S, T, A, B> Metadata for GenericSlice<S, T, A, B>
 where
     S: AsRef<[A]>,
     T: AsRef<[B]>,
-    A: Copy + Into<i64>,
-    B: Copy + Into<i64>,
+    A: Copy + TryInto<i64>,
+    B: Copy + TryInto<i64>,
 {
     type Error = Error;
 
@@ -466,8 +497,8 @@ where
 
         unsafe {
             let (managed_tensor, shape, strides) = allocate_copied_slice::<M>(ndim);
-            copy_generic_metadata(shape_src, shape);
-            copy_generic_metadata_n(strides_src, strides, ndim);
+            copy_generic_metadata_unchecked(shape_src, shape);
+            copy_generic_metadata_n_unchecked(strides_src, strides, ndim);
             initialize(
                 managed_tensor,
                 shape,
@@ -485,7 +516,7 @@ where
 /// This uses the same single allocation as [`CopiedSlice`], but accepts
 /// non-`i64` shape and stride elements and converts them while writing.
 /// Shape and stride elements may use different source types. Both must
-/// implement `Copy + Into<i64>`.
+/// implement `Copy + TryInto<i64>`.
 ///
 /// Construction validates that shape and strides have equal lengths and that
 /// the resulting rank fits in `i32`. Use [`crate::Builder::try_build`] or
@@ -517,8 +548,8 @@ impl<S, T, A, B> GenericSlice<S, T, A, B>
 where
     S: AsRef<[A]>,
     T: AsRef<[B]>,
-    A: Copy + Into<i64>,
-    B: Copy + Into<i64>,
+    A: Copy + TryInto<i64>,
+    B: Copy + TryInto<i64>,
 {
     #[inline]
     pub fn new(shape: S, strides: T) -> Self {
@@ -541,8 +572,20 @@ where
 
         unsafe {
             let (managed_tensor, shape, strides) = allocate_copied_slice::<M>(ndim as usize);
-            copy_generic_metadata(self.shape.as_ref(), shape);
-            copy_generic_metadata(self.strides.as_ref(), strides);
+            if let Err(axis) = try_copy_generic_metadata(self.shape.as_ref(), shape) {
+                std::alloc::dealloc(
+                    managed_tensor.as_ptr().cast(),
+                    copied_slice_layout::<M>(ndim as usize).0,
+                );
+                return Err(Error::ShapeValueOverflow { axis });
+            }
+            if let Err(axis) = try_copy_generic_metadata(self.strides.as_ref(), strides) {
+                std::alloc::dealloc(
+                    managed_tensor.as_ptr().cast(),
+                    copied_slice_layout::<M>(ndim as usize).0,
+                );
+                return Err(Error::StrideValueOverflow { axis });
+            }
 
             Ok(initialize(
                 managed_tensor,
@@ -553,6 +596,55 @@ where
                 drop_copied_slice::<C, M>,
             ))
         }
+    }
+}
+
+/// Allocates dynamic metadata borrowed temporarily from an owned context.
+///
+/// The metadata is fully copied before `ctx` is transferred into
+/// `manager_ctx`, allowing adapters to read slices from an owner that is moved
+/// into the resulting managed tensor without creating temporary `Vec<i64>`
+/// values.
+#[cfg(feature = "ndarray")]
+pub(crate) fn allocate_generic_slice_from_context<C, M, A, B, F>(
+    ctx: C,
+    metadata: F,
+) -> Result<NonNull<M>, Error>
+where
+    C: OpaqueContext,
+    M: ManagedTensorBase,
+    A: Copy + TryInto<i64>,
+    B: Copy + TryInto<i64>,
+    F: for<'a> FnOnce(&'a C) -> (&'a [A], &'a [B]),
+{
+    let (shape, strides) = metadata(&ctx);
+    let ndim = checked_ndim(shape.len(), strides.len())?;
+
+    unsafe {
+        let (managed_tensor, shape_dst, strides_dst) = allocate_copied_slice::<M>(ndim as usize);
+        if let Err(axis) = try_copy_generic_metadata(shape, shape_dst) {
+            std::alloc::dealloc(
+                managed_tensor.as_ptr().cast(),
+                copied_slice_layout::<M>(ndim as usize).0,
+            );
+            return Err(Error::ShapeValueOverflow { axis });
+        }
+        if let Err(axis) = try_copy_generic_metadata(strides, strides_dst) {
+            std::alloc::dealloc(
+                managed_tensor.as_ptr().cast(),
+                copied_slice_layout::<M>(ndim as usize).0,
+            );
+            return Err(Error::StrideValueOverflow { axis });
+        }
+
+        Ok(initialize(
+            managed_tensor,
+            shape_dst,
+            strides_dst,
+            ndim,
+            ctx,
+            drop_copied_slice::<C, M>,
+        ))
     }
 }
 
@@ -681,14 +773,34 @@ unsafe fn copy_i64_metadata_n(src: &[i64], dst: *mut i64, len: usize) {
 }
 
 #[inline]
-unsafe fn copy_generic_metadata<T: Copy + Into<i64>>(src: &[T], dst: *mut i64) {
-    unsafe { copy_generic_metadata_n(src, dst, src.len()) };
+unsafe fn try_copy_generic_metadata<T: Copy + TryInto<i64>>(
+    src: &[T],
+    dst: *mut i64,
+) -> Result<(), usize> {
+    for (axis, &value) in src.iter().enumerate() {
+        let value = value.try_into().map_err(|_| axis)?;
+        unsafe { dst.add(axis).write(value) };
+    }
+    Ok(())
 }
 
 #[inline]
-unsafe fn copy_generic_metadata_n<T: Copy + Into<i64>>(src: &[T], dst: *mut i64, len: usize) {
+unsafe fn copy_generic_metadata_unchecked<T: Copy + TryInto<i64>>(src: &[T], dst: *mut i64) {
+    unsafe { copy_generic_metadata_n_unchecked(src, dst, src.len()) };
+}
+
+#[inline]
+unsafe fn copy_generic_metadata_n_unchecked<T: Copy + TryInto<i64>>(
+    src: &[T],
+    dst: *mut i64,
+    len: usize,
+) {
     for (index, &value) in src[..len].iter().enumerate() {
-        unsafe { dst.add(index).write(value.into()) };
+        let value = match value.try_into() {
+            Ok(value) => value,
+            Err(_) => unsafe { std::hint::unreachable_unchecked() },
+        };
+        unsafe { dst.add(index).write(value) };
     }
 }
 
