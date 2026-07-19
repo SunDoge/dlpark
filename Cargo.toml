@@ -26,8 +26,8 @@ dlpark = {
   default-features = false
 }  # Add dlpark as a workspace dependency
 half = "2.7"
-image = "0.25"
-ndarray = "0.17"
+image = { version = "0.25", default-features = false }
+ndarray = { version = "0.17", default-features = false, features = ["std"] }
 pyo3 = "0.29"
 snafu = "0.9"
 
@@ -35,6 +35,10 @@ snafu = "0.9"
 doctest = false
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[[bench]]
+harness = false
+name = "builder"
 
 [dependencies]
 bitflags = "2.9"
@@ -46,6 +50,10 @@ half = { workspace = true, optional = true }
 image = { workspace = true, optional = true }
 ndarray = { workspace = true, optional = true }
 pyo3 = { workspace = true, optional = true }
+
+[dev-dependencies]
+criterion = "0.8.2"
+pprof = { version = "0.15.0", features = ["flamegraph"] }
 
 [features]
 default = []
@@ -61,11 +69,11 @@ candle = ["dep:candle-core"]
 
 # CPU-only interop surface for regular tests. This intentionally excludes
 # `cudarc` (CUDA runtime).
-cpu-all = ["pyo3", "half", "image", "ndarray", "candle"]
+cpu-all = ["candle", "half", "image", "ndarray", "pyo3"]
 
 # Feature set suitable for Miri. This intentionally excludes `pyo3`, whose
 # tests call the Python C API.
-miri = ["half", "image", "ndarray", "candle"]
+miri = ["candle", "half", "image", "ndarray"]
 
 cudarc = [
   "cudarc/cuda-version-from-build-system",
@@ -86,11 +94,3 @@ opt-level = 2
 [profile.profiling]
 inherits = "release"
 debug = true
-
-[dev-dependencies]
-criterion = "0.8.2"
-pprof = { version = "0.15.0", features = ["flamegraph"] }
-
-[[bench]]
-name = "builder"
-harness = false
