@@ -3,16 +3,14 @@
 //! Provides zero-copy conversion between [`CudaSlice<T>`] and DLPack managed
 //! tensors in both directions.
 //!
-//! # `from_cuda_slice` direction (`CudaSlice<T>` → `ManagedBox`)
+//! # `CudaSlice<T>` → [`Builder`]
 //!
-//! The slice is heap-boxed and stored as the `manager_ctx`; the underlying
-//! CUDA allocation is freed when the DLPack deleter fires.
-//!
-//! This stays a plain function rather than `TryFrom` because the DLPack shape
-//! and strides are not derivable from a bare `CudaSlice<T>` (it is just a flat
-//! device buffer) — the conversion genuinely needs more than one argument, so
-//! forcing it through `TryFrom`'s single-argument contract would not simplify
-//! anything.
+//! [`CudaBuilder::try_from`] treats the flat device buffer as a contiguous 1-D
+//! tensor with shape `[slice.len()]` and strides `[1]`. Call
+//! [`Builder::metadata`] to replace that default before building a tensor with
+//! a higher-rank layout. The slice is heap-boxed and stored as the
+//! `manager_ctx`; the underlying CUDA allocation is freed when the DLPack
+//! deleter fires.
 //!
 //! # `to_cuda_slice` direction (`ManagedBox` → [`BorrowedCudaSlice`])
 //!
@@ -35,9 +33,26 @@
 //! become dangling. Calling `view.device_ptr()` would then be UB.
 //! `BorrowedCudaSlice` avoids this by keeping the slice alive.
 //!
+//! In particular, the workaround sometimes shown for older cudarc releases
+//! cannot be used with the current API:
+//!
+//! 1. create a temporary `CudaSlice` with `CudaDevice::upgrade_device_ptr`;
+//! 2. create a `CudaView` from that slice;
+//! 3. extend the view lifetime with `transmute`;
+//! 4. call `CudaSlice::leak` to avoid freeing the DLPack allocation.
+//!
+//! Step 4 drops the exact event and stream fields borrowed by the view, so the
+//! returned view contains dangling references. dlpark instead retains the
+//! temporary `CudaSlice` for the whole lifetime of `BorrowedCudaSlice`, calls
+//! `CudaSlice::leak` only when that wrapper is dropped, and then releases the
+//! owning DLPack tensor. This adapter can be simplified if cudarc gains a
+//! public non-owning raw-device-buffer type that does not require this
+//! ownership workaround.
+//!
 //! # Stream synchronization
 //!
-//! `from_cuda_slice` records a read fence on the slice's stream via
+//! Converting a [`CudaSlice`] into a builder records a read fence on the
+//! slice's stream via
 //! [`DevicePtr::device_ptr`] before capturing the pointer. The consumer must
 //! wait on that stream before reading the data.
 //!
@@ -70,6 +85,21 @@ pub enum Error {
     #[snafu(display("tensor data pointer is null"))]
     NullData,
 
+    #[snafu(display("CUDA slice length {len} does not fit in i64"))]
+    LengthOverflow {
+        len: usize,
+        source: std::num::TryFromIntError,
+    },
+
+    #[snafu(display("CUDA device ordinal {ordinal} does not fit in i32"))]
+    DeviceIdOverflow {
+        ordinal: usize,
+        source: std::num::TryFromIntError,
+    },
+
+    #[snafu(display("CUDA device ID must be non-negative, got {device_id}"))]
+    InvalidDeviceId { device_id: i32 },
+
     #[snafu(display("dtype mismatch: expected {expected:?}, got {actual:?}"))]
     DtypeMismatch {
         expected: crate::ffi::DLDataType,
@@ -90,7 +120,34 @@ pub enum Error {
 // Forward: CudaSlice<T> → ManagedBox
 // ---------------------------------------------------------------------------
 
-/// Wrap a [`CudaSlice<T>`] as a [`Dlpack`].
+/// A [`Builder`] that owns a CUDA slice with a contiguous 1-D default layout.
+pub type CudaBuilder<T> = Builder<Box<CudaSlice<T>>, metadata::CopiedArray<[i64; 1], [i64; 1], 1>>;
+
+impl<T: DlpackElement> TryFrom<CudaSlice<T>> for CudaBuilder<T> {
+    type Error = Error;
+
+    fn try_from(slice: CudaSlice<T>) -> Result<Self, Self::Error> {
+        let len = i64::try_from(slice.len()).map_err(|source| Error::LengthOverflow {
+            len: slice.len(),
+            source,
+        })?;
+        let device_id =
+            i32::try_from(slice.ordinal()).map_err(|source| Error::DeviceIdOverflow {
+                ordinal: slice.ordinal(),
+                source,
+            })?;
+        let data_ptr = device_ptr_of(&slice);
+
+        Ok(
+            Builder::new(Box::new(slice), metadata::CopiedArray::new([len], [1]))
+                .device(DLDevice::cuda(device_id))
+                .data(data_ptr)
+                .dtype(T::DTYPE),
+        )
+    }
+}
+
+/// Wrap a [`CudaSlice<T>`] as a [`legacy::Dlpack`].
 ///
 /// - `slice` — owned GPU buffer; ownership is transferred into the DLPack
 ///   tensor's `manager_ctx` via `Box<CudaSlice<T>>`
@@ -99,23 +156,16 @@ pub enum Error {
 ///
 /// # Errors
 ///
-/// - [`Error::MismatchedLength`] if `shape.len() != strides.len()`
-/// - [`Error::NdimOverflow`] if `shape.len()` overflows `i32`
+/// - [`metadata::Error::MismatchedLength`] if `shape.len() != strides.len()`
+/// - [`metadata::Error::NdimOverflow`] if `shape.len()` overflows `i32`
 pub fn from_cuda_slice<T: DlpackElement>(
     slice: CudaSlice<T>,
     shape: &[i64],
     strides: &[i64],
 ) -> Result<legacy::Dlpack, Error> {
-    let device_id = slice.ordinal() as i32;
-    let data_ptr = device_ptr_of(&slice);
-
-    Ok(
-        Builder::new(Box::new(slice), metadata::CopiedSlice::new(shape, strides))
-            .device(DLDevice::cuda(device_id))
-            .data(data_ptr)
-            .dtype(T::DTYPE)
-            .try_build::<DLManagedTensor>()?,
-    )
+    Ok(CudaBuilder::try_from(slice)?
+        .metadata(metadata::CopiedSlice::new(shape, strides))
+        .try_build::<DLManagedTensor>()?)
 }
 
 /// Same as [`from_cuda_slice`] but produces a [`DLManagedTensorVersioned`] (DLPack ≥ 1.0).
@@ -124,16 +174,9 @@ pub fn from_cuda_slice_versioned<T: DlpackElement>(
     shape: &[i64],
     strides: &[i64],
 ) -> Result<versioned::Dlpack, Error> {
-    let device_id = slice.ordinal() as i32;
-    let data_ptr = device_ptr_of(&slice);
-
-    Ok(
-        Builder::new(Box::new(slice), metadata::CopiedSlice::new(shape, strides))
-            .device(DLDevice::cuda(device_id))
-            .data(data_ptr)
-            .dtype(T::DTYPE)
-            .try_build::<DLManagedTensorVersioned>()?,
-    )
+    Ok(CudaBuilder::try_from(slice)?
+        .metadata(metadata::CopiedSlice::new(shape, strides))
+        .try_build::<DLManagedTensorVersioned>()?)
 }
 
 // ---------------------------------------------------------------------------
@@ -191,7 +234,7 @@ impl<M: ManagedTensorBase, T> Deref for BorrowedCudaSlice<M, T> {
 /// Converts a [`ManagedBox`] tensor into an owning CUDA slice view.
 ///
 /// Creates a new [`CudaContext`] and default stream for the tensor's device,
-/// then uses [`upgrade_device_ptr`] to construct a `CudaSlice<T>` over the
+/// then uses `CudaDevice::upgrade_device_ptr` to construct a `CudaSlice<T>` over the
 /// tensor's raw device pointer without taking ownership of the allocation.
 ///
 /// The returned [`BorrowedCudaSlice`] implements `Deref<Target = CudaSlice<T>>`,
@@ -204,8 +247,10 @@ impl<M: ManagedTensorBase, T> Deref for BorrowedCudaSlice<M, T> {
 /// - [`Error::NotCuda`] if the tensor is not on a CUDA device
 /// - [`Error::DtypeMismatch`] if the element type does not match `T`
 /// - [`Error::NullData`] if the data pointer is null
+/// - [`Error::InvalidDeviceId`] if the CUDA device ID is negative
 /// - [`Error::Driver`] if `CudaContext::new` fails
-/// - [`Error::Tensor`] for shape/element-count errors
+/// - [`Error::Tensor`] for non-compact layouts or shape, element-count,
+///   byte-offset, and alignment errors
 ///
 /// # Stream synchronization
 ///
@@ -221,32 +266,15 @@ where
 
     fn try_from(dlpack: ManagedBox<M>) -> Result<Self, Self::Error> {
         let tensor = dlpack.tensor();
+        let (cu_device_ptr, len, device_id) = validated_cuda_parts::<T>(tensor)?;
 
-        ensure!(
-            tensor.device.device_type == DLDeviceType::CUDA,
-            NotCudaSnafu {
-                device_type: tensor.device.device_type
-            }
-        );
-        ensure!(
-            tensor.dtype.is::<T>(),
-            DtypeMismatchSnafu {
-                expected: T::DTYPE,
-                actual: tensor.dtype,
-            }
-        );
-        ensure!(!tensor.data.is_null(), NullDataSnafu);
-
-        let len = tensor.num_elements()?;
-        let cu_device_ptr = tensor.data as usize as u64;
-
-        let ctx = CudaContext::new(tensor.device.device_id as usize)
-            .map_err(|source| Error::Driver { source })?;
+        let ctx = CudaContext::new(device_id).map_err(|source| Error::Driver { source })?;
         let stream: Arc<CudaStream> = ctx.default_stream();
 
         // SAFETY:
-        // - cu_device_ptr comes from the DLPack tensor's data field, which must be
-        //   a valid CUDA allocation for at least `len * size_of::<T>()` bytes.
+        // - cu_device_ptr is the checked, byte-offset-adjusted DLPack data pointer,
+        //   which must reference a valid compact CUDA allocation for at least
+        //   `len * size_of::<T>()` bytes.
         // - CudaSliceView::drop calls leak() instead of allowing cudaFree to run.
         let slice = unsafe { stream.upgrade_device_ptr::<T>(cu_device_ptr, len) };
 
@@ -261,6 +289,38 @@ where
 // Internal helper
 // ---------------------------------------------------------------------------
 
+fn validated_cuda_parts<T: DlpackElement>(
+    tensor: &crate::ffi::DLTensor,
+) -> Result<(u64, usize, usize), Error> {
+    ensure!(
+        tensor.device.device_type == DLDeviceType::CUDA,
+        NotCudaSnafu {
+            device_type: tensor.device.device_type
+        }
+    );
+    ensure!(
+        tensor.dtype.is::<T>(),
+        DtypeMismatchSnafu {
+            expected: T::DTYPE,
+            actual: tensor.dtype,
+        }
+    );
+    ensure!(!tensor.data.is_null(), NullDataSnafu);
+    let device_id =
+        usize::try_from(tensor.device.device_id).map_err(|_| Error::InvalidDeviceId {
+            device_id: tensor.device.device_id,
+        })?;
+
+    let len = tensor.num_elements()?;
+    if !tensor.is_compact()? {
+        return Err(Error::Tensor {
+            source: crate::tensor::Error::NonCompactStrides,
+        });
+    }
+    let cu_device_ptr = tensor.offset_data_ptr::<T>()? as usize as u64;
+    Ok((cu_device_ptr, len, device_id))
+}
+
 /// Returns the CUDA device pointer of `slice` as a `*mut c_void` and records
 /// a read fence on the slice's stream.
 ///
@@ -274,4 +334,75 @@ fn device_ptr_of<T>(slice: &CudaSlice<T>) -> *mut c_void {
     drop(sync); // commits the read-fence event; releases the borrow of slice
 
     cu_ptr as usize as *mut c_void
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ffi::{DLDataType, DLTensor};
+
+    #[test]
+    fn validated_cuda_parts_applies_byte_offset() {
+        let data = [0i32; 3];
+        let shape = [2i64];
+        let strides = [1i64];
+        let tensor = DLTensor {
+            data: data.as_ptr().cast_mut().cast(),
+            device: DLDevice::cuda(0),
+            ndim: 1,
+            dtype: DLDataType::of::<i32>(),
+            shape: shape.as_ptr().cast_mut(),
+            strides: strides.as_ptr().cast_mut(),
+            byte_offset: std::mem::size_of::<i32>() as u64,
+        };
+
+        let (ptr, len, device_id) = validated_cuda_parts::<i32>(&tensor).unwrap();
+        assert_eq!(ptr, unsafe { data.as_ptr().add(1) } as usize as u64);
+        assert_eq!(len, 2);
+        assert_eq!(device_id, 0);
+    }
+
+    #[test]
+    fn validated_cuda_parts_rejects_non_compact_strides() {
+        let data = [0i32; 5];
+        let shape = [2i64, 2];
+        let strides = [3i64, 1];
+        let tensor = DLTensor {
+            data: data.as_ptr().cast_mut().cast(),
+            device: DLDevice::cuda(0),
+            ndim: 2,
+            dtype: DLDataType::of::<i32>(),
+            shape: shape.as_ptr().cast_mut(),
+            strides: strides.as_ptr().cast_mut(),
+            byte_offset: 0,
+        };
+
+        assert!(matches!(
+            validated_cuda_parts::<i32>(&tensor),
+            Err(Error::Tensor {
+                source: crate::tensor::Error::NonCompactStrides
+            })
+        ));
+    }
+
+    #[test]
+    fn validated_cuda_parts_rejects_negative_device_id() {
+        let data = [0i32; 1];
+        let shape = [1i64];
+        let strides = [1i64];
+        let tensor = DLTensor {
+            data: data.as_ptr().cast_mut().cast(),
+            device: DLDevice::cuda(-1),
+            ndim: 1,
+            dtype: DLDataType::of::<i32>(),
+            shape: shape.as_ptr().cast_mut(),
+            strides: strides.as_ptr().cast_mut(),
+            byte_offset: 0,
+        };
+
+        assert!(matches!(
+            validated_cuda_parts::<i32>(&tensor),
+            Err(Error::InvalidDeviceId { device_id: -1 })
+        ));
+    }
 }

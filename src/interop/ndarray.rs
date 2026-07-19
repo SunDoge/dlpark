@@ -35,7 +35,7 @@ pub enum Error {
 
 impl<T, D, M> TryFrom<ArrayBase<OwnedRepr<T>, D>> for ManagedBox<M>
 where
-    T: DlpackElement,
+    T: DlpackElement + Send,
     D: Dimension,
     M: ManagedTensorBase,
 {
@@ -62,7 +62,7 @@ pub fn dlpack_from_ndarray<T, D, M>(
     array: ArrayBase<OwnedRepr<T>, D>,
 ) -> Result<ManagedBox<M>, Error>
 where
-    T: DlpackElement,
+    T: DlpackElement + Send,
     D: Dimension,
     M: ManagedTensorBase,
 {

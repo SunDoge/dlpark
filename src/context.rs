@@ -1,8 +1,16 @@
 use std::ffi::c_void;
-use std::ptr::NonNull;
 use std::sync::Arc;
 
-pub trait OpaqueContext {
+/// Owns or tracks the opaque context stored in a DLPack managed tensor.
+///
+/// DLPack consumers may invoke the managed tensor deleter on a different
+/// thread from the one that created the context.
+///
+/// # Safety
+///
+/// Implementations must ensure that [`OpaqueContext::drop_raw`] may be called
+/// on any thread and does not depend on thread-local state.
+pub unsafe trait OpaqueContext {
     fn into_raw(self) -> *mut c_void;
 
     /// Drops the raw context pointer and deallocates the underlying resources.
@@ -18,7 +26,7 @@ pub trait OpaqueContext {
     unsafe fn drop_raw(raw: *mut c_void);
 }
 
-impl<T: Sized> OpaqueContext for Box<T> {
+unsafe impl<T: Sized + Send> OpaqueContext for Box<T> {
     fn into_raw(self) -> *mut c_void {
         Box::into_raw(self) as *mut _
     }
@@ -32,7 +40,7 @@ impl<T: Sized> OpaqueContext for Box<T> {
     }
 }
 
-impl<T: Sized> OpaqueContext for Arc<T> {
+unsafe impl<T: Sized + Send + Sync> OpaqueContext for Arc<T> {
     fn into_raw(self) -> *mut c_void {
         Arc::into_raw(self) as *mut c_void
     }
@@ -42,16 +50,5 @@ impl<T: Sized> OpaqueContext for Arc<T> {
                 let _ = Arc::from_raw(raw as *const T);
             }
         }
-    }
-}
-
-impl<T: Sized> OpaqueContext for NonNull<T> {
-    fn into_raw(self) -> *mut c_void {
-        self.as_ptr() as *mut c_void
-    }
-
-    unsafe fn drop_raw(_raw: *mut c_void) {
-        // 🔒 既然用户传的是裸指针，生命周期由用户自己用其他暗号控制，
-        // 基础库在 deleter 触发时什么都不做（No-op），绝对不越权去 free 它的堆内存
     }
 }

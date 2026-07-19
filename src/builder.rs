@@ -373,7 +373,7 @@ mod tests {
         drop_count: Arc<AtomicUsize>,
     }
 
-    impl OpaqueContext for TestContext {
+    unsafe impl OpaqueContext for TestContext {
         fn into_raw(self) -> *mut c_void {
             Box::into_raw(Box::new(self)).cast()
         }

@@ -10,6 +10,8 @@ mod data_type;
 mod device;
 
 mod managed_tensor;
+#[cfg(feature = "pyo3")]
+pub mod python;
 pub mod tensor;
 
 pub mod legacy;
