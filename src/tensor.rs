@@ -43,6 +43,14 @@ pub enum Error {
     #[snafu(display("tensor is read-only"))]
     ReadOnly,
 
+    #[snafu(display("tensor is not marked IS_COPIED, so exclusive ownership cannot be proven"))]
+    NotCopied,
+
+    #[snafu(display(
+        "cannot safely assert IS_COPIED; use the unchecked flag setter if exclusivity is verified"
+    ))]
+    CannotAssertIsCopied,
+
     #[snafu(display("tensor data pointer is null for a non-empty tensor"))]
     NullData,
 

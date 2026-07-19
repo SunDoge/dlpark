@@ -451,6 +451,7 @@ mod tests {
         let dlpack: ManagedBox<DLManagedTensorVersioned> = Builder::try_from(tensor)
             .unwrap()
             .flags(DlpackFlags::READ_ONLY)
+            .unwrap()
             .try_build()
             .unwrap();
 

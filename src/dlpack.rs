@@ -78,7 +78,7 @@ where
         self.tensor().cpu_data_slice()
     }
 
-    /// Returns the CPU tensor data as a mutable typed slice.
+    /// Returns the CPU tensor data as a mutable typed slice, without proving exclusivity.
     ///
     /// This rejects versioned tensors carrying [`DlpackFlags::READ_ONLY`].
     /// Legacy tensors have no flags and are treated as writable.
@@ -88,7 +88,9 @@ where
     /// The caller must ensure that no other references access the underlying
     /// data for the lifetime of the returned slice. Exclusive access to this
     /// `ManagedBox` alone does not prove that the producer has no aliases.
-    pub unsafe fn cpu_data_slice_mut<T: DlpackElement>(
+    /// Prefer [`Self::cpu_data_slice_mut`], which additionally requires
+    /// [`DlpackFlags::IS_COPIED`] and needs no `unsafe` block.
+    pub unsafe fn cpu_data_slice_mut_unchecked<T: DlpackElement>(
         &mut self,
     ) -> Result<&mut [T], tensor::Error> {
         if self.flags().contains(DlpackFlags::READ_ONLY) {
@@ -102,6 +104,22 @@ where
         let len = tensor.num_elements()?;
         let data = tensor.cpu_data_ptr::<T>()?.cast_mut();
         Ok(unsafe { std::slice::from_raw_parts_mut(data, len) })
+    }
+
+    /// Returns the CPU tensor data as a mutable typed slice.
+    ///
+    /// This rejects tensors carrying [`DlpackFlags::READ_ONLY`], and requires
+    /// [`DlpackFlags::IS_COPIED`] to be set: per the DLPack spec, a tensor
+    /// copied specifically for this export has no other live aliases, which
+    /// is what makes this safe to call without an `unsafe` block. Legacy
+    /// tensors have no flags field and so can never satisfy `IS_COPIED`; use
+    /// [`Self::cpu_data_slice_mut_unchecked`] for those.
+    pub fn cpu_data_slice_mut<T: DlpackElement>(&mut self) -> Result<&mut [T], tensor::Error> {
+        if !self.flags().contains(DlpackFlags::IS_COPIED) {
+            return Err(tensor::Error::NotCopied);
+        }
+
+        unsafe { self.cpu_data_slice_mut_unchecked() }
     }
 }
 
@@ -125,7 +143,25 @@ impl ManagedBox<DLManagedTensorVersioned> {
         unsafe { self.0.as_ref() }.flags
     }
 
-    pub fn flags_mut(&mut self) -> &mut DlpackFlags {
+    /// Sets DLPack flags, erroring if this would newly assert
+    /// [`DlpackFlags::IS_COPIED`] (turn it on when it wasn't already set).
+    /// See [`Self::flags_mut`] to assert it.
+    pub fn set_flags(&mut self, flags: DlpackFlags) -> Result<(), tensor::Error> {
+        if flags.newly_asserts_is_copied(self.flags()) {
+            return Err(tensor::Error::CannotAssertIsCopied);
+        }
+        *unsafe { self.flags_mut() } = flags;
+        Ok(())
+    }
+
+    /// Returns a mutable reference to the DLPack bitmask flags.
+    ///
+    /// # Safety
+    ///
+    /// Writing [`DlpackFlags::IS_COPIED`] through this reference asserts
+    /// that no other reference to the tensor's data exists — see
+    /// [`crate::managed_tensor::ManagedTensorBase::set_flags_unchecked`].
+    pub unsafe fn flags_mut(&mut self) -> &mut DlpackFlags {
         &mut unsafe { self.0.as_mut() }.flags
     }
 
@@ -155,58 +191,55 @@ mod tests {
     use crate::{builder::Builder, ffi::DLManagedTensor, metadata};
     use std::ffi::c_void;
 
+    /// Builds a `[1, 2, 3]` i32 tensor of type `M` with the given flags.
+    ///
+    /// `flags` is a no-op for `M = DLManagedTensor`, which has no flags field.
+    fn dlpack_with_flags<M: ManagedTensorBase>(flags: DlpackFlags) -> ManagedBox<M> {
+        let data = Box::new(vec![1i32, 2, 3]);
+        let data_ptr = data.as_ptr() as *mut c_void;
+        let builder = Builder::new(data, metadata::CopiedArray::new([3i64], [1i64]))
+            .data(data_ptr)
+            .dtype(crate::ffi::DLDataType::of::<i32>());
+        // Safety: the fixture data above has no other live references.
+        unsafe { builder.flags_unchecked(flags) }.build::<M>()
+    }
+
     #[test]
     fn versioned_flags_roundtrip_through_builder() {
-        let data = Box::new(vec![1i32, 2, 3]);
-        let dlpack = Builder::new(data, metadata::CopiedArray::new([3i64], [1i64]))
-            .flags(DlpackFlags::READ_ONLY)
-            .build::<DLManagedTensorVersioned>();
+        let dlpack = dlpack_with_flags::<DLManagedTensorVersioned>(DlpackFlags::READ_ONLY);
 
         assert_eq!(dlpack.flags(), DlpackFlags::READ_ONLY);
     }
 
     #[test]
     fn versioned_flags_default_to_empty() {
-        let data = Box::new(vec![1i32, 2, 3]);
-        let dlpack = Builder::new(data, metadata::CopiedArray::new([3i64], [1i64]))
-            .build::<DLManagedTensorVersioned>();
+        let dlpack = dlpack_with_flags::<DLManagedTensorVersioned>(DlpackFlags::empty());
 
         assert_eq!(dlpack.flags(), DlpackFlags::empty());
     }
 
     #[test]
-    fn mutable_cpu_slice_updates_writable_tensor() {
-        let data = Box::new(vec![1i32, 2, 3]);
-        let data_ptr = data.as_ptr() as *mut c_void;
-        let mut dlpack = Builder::new(data, metadata::CopiedArray::new([3i64], [1i64]))
-            .data(data_ptr)
-            .dtype(crate::ffi::DLDataType::of::<i32>())
-            .build::<DLManagedTensor>();
+    fn mutable_cpu_slice_unchecked_updates_writable_tensor() {
+        let mut dlpack = dlpack_with_flags::<DLManagedTensor>(DlpackFlags::empty());
 
         unsafe {
-            dlpack.cpu_data_slice_mut::<i32>().unwrap()[1] = 7;
+            dlpack.cpu_data_slice_mut_unchecked::<i32>().unwrap()[1] = 7;
         }
 
         assert_eq!(dlpack.cpu_data_slice::<i32>().unwrap(), &[1, 7, 3]);
     }
 
     #[test]
-    fn mutable_cpu_slice_rejects_read_only_tensor() {
-        let data = Box::new(vec![1i32, 2, 3]);
-        let data_ptr = data.as_ptr() as *mut c_void;
-        let mut dlpack = Builder::new(data, metadata::CopiedArray::new([3i64], [1i64]))
-            .data(data_ptr)
-            .dtype(crate::ffi::DLDataType::of::<i32>())
-            .flags(DlpackFlags::READ_ONLY)
-            .build::<DLManagedTensorVersioned>();
+    fn mutable_cpu_slice_unchecked_rejects_read_only_tensor() {
+        let mut dlpack = dlpack_with_flags::<DLManagedTensorVersioned>(DlpackFlags::READ_ONLY);
 
-        let error = unsafe { dlpack.cpu_data_slice_mut::<i32>() }.unwrap_err();
+        let error = unsafe { dlpack.cpu_data_slice_mut_unchecked::<i32>() }.unwrap_err();
 
         assert!(matches!(error, tensor::Error::ReadOnly));
     }
 
     #[test]
-    fn mutable_cpu_slice_rejects_non_compact_strides() {
+    fn mutable_cpu_slice_unchecked_rejects_non_compact_strides() {
         let data = Box::new(vec![1i32, 2, 3, 4]);
         let data_ptr = data.as_ptr() as *mut c_void;
         let mut dlpack = Builder::new(data, metadata::CopiedArray::new([2, 2], [1, 2]))
@@ -214,8 +247,46 @@ mod tests {
             .dtype(crate::ffi::DLDataType::of::<i32>())
             .build::<DLManagedTensor>();
 
-        let error = unsafe { dlpack.cpu_data_slice_mut::<i32>() }.unwrap_err();
+        let error = unsafe { dlpack.cpu_data_slice_mut_unchecked::<i32>() }.unwrap_err();
 
         assert!(matches!(error, tensor::Error::NonCompactStrides));
+    }
+
+    #[test]
+    fn mutable_cpu_slice_updates_is_copied_tensor_without_unsafe() {
+        let mut dlpack = dlpack_with_flags::<DLManagedTensorVersioned>(DlpackFlags::IS_COPIED);
+
+        dlpack.cpu_data_slice_mut::<i32>().unwrap()[1] = 7;
+
+        assert_eq!(dlpack.cpu_data_slice::<i32>().unwrap(), &[1, 7, 3]);
+    }
+
+    #[test]
+    fn mutable_cpu_slice_rejects_tensor_without_is_copied() {
+        let mut dlpack = dlpack_with_flags::<DLManagedTensorVersioned>(DlpackFlags::empty());
+
+        let error = dlpack.cpu_data_slice_mut::<i32>().unwrap_err();
+
+        assert!(matches!(error, tensor::Error::NotCopied));
+    }
+
+    #[test]
+    fn mutable_cpu_slice_rejects_read_only_tensor_even_if_copied() {
+        let mut dlpack = dlpack_with_flags::<DLManagedTensorVersioned>(
+            DlpackFlags::READ_ONLY | DlpackFlags::IS_COPIED,
+        );
+
+        let error = dlpack.cpu_data_slice_mut::<i32>().unwrap_err();
+
+        assert!(matches!(error, tensor::Error::ReadOnly));
+    }
+
+    #[test]
+    fn mutable_cpu_slice_rejects_legacy_tensor_as_never_copied() {
+        let mut dlpack = dlpack_with_flags::<DLManagedTensor>(DlpackFlags::empty());
+
+        let error = dlpack.cpu_data_slice_mut::<i32>().unwrap_err();
+
+        assert!(matches!(error, tensor::Error::NotCopied));
     }
 }

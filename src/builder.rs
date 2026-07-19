@@ -78,8 +78,27 @@ impl<C, L> Builder<C, L> {
         self
     }
 
+    /// Sets DLPack flags, erroring if this would newly assert
+    /// [`DlpackFlags::IS_COPIED`] (turn it on when it wasn't already set on
+    /// this builder). See [`Self::flags_unchecked`].
     #[inline]
-    pub fn flags(mut self, flags: DlpackFlags) -> Self {
+    pub fn flags(mut self, flags: DlpackFlags) -> Result<Self, crate::tensor::Error> {
+        if flags.newly_asserts_is_copied(self.fields.flags) {
+            return Err(crate::tensor::Error::CannotAssertIsCopied);
+        }
+        self.fields.flags = flags;
+        Ok(self)
+    }
+
+    /// Sets DLPack flags verbatim, including [`DlpackFlags::IS_COPIED`].
+    ///
+    /// # Safety
+    ///
+    /// If `flags` includes `IS_COPIED`, the caller must ensure that no other
+    /// reference to the tensor's data exists — see
+    /// [`ManagedTensorBase::set_flags_unchecked`].
+    #[inline]
+    pub unsafe fn flags_unchecked(mut self, flags: DlpackFlags) -> Self {
         self.fields.flags = flags;
         self
     }
@@ -351,7 +370,7 @@ where
             tensor.dtype = fields.dtype;
             tensor.byte_offset = fields.byte_offset;
         }
-        managed_ref.set_flags(fields.flags);
+        managed_ref.set_flags_unchecked(fields.flags);
     }
     managed
 }
@@ -548,11 +567,42 @@ mod tests {
                 .data(data)
                 .byte_offset(4)
                 .flags(DlpackFlags::READ_ONLY)
+                .unwrap()
                 .build();
 
         assert_eq!(tensor.tensor().data, data);
         assert_eq!(tensor.tensor().byte_offset, 4);
         assert_eq!(tensor.flags(), DlpackFlags::READ_ONLY);
+    }
+
+    #[test]
+    fn flags_rejects_newly_asserting_is_copied() {
+        let (ctx, _) = context();
+
+        let error = match Builder::new(ctx, metadata::CopiedArray::new(&[3], &[1]))
+            .flags(DlpackFlags::READ_ONLY | DlpackFlags::IS_COPIED)
+        {
+            Ok(_) => panic!("newly asserting IS_COPIED through the safe setter should fail"),
+            Err(error) => error,
+        };
+
+        assert!(matches!(error, crate::tensor::Error::CannotAssertIsCopied));
+    }
+
+    #[test]
+    fn flags_unchecked_keeps_is_copied() {
+        let (ctx, _) = context();
+
+        let tensor: ManagedBox<DLManagedTensorVersioned> = unsafe {
+            Builder::new(ctx, metadata::CopiedArray::new(&[3], &[1]))
+                .flags_unchecked(DlpackFlags::READ_ONLY | DlpackFlags::IS_COPIED)
+        }
+        .build();
+
+        assert_eq!(
+            tensor.flags(),
+            DlpackFlags::READ_ONLY | DlpackFlags::IS_COPIED
+        );
     }
 
     #[test]

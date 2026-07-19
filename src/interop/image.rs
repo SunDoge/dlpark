@@ -1,5 +1,5 @@
 use crate::{
-    Builder, DlpackElement, ManagedBox, ManagedTensorBase,
+    Builder, DlpackElement, DlpackFlags, ManagedBox, ManagedTensorBase,
     ffi::{DLDevice, DLManagedTensor, DLManagedTensorVersioned},
     legacy, metadata,
     tensor::{compact_strides_array, is_compact_strides},
@@ -72,11 +72,13 @@ where
         let shape = [height as i64, width as i64, channels as i64];
         let strides = compact_strides_array(shape).expect("image shape must fit compact strides");
 
-        Builder::new(Box::new(img), metadata::CopiedArray::new(&shape, &strides))
+        let builder = Builder::new(Box::new(img), metadata::CopiedArray::new(&shape, &strides))
             .data(data_ptr)
             .dtype(P::Subpixel::DTYPE)
-            .device(DLDevice::CPU)
-            .build::<DLManagedTensor>()
+            .device(DLDevice::CPU);
+        // Safety: `img` was moved in above and its `Vec`-backed pixel buffer
+        // has no other live references.
+        unsafe { builder.flags_unchecked(DlpackFlags::IS_COPIED) }.build::<DLManagedTensor>()
     }
 }
 
@@ -93,11 +95,13 @@ where
         let shape = [height as i64, width as i64, channels as i64];
         let strides = compact_strides_array(shape).expect("image shape must fit compact strides");
 
-        Builder::new(Box::new(img), metadata::CopiedArray::new(&shape, &strides))
+        let builder = Builder::new(Box::new(img), metadata::CopiedArray::new(&shape, &strides))
             .data(data_ptr)
             .dtype(P::Subpixel::DTYPE)
-            .device(DLDevice::CPU)
-            .build::<DLManagedTensorVersioned>()
+            .device(DLDevice::CPU);
+        // Safety: `img` was moved in above and its `Vec`-backed pixel buffer
+        // has no other live references.
+        unsafe { builder.flags_unchecked(DlpackFlags::IS_COPIED) }.build::<DLManagedTensorVersioned>()
     }
 }
 
@@ -271,6 +275,24 @@ mod tests {
         let dlpack = legacy::Dlpack::from(img);
 
         assert_eq!(dlpack.shape().unwrap(), &[4, 4, 3]);
+    }
+
+    #[test]
+    fn versioned_image_to_dlpack_sets_is_copied() {
+        let img = ImageBuffer::<Rgb<u8>, _>::from_vec(4, 4, vec![0u8; 48]).unwrap();
+        let dlpack = versioned::Dlpack::from(img);
+
+        assert_eq!(dlpack.flags(), DlpackFlags::IS_COPIED);
+    }
+
+    #[test]
+    fn versioned_image_to_dlpack_allows_safe_mutation() {
+        let img = ImageBuffer::<Rgb<u8>, _>::from_vec(4, 4, vec![0u8; 48]).unwrap();
+        let mut dlpack = versioned::Dlpack::from(img);
+
+        dlpack.cpu_data_slice_mut::<u8>().unwrap()[0] = 42;
+
+        assert_eq!(dlpack.cpu_data_slice::<u8>().unwrap()[0], 42);
     }
 
     #[test]
