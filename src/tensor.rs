@@ -98,6 +98,7 @@ where
 /// compact for compatibility with pre-1.2 tensors. New tensors should store
 /// explicit strides for non-scalar layouts.
 pub fn is_compact_strides(shape: &[i64], strides: Option<&[i64]>) -> Result<bool, Error> {
+    validate_shape_dimensions(shape)?;
     let Some(strides) = strides else {
         return Ok(true);
     };
@@ -108,6 +109,9 @@ pub fn is_compact_strides(shape: &[i64], strides: Option<&[i64]>) -> Result<bool
             strides_len: strides.len()
         }
     );
+    if shape.contains(&0) {
+        return Ok(true);
+    }
     Ok(strides == compact_strides(shape)?.as_slice())
 }
 
@@ -432,5 +436,26 @@ mod tests {
             Err(Error::NonCompactStrides)
         ));
         assert_eq!(tensor.cpu_data_ptr::<i32>().unwrap(), data.as_ptr());
+    }
+
+    #[test]
+    fn empty_tensor_is_compact_regardless_of_strides() {
+        let shape = [2i64, 0];
+
+        for strides in [[0i64, 1], [1, 1], [i64::MAX, -1]] {
+            assert!(is_compact_strides(&shape, Some(&strides)).unwrap());
+        }
+    }
+
+    #[test]
+    fn empty_tensor_still_validates_metadata() {
+        assert!(matches!(
+            is_compact_strides(&[2, 0], Some(&[1])),
+            Err(Error::MismatchedStrides { .. })
+        ));
+        assert!(matches!(
+            is_compact_strides(&[-1, 0], Some(&[1, 1])),
+            Err(Error::NegativeDimension { .. })
+        ));
     }
 }

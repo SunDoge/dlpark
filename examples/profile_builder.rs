@@ -11,18 +11,28 @@
 //! Run: `cargo run --release --example profile_builder`
 //! Output: `target/flamegraph-<variant>.svg` per variant, viewable in a browser.
 
-use dlpark::Builder;
 use dlpark::ffi::DLManagedTensorVersioned;
 use dlpark::metadata::{CopiedArray, CopiedSlice};
 use dlpark::tensor::compact_strides_array;
-use std::ptr::NonNull;
+use dlpark::{Builder, OpaqueContext};
+use std::ffi::c_void;
 
 const N: usize = 64;
 const ITERATIONS: u64 = 200_000_000;
 
-fn context() -> NonNull<()> {
-    static DUMMY: () = ();
-    NonNull::from(&DUMMY)
+struct NoopContext;
+
+// SAFETY: drop_raw is a no-op and may be called on any thread.
+unsafe impl OpaqueContext for NoopContext {
+    fn into_raw(self) -> *mut c_void {
+        std::ptr::null_mut()
+    }
+
+    unsafe fn drop_raw(_raw: *mut c_void) {}
+}
+
+fn context() -> NoopContext {
+    NoopContext
 }
 
 fn profile<F: FnMut()>(name: &str, mut f: F) {

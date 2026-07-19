@@ -59,8 +59,8 @@ pub enum Error {
 
 impl<P> From<ImageBuffer<P, Vec<P::Subpixel>>> for legacy::Dlpack
 where
-    P: Pixel,
-    P::Subpixel: DlpackElement,
+    P: Pixel + Send,
+    P::Subpixel: DlpackElement + Send,
 {
     fn from(img: ImageBuffer<P, Vec<P::Subpixel>>) -> Self {
         let width = img.width();
@@ -82,8 +82,8 @@ where
 
 impl<P> From<ImageBuffer<P, Vec<P::Subpixel>>> for versioned::Dlpack
 where
-    P: Pixel,
-    P::Subpixel: DlpackElement,
+    P: Pixel + Send,
+    P::Subpixel: DlpackElement + Send,
 {
     fn from(img: ImageBuffer<P, Vec<P::Subpixel>>) -> Self {
         let width = img.width();

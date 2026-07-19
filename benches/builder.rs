@@ -2,20 +2,29 @@
 //! across several tensor ranks (`ndim`), to see whether the gap between
 //! variants shrinks, stays flat, or grows as shape/strides get bigger.
 //!
-//! All four use a `NonNull<()>` context (a no-op `OpaqueContext` impl — see
-//! `src/context.rs`), so the only cost being measured is each variant's own
-//! metadata allocation strategy, not context boxing.
+//! All four use a local no-op context, so the only cost being measured is each
+//! variant's own metadata allocation strategy, not context boxing.
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
-use dlpark::Builder;
 use dlpark::ffi::DLManagedTensor;
 use dlpark::metadata::{BorrowedArray, BorrowedSlice, CopiedArray, CopiedSlice};
 use dlpark::tensor::compact_strides_array;
-use std::ptr::NonNull;
+use dlpark::{Builder, OpaqueContext};
+use std::ffi::c_void;
 
-fn context() -> NonNull<()> {
-    static DUMMY: () = ();
-    NonNull::from(&DUMMY)
+struct NoopContext;
+
+// SAFETY: drop_raw is a no-op and may be called on any thread.
+unsafe impl OpaqueContext for NoopContext {
+    fn into_raw(self) -> *mut c_void {
+        std::ptr::null_mut()
+    }
+
+    unsafe fn drop_raw(_raw: *mut c_void) {}
+}
+
+fn context() -> NoopContext {
+    NoopContext
 }
 
 /// Registers all four variants at rank `N` under a `builder/ndim=N` group.
