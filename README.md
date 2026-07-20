@@ -9,6 +9,27 @@ A pure Rust implementation of [dmlc/dlpack](https://github.com/dmlc/dlpack).
 
 This implementation focuses on transferring tensors between Rust and Python, and between Rust tensor/array libraries, without copying.
 
+## Installation
+
+`dlpark` ships **no default features** — enable the interop backends you need:
+
+```bash
+cargo add dlpark --features "ndarray half"          # Rust-only
+cargo add dlpark --features "pyo3 image"            # Python extension
+cargo add dlpark --features "cudarc"                # CUDA (needs a CUDA toolchain)
+```
+
+The `cpu-all` feature group enables every CPU-testable backend (`candle`, `half`, `image`, `ndarray`, `pyo3`) in one go. The crate targets Rust edition 2024.
+
+## Mental model
+
+A **producer** wraps its data into a [`Builder`], which holds the owning context plus scalar tensor fields. Building the builder produces a [`ManagedBox<M>`] — an RAII handle over a raw DLPack managed tensor pointer that calls the DLPack deleter on drop. `M` selects the ABI:
+
+- [`legacy::Dlpack`] = `ManagedBox<DLManagedTensor>` — the pre-v0.8 `"dltensor"` capsule.
+- [`versioned::Dlpack`] = `ManagedBox<DLManagedTensorVersioned>` — the current `"dltensor_versioned"` capsule, carrying version and flags.
+
+A **consumer** receives a `ManagedBox` (from Python, another Rust library, or a raw pointer) and reads its metadata and data through the accessors below. The flow is always: owning value → `Builder` → `ManagedBox` → borrowed views/slices, never the reverse.
+
 ## What is `DLPack`?
 
 `DLPack` is a common in-memory tensor structure that enables sharing tensor data between different deep learning frameworks. It provides a standardized way to exchange tensor data without copying, making it efficient for framework interoperability.
@@ -103,7 +124,35 @@ The `pyo3` feature supports the standard Python DLPack capsule protocol:
 
 The C Exchange API is intended for extension/library use where the consumer can borrow tensors and coordinate work on the producer's current stream. It is not a replacement for the normal `__dlpack__` ingestion path.
 
+### Reading tensor data
+
+Once you hold a `ManagedBox`, the consumer-side accessors on it (and on the underlying `DLTensor`) read metadata and CPU data without `unsafe`:
+
+```rust
+use dlpark::DlpackElement;
+
+let tensor = dlpack.tensor();                 // &DLTensor
+let shape = dlpack.shape()?;                  // &[i64]
+let strides = dlpack.strides()?;             // Option<&[i64]> (None = compact)
+let n = dlpack.num_elements()?;
+let bytes = dlpack.num_bytes()?;              // sub-byte-packing aware
+let data = dlpack.cpu_data_slice::<f32>()?;   // compact CPU data, dtype-checked
+```
+
+`cpu_data_slice` validates device (CPU only), dtype match, and compact row-major layout before forming the slice. For non-compact layouts use `DLTensor::cpu_data_ptr` / `cpu_data_ptr_bytes` to get the offset-adjusted base pointer and index manually.
+
+**Mutable access and the `IS_COPIED` flag.** Writing into a DLPack tensor is gated by two versioned flags, because exclusive ownership cannot be proven from a `&mut ManagedBox` alone — the producer may hold aliases:
+
+- `DlpackFlags::IS_COPIED` asserts the export owns an unaliased copy. `cpu_data_slice_mut` requires it and needs no `unsafe`.
+- `DlpackFlags::READ_ONLY` forbids mutation; both mut accessors reject it.
+
+Without `IS_COPIED`, use the `unsafe ..._mut_unchecked` accessors and prove exclusivity yourself. **Legacy `DLManagedTensor` has no flags field**, so it can never satisfy `IS_COPIED` — mutation of a legacy tensor always goes through the `_unchecked` path. Interop adapters mirror this: `interop::ndarray::array_view_from_dlpack_mut` is the safe, `IS_COPIED`-gated path; `_unchecked` is the escape hatch.
+
+`ManagedBox::flags()` / `version()` read the versioned fields; `flags_mut` is `unsafe` because setting `IS_COPIED` or clearing `READ_ONLY` asserts the corresponding ownership/mutability guarantee.
+
 ## Features
+
+No features are enabled by default — enable the backends you need (see [Installation](#installation)).
 
 | Feature   | Description                                                                                                          | Status |
 | --------- | -------------------------------------------------------------------------------------------------------------------- | ------ |
