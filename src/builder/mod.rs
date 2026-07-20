@@ -5,11 +5,14 @@
 //! on the stack and only collects the scalar `DLTensor` fields.
 
 use crate::{
-    DlpackFlags, ManagedBox, ManagedTensorBase, OpaqueContext,
+    DlpackFlags,
     ffi::{DLDataType, DLDevice},
-    metadata::{BorrowedArray, BorrowedSlice, FromContext, InfallibleMetadata, Metadata},
+    metadata::FromContext,
 };
-use std::{ffi::c_void, ptr::NonNull};
+use std::ffi::c_void;
+
+mod borrowed;
+mod build;
 
 pub use crate::metadata::Error;
 
@@ -131,7 +134,7 @@ impl<C, L> Builder<C, L> {
     ///
     /// If `flags` includes `IS_COPIED`, the caller must ensure that no other
     /// reference to the tensor's data exists — see
-    /// [`ManagedTensorBase::set_flags_unchecked`].
+    /// [`crate::ManagedTensorBase::set_flags_unchecked`].
     #[inline]
     pub unsafe fn flags_unchecked(mut self, flags: DlpackFlags) -> Self {
         self.fields.flags = flags;
@@ -169,322 +172,15 @@ impl<C> Builder<C, ()> {
     }
 }
 
-impl<C, L> Builder<C, L>
-where
-    C: OpaqueContext,
-    L: Metadata,
-{
-    /// Tries to build the tensor and transfer ownership to a raw DLPack
-    /// pointer.
-    #[inline]
-    pub fn try_build_raw<M>(self) -> Result<*mut M, L::Error>
-    where
-        M: ManagedTensorBase,
-    {
-        let Self {
-            ctx,
-            metadata,
-            fields,
-        } = self;
-        let managed = metadata.try_allocate::<C, M>(ctx)?;
-        Ok(unsafe { finish(managed, fields) }.as_ptr())
-    }
-
-    /// Validates runtime metadata, allocates the managed tensor, and returns
-    /// an owning handle.
-    #[inline]
-    pub fn try_build<M>(self) -> Result<ManagedBox<M>, L::Error>
-    where
-        M: ManagedTensorBase,
-    {
-        self.try_build_raw()
-            .map(|raw| unsafe { ManagedBox::new_unchecked(raw) })
-    }
-
-    /// Builds the tensor without checking runtime metadata invariants.
-    ///
-    /// # Safety
-    ///
-    /// The metadata must satisfy the invariants required by its unchecked
-    /// allocator. For dynamic metadata this includes matching shape/strides
-    /// lengths and `ndim <= i32::MAX`; violating those requirements may cause
-    /// out-of-bounds reads or an invalid `DLTensor`.
-    #[inline]
-    pub unsafe fn build_raw_unchecked<M>(self) -> *mut M
-    where
-        M: ManagedTensorBase,
-    {
-        let Self {
-            ctx,
-            metadata,
-            fields,
-        } = self;
-        let managed = unsafe { metadata.allocate_unchecked::<C, M>(ctx) };
-        unsafe { finish(managed, fields) }.as_ptr()
-    }
-
-    /// Builds the tensor without checking runtime metadata invariants.
-    ///
-    /// # Safety
-    ///
-    /// The metadata must satisfy the invariants required by its unchecked
-    /// allocator. For dynamic metadata this includes matching shape/strides
-    /// lengths and `ndim <= i32::MAX`; violating those requirements may cause
-    /// out-of-bounds reads or an invalid `DLTensor`.
-    #[inline]
-    pub unsafe fn build_unchecked<M>(self) -> ManagedBox<M>
-    where
-        M: ManagedTensorBase,
-    {
-        unsafe { ManagedBox::new_unchecked(self.build_raw_unchecked()) }
-    }
-}
-
-impl<C, F, A, B> Builder<C, FromContext<F, A, B>>
-where
-    C: OpaqueContext,
-    A: Copy + TryInto<i64>,
-    B: Copy + TryInto<i64>,
-    F: FnOnce(&C) -> (&[A], &[B]),
-{
-    /// Derives, validates, and copies metadata, then transfers ownership to a
-    /// raw DLPack pointer.
-    #[inline]
-    pub fn try_build_raw<M>(self) -> Result<*mut M, Error>
-    where
-        M: ManagedTensorBase,
-    {
-        let Self {
-            ctx,
-            metadata,
-            fields,
-        } = self;
-        let managed =
-            crate::metadata::try_allocate_generic_from_context(ctx, metadata.into_inner())?;
-        Ok(unsafe { finish(managed, fields) }.as_ptr())
-    }
-
-    /// Derives metadata from the context and returns an owning managed tensor.
-    #[inline]
-    pub fn try_build<M>(self) -> Result<ManagedBox<M>, Error>
-    where
-        M: ManagedTensorBase,
-    {
-        self.try_build_raw()
-            .map(|raw| unsafe { ManagedBox::new_unchecked(raw) })
-    }
-}
-
-impl<C, L> Builder<C, L>
-where
-    C: OpaqueContext,
-    L: InfallibleMetadata,
-{
-    /// Builds the tensor and transfers ownership to a raw DLPack pointer.
-    #[inline]
-    pub fn build_raw<M>(self) -> *mut M
-    where
-        M: ManagedTensorBase,
-    {
-        let Self {
-            ctx,
-            metadata,
-            fields,
-        } = self;
-        let managed = metadata.allocate::<C, M>(ctx);
-        unsafe { finish(managed, fields) }.as_ptr()
-    }
-
-    /// Builds an owning managed tensor when the metadata layout is infallible.
-    #[inline]
-    pub fn build<M>(self) -> ManagedBox<M>
-    where
-        M: ManagedTensorBase,
-    {
-        unsafe { ManagedBox::new_unchecked(self.build_raw()) }
-    }
-}
-
-impl<C, const N: usize> Builder<C, BorrowedArray<'_, N>>
-where
-    C: OpaqueContext,
-{
-    /// Builds the tensor and transfers ownership to a raw DLPack pointer.
-    ///
-    /// # Safety
-    ///
-    /// The borrowed arrays must outlive the returned managed tensor and must
-    /// not be mutated through the DLPack `shape`/`strides` pointers while it
-    /// is alive.
-    #[inline]
-    pub unsafe fn build_raw<M>(self) -> *mut M
-    where
-        M: ManagedTensorBase,
-    {
-        let Self {
-            ctx,
-            metadata,
-            fields,
-        } = self;
-        let managed = unsafe { metadata.allocate::<C, M>(ctx) };
-        unsafe { finish(managed, fields) }.as_ptr()
-    }
-
-    /// Builds a tensor that points to caller-owned shape and strides arrays.
-    ///
-    /// # Safety
-    ///
-    /// The borrowed arrays must outlive the returned managed tensor and must
-    /// not be mutated through the DLPack `shape`/`strides` pointers while it
-    /// is alive.
-    #[inline]
-    pub unsafe fn build<M>(self) -> ManagedBox<M>
-    where
-        M: ManagedTensorBase,
-    {
-        unsafe { ManagedBox::new_unchecked(self.build_raw()) }
-    }
-
-    /// Tries to build the tensor and transfer ownership to a raw DLPack
-    /// pointer.
-    ///
-    /// # Safety
-    ///
-    /// The borrowed arrays must outlive the returned managed tensor and must
-    /// not be mutated through the DLPack `shape`/`strides` pointers while it
-    /// is alive.
-    #[inline]
-    pub unsafe fn try_build_raw<M>(self) -> Result<*mut M, std::convert::Infallible>
-    where
-        M: ManagedTensorBase,
-    {
-        Ok(unsafe { self.build_raw() })
-    }
-
-    /// Tries to build a tensor that points to caller-owned shape and strides
-    /// arrays.
-    ///
-    /// # Safety
-    ///
-    /// The borrowed arrays must outlive the returned managed tensor and must
-    /// not be mutated through the DLPack `shape`/`strides` pointers while it
-    /// is alive.
-    #[inline]
-    pub unsafe fn try_build<M>(self) -> Result<ManagedBox<M>, std::convert::Infallible>
-    where
-        M: ManagedTensorBase,
-    {
-        Ok(unsafe { self.build() })
-    }
-}
-
-impl<C> Builder<C, BorrowedSlice<'_>>
-where
-    C: OpaqueContext,
-{
-    /// Tries to build the tensor and transfer ownership to a raw DLPack
-    /// pointer.
-    ///
-    /// # Safety
-    ///
-    /// The borrowed slices must outlive the returned managed tensor and must
-    /// not be mutated through the DLPack `shape`/`strides` pointers while it
-    /// is alive.
-    #[inline]
-    pub unsafe fn try_build_raw<M>(self) -> Result<*mut M, Error>
-    where
-        M: ManagedTensorBase,
-    {
-        let Self {
-            ctx,
-            metadata,
-            fields,
-        } = self;
-        let managed = unsafe { metadata.allocate::<C, M>(ctx)? };
-        Ok(unsafe { finish(managed, fields) }.as_ptr())
-    }
-
-    /// Builds a tensor that points to caller-owned shape and strides slices.
-    ///
-    /// # Safety
-    ///
-    /// The borrowed slices must outlive the returned managed tensor and must
-    /// not be mutated through the DLPack `shape`/`strides` pointers while it
-    /// is alive.
-    #[inline]
-    pub unsafe fn try_build<M>(self) -> Result<ManagedBox<M>, Error>
-    where
-        M: ManagedTensorBase,
-    {
-        unsafe { self.try_build_raw() }.map(|raw| unsafe { ManagedBox::new_unchecked(raw) })
-    }
-
-    /// Builds the tensor without checking runtime metadata invariants.
-    ///
-    /// # Safety
-    ///
-    /// The borrowed slices must outlive the returned managed tensor, and shape
-    /// and strides must have the same length with `ndim` fitting in `i32`.
-    /// They must not be mutated through the DLPack `shape`/`strides` pointers
-    /// while the managed tensor is alive.
-    #[inline]
-    pub unsafe fn build_raw_unchecked<M>(self) -> *mut M
-    where
-        M: ManagedTensorBase,
-    {
-        let Self {
-            ctx,
-            metadata,
-            fields,
-        } = self;
-        let managed = unsafe { metadata.allocate_unchecked::<C, M>(ctx) };
-        unsafe { finish(managed, fields) }.as_ptr()
-    }
-
-    /// Builds a tensor that points to caller-owned shape and strides slices
-    /// without checking runtime metadata invariants.
-    ///
-    /// # Safety
-    ///
-    /// The borrowed slices must outlive the returned managed tensor, and shape
-    /// and strides must have the same length with `ndim` fitting in `i32`.
-    /// They must not be mutated through the DLPack `shape`/`strides` pointers
-    /// while the managed tensor is alive.
-    #[inline]
-    pub unsafe fn build_unchecked<M>(self) -> ManagedBox<M>
-    where
-        M: ManagedTensorBase,
-    {
-        unsafe { ManagedBox::new_unchecked(self.build_raw_unchecked()) }
-    }
-}
-
-#[inline]
-unsafe fn finish<M>(mut managed: NonNull<M>, fields: TensorFields) -> NonNull<M>
-where
-    M: ManagedTensorBase,
-{
-    unsafe {
-        let managed_ref = managed.as_mut();
-        {
-            let tensor = managed_ref.tensor_mut();
-            tensor.data = fields.data;
-            tensor.device = fields.device;
-            tensor.dtype = fields.dtype;
-            tensor.byte_offset = fields.byte_offset;
-        }
-        managed_ref.set_flags_unchecked(fields.flags);
-    }
-    managed
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{
+        ManagedBox, OpaqueContext,
         ffi::{DLDeviceType, DLManagedTensor, DLManagedTensorVersioned},
         metadata,
     };
+    use std::ptr::NonNull;
     use std::sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
