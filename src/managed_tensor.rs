@@ -22,6 +22,20 @@ bitflags! {
     }
 }
 
+impl DlpackFlags {
+    /// Whether setting `self` as the new flags, given the tensor's `current`
+    /// flags, would newly assert [`DlpackFlags::IS_COPIED`] — turn it on
+    /// when it wasn't already set.
+    ///
+    /// Turning it on is the risky direction: `ManagedBox::cpu_data_slice_mut`
+    /// and `array_view_from_dlpack_mut` trust it unconditionally to skip
+    /// aliasing checks. Leaving an already-set `IS_COPIED` on asserts
+    /// nothing new, so that case is not flagged.
+    pub(crate) fn newly_asserts_is_copied(self, current: DlpackFlags) -> bool {
+        self.contains(DlpackFlags::IS_COPIED) && !current.contains(DlpackFlags::IS_COPIED)
+    }
+}
+
 pub trait ManagedTensorBase {
     fn from_parts(
         tensor: DLTensor,
@@ -37,12 +51,20 @@ pub trait ManagedTensorBase {
         DlpackFlags::empty()
     }
 
-    /// Applies DLPack flags to this managed tensor.
+    /// Applies DLPack flags to this managed tensor verbatim, including
+    /// [`DlpackFlags::IS_COPIED`].
     ///
     /// Only `DLManagedTensorVersioned` carries a `flags` field; the legacy
     /// `DLManagedTensor` has none and inherits the default no-op, so callers
     /// can set flags generically over `M` without knowing which ABI it is.
-    fn set_flags(&mut self, _flags: crate::DlpackFlags) {}
+    ///
+    /// # Safety
+    ///
+    /// If `flags` includes `IS_COPIED`, the caller must ensure that no other
+    /// reference to the tensor's data exists: `ManagedBox::cpu_data_slice_mut`
+    /// and `array_view_from_dlpack_mut` trust that bit unconditionally and
+    /// skip aliasing checks accordingly.
+    unsafe fn set_flags_unchecked(&mut self, _flags: crate::DlpackFlags) {}
 
     /// Drops a raw managed tensor pointer through its DLPack deleter.
     ///
@@ -113,7 +135,7 @@ impl ManagedTensorBase for DLManagedTensorVersioned {
         self.deleter
     }
 
-    fn set_flags(&mut self, flags: crate::DlpackFlags) {
+    unsafe fn set_flags_unchecked(&mut self, flags: crate::DlpackFlags) {
         self.flags = flags;
     }
 
