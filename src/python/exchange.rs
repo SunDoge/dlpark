@@ -162,6 +162,19 @@ impl DlpackExchangeApiRef {
     }
 }
 
+/// Walks the `prev_api` chain to find a header whose major version matches.
+///
+/// # Safety assumption
+///
+/// Per the DLPack spec the chain is made of full `DLPackExchangeAPI` tables
+/// (each beginning with a `DLPackExchangeAPIHeader`), published by the
+/// producer framework and alive for the process lifetime. We therefore read
+/// only the header fields while walking, then — on a major-version match —
+/// cast back to `*mut DLPackExchangeAPI` and let the caller read the
+/// function-pointer fields that follow the header. A producer that violated
+/// the spec by chaining a bare 16-byte header would make those downstream
+/// reads out of bounds; the spec's "framework-owned static table" contract is
+/// what rules that out.
 fn compatible_api(api: *mut DLPackExchangeAPI) -> Option<NonNull<DLPackExchangeAPI>> {
     let mut header = api.cast::<DLPackExchangeAPIHeader>();
     while let Some(current_header) = NonNull::new(header) {
