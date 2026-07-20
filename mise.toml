@@ -1,3 +1,4 @@
 [tools]
+git-cliff = "latest"
 jj = "latest"
 just = "latest"

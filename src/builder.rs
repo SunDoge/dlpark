@@ -54,10 +54,14 @@ impl<C, L> Builder<C, L> {
 
     /// Sets the base data pointer stored in `DLTensor`.
     ///
-    /// The context must keep the pointed-to allocation valid until the
-    /// managed tensor deleter runs.
+    /// # Safety
+    ///
+    /// The context must keep the pointed-to allocation valid until the managed
+    /// tensor deleter runs. The pointer, byte offset, dtype, shape, and strides
+    /// ultimately stored by this builder must describe initialized elements
+    /// that are valid to access according to the DLPack contract.
     #[inline]
-    pub fn data(mut self, data: *mut c_void) -> Self {
+    pub unsafe fn data(mut self, data: *mut c_void) -> Self {
         self.fields.data = data;
         self
     }
@@ -681,13 +685,14 @@ mod tests {
         let strides = [1];
         let data = NonNull::<u8>::dangling().as_ptr().cast();
 
-        let tensor: ManagedBox<DLManagedTensorVersioned> =
+        let tensor: ManagedBox<DLManagedTensorVersioned> = unsafe {
             Builder::new(ctx, metadata::CopiedArray::new(&shape, &strides))
                 .data(data)
                 .byte_offset(4)
                 .flags(DlpackFlags::READ_ONLY)
                 .unwrap()
-                .build();
+                .build()
+        };
 
         assert_eq!(tensor.tensor().data, data);
         assert_eq!(tensor.tensor().byte_offset, 4);
@@ -765,11 +770,12 @@ mod tests {
         let new_strides = [3, 1];
         let data = NonNull::<u8>::dangling().as_ptr().cast();
 
-        let tensor: ManagedBox<DLManagedTensor> =
+        let tensor: ManagedBox<DLManagedTensor> = unsafe {
             Builder::new(ctx, metadata::CopiedArray::new(&old_shape, &old_strides))
                 .data(data)
                 .metadata(metadata::CopiedArray::new(&new_shape, &new_strides))
-                .build();
+                .build()
+        };
 
         assert_eq!(tensor.tensor().data, data);
         assert_eq!(tensor.tensor().ndim, 2);

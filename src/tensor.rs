@@ -155,7 +155,12 @@ impl DLTensor {
     ///
     /// - [`Error::NegativeNdim`] if `ndim < 0`.
     /// - [`Error::NullShapePtr`] if `ndim > 0` but `shape` is null.
-    pub fn shape(&self) -> Result<&[i64], Error> {
+    ///
+    /// # Safety
+    ///
+    /// For positive `ndim`, `shape` must point to `ndim` initialized `i64`
+    /// values that remain readable for the returned slice's lifetime.
+    pub unsafe fn shape(&self) -> Result<&[i64], Error> {
         ensure!(self.ndim >= 0, NegativeNdimSnafu { ndim: self.ndim });
         if self.ndim == 0 {
             return Ok(&[]);
@@ -172,7 +177,13 @@ impl DLTensor {
     /// # Errors
     ///
     /// - [`Error::NegativeNdim`] if `ndim < 0`.
-    pub fn strides(&self) -> Result<Option<&[i64]>, Error> {
+    ///
+    /// # Safety
+    ///
+    /// For positive `ndim`, a non-null `strides` pointer must point to `ndim`
+    /// initialized `i64` values that remain readable for the returned slice's
+    /// lifetime.
+    pub unsafe fn strides(&self) -> Result<Option<&[i64]>, Error> {
         ensure!(self.ndim >= 0, NegativeNdimSnafu { ndim: self.ndim });
         if self.strides.is_null() || self.ndim == 0 {
             return Ok(None);
@@ -191,11 +202,16 @@ impl DLTensor {
     /// # Errors
     ///
     /// Propagates errors from [`Self::shape`] and [`compact_strides`].
-    pub fn strides_or_compact(&self) -> Result<Cow<'_, [i64]>, Error> {
-        match self.strides()? {
+    ///
+    /// # Safety
+    ///
+    /// The shape and optional strides pointers must satisfy the requirements
+    /// of [`Self::shape`] and [`Self::strides`].
+    pub unsafe fn strides_or_compact(&self) -> Result<Cow<'_, [i64]>, Error> {
+        match unsafe { self.strides()? } {
             Some(strides) => Ok(Cow::Borrowed(strides)),
             None => {
-                let shape = self.shape()?;
+                let shape = unsafe { self.shape()? };
                 if shape.is_empty() {
                     Ok(Cow::Borrowed(&[]))
                 } else {
@@ -210,8 +226,12 @@ impl DLTensor {
     /// # Errors
     ///
     /// Propagates errors from [`Self::shape`].
-    pub fn num_elements(&self) -> Result<usize, Error> {
-        let shape = self.shape()?;
+    ///
+    /// # Safety
+    ///
+    /// The shape pointer must satisfy [`Self::shape`]'s requirements.
+    pub unsafe fn num_elements(&self) -> Result<usize, Error> {
+        let shape = unsafe { self.shape()? };
         validate_shape_dimensions(shape)?;
         shape.iter().try_fold(1usize, |acc, &dim| {
             acc.checked_mul(dim as usize)
@@ -233,20 +253,28 @@ impl DLTensor {
     /// # Errors
     ///
     /// Propagates errors from [`Self::num_elements`].
-    pub fn num_bytes(&self) -> Result<usize, Error> {
+    ///
+    /// # Safety
+    ///
+    /// The shape pointer must satisfy [`Self::shape`]'s requirements.
+    pub unsafe fn num_bytes(&self) -> Result<usize, Error> {
         let bits_per_element = (self.dtype.bits as usize)
             .checked_mul(self.dtype.lanes as usize)
             .ok_or(Error::NumBytesOverflow)?;
-        let total_bits = self
-            .num_elements()?
+        let total_bits = unsafe { self.num_elements()? }
             .checked_mul(bits_per_element)
             .ok_or(Error::NumBytesOverflow)?;
         Ok(total_bits.div_ceil(8))
     }
 
     /// Returns whether this tensor has compact row-major strides.
-    pub fn is_compact(&self) -> Result<bool, Error> {
-        is_compact_strides(self.shape()?, self.strides()?)
+    ///
+    /// # Safety
+    ///
+    /// The shape and optional strides pointers must satisfy the requirements
+    /// of [`Self::shape`] and [`Self::strides`].
+    pub unsafe fn is_compact(&self) -> Result<bool, Error> {
+        is_compact_strides(unsafe { self.shape()? }, unsafe { self.strides()? })
     }
 
     /// Returns the tensor data as a typed Rust slice.
@@ -261,7 +289,12 @@ impl DLTensor {
     /// - [`Error::NonCompactStrides`] if the tensor is not compact row-major.
     /// - Shape, pointer, offset, and alignment errors if the DLPack metadata
     ///   cannot satisfy Rust slice requirements.
-    pub fn cpu_data_slice<T: DlpackElement>(&self) -> Result<&[T], Error> {
+    /// # Safety
+    ///
+    /// In addition to valid shape and strides metadata, the byte-offset-adjusted
+    /// data pointer must reference `num_elements` initialized values of `T`
+    /// that remain readable for the returned slice's lifetime.
+    pub unsafe fn cpu_data_slice<T: DlpackElement>(&self) -> Result<&[T], Error> {
         ensure!(
             self.device.device_type == DLDeviceType::CPU,
             NotCpuSnafu {
@@ -275,14 +308,14 @@ impl DLTensor {
                 actual: self.dtype
             }
         );
-        ensure!(self.is_compact()?, NonCompactStridesSnafu);
+        ensure!(unsafe { self.is_compact()? }, NonCompactStridesSnafu);
 
-        let num_elements = self.num_elements()?;
+        let num_elements = unsafe { self.num_elements()? };
         if num_elements == 0 {
             return Ok(&[]);
         }
 
-        let data_ptr = self.offset_data_ptr::<T>()?;
+        let data_ptr = unsafe { self.offset_data_ptr::<T>()? };
         Ok(unsafe { std::slice::from_raw_parts(data_ptr, num_elements) })
     }
 
@@ -290,7 +323,12 @@ impl DLTensor {
     ///
     /// This validates device, dtype, nullness for non-empty tensors, offset, and
     /// alignment without assuming that the tensor is compact in memory.
-    pub fn cpu_data_ptr<T: DlpackElement>(&self) -> Result<*const T, Error> {
+    /// # Safety
+    ///
+    /// The shape metadata must be readable, and for a non-empty tensor the
+    /// byte-offset-adjusted data pointer must point to an initialized `T`
+    /// element within the backing allocation.
+    pub unsafe fn cpu_data_ptr<T: DlpackElement>(&self) -> Result<*const T, Error> {
         ensure!(
             self.device.device_type == DLDeviceType::CPU,
             NotCpuSnafu {
@@ -305,11 +343,11 @@ impl DLTensor {
             }
         );
 
-        if self.num_elements()? == 0 {
+        if unsafe { self.num_elements()? } == 0 {
             return Ok(std::ptr::NonNull::<T>::dangling().as_ptr());
         }
 
-        self.offset_data_ptr::<T>()
+        unsafe { self.offset_data_ptr::<T>() }
     }
 
     /// Returns the byte-offset-adjusted CPU data pointer without requiring a
@@ -326,7 +364,12 @@ impl DLTensor {
     /// - [`Error::NotCpu`] if the tensor is not on CPU.
     /// - [`Error::NullData`] if the data pointer is null for a non-empty tensor.
     /// - Errors while applying the tensor's byte offset to its data pointer.
-    pub fn cpu_data_ptr_bytes(&self) -> Result<*const u8, Error> {
+    /// # Safety
+    ///
+    /// The shape metadata must be readable, and for a non-empty tensor the
+    /// byte-offset-adjusted data pointer must lie within the backing
+    /// allocation.
+    pub unsafe fn cpu_data_ptr_bytes(&self) -> Result<*const u8, Error> {
         ensure!(
             self.device.device_type == DLDeviceType::CPU,
             NotCpuSnafu {
@@ -334,14 +377,14 @@ impl DLTensor {
             }
         );
 
-        if self.num_bytes()? == 0 {
+        if unsafe { self.num_bytes()? } == 0 {
             return Ok(std::ptr::NonNull::<u8>::dangling().as_ptr());
         }
 
-        self.offset_data_ptr::<u8>()
+        unsafe { self.offset_data_ptr::<u8>() }
     }
 
-    pub(crate) fn offset_data_ptr<T>(&self) -> Result<*const T, Error> {
+    pub(crate) unsafe fn offset_data_ptr<T>(&self) -> Result<*const T, Error> {
         ensure!(!self.data.is_null(), NullDataSnafu);
 
         let byte_offset =
@@ -394,7 +437,7 @@ mod tests {
             ..DLTensor::default()
         };
 
-        let actual = tensor.strides_or_compact().unwrap();
+        let actual = unsafe { tensor.strides_or_compact() }.unwrap();
 
         assert!(matches!(actual, Cow::Borrowed(_)));
         assert_eq!(&*actual, &[10, 2]);
@@ -410,7 +453,7 @@ mod tests {
             ..DLTensor::default()
         };
 
-        let actual = tensor.strides_or_compact().unwrap();
+        let actual = unsafe { tensor.strides_or_compact() }.unwrap();
 
         assert!(matches!(actual, Cow::Owned(_)));
         assert_eq!(&*actual, &[12, 4, 1]);
@@ -420,7 +463,7 @@ mod tests {
     fn strides_or_compact_keeps_scalar_strides_empty() {
         let tensor = DLTensor::default();
 
-        let actual = tensor.strides_or_compact().unwrap();
+        let actual = unsafe { tensor.strides_or_compact() }.unwrap();
 
         assert!(matches!(actual, Cow::Borrowed(_)));
         assert!(actual.is_empty());
@@ -442,10 +485,13 @@ mod tests {
         };
 
         assert!(matches!(
-            tensor.cpu_data_slice::<i32>(),
+            unsafe { tensor.cpu_data_slice::<i32>() },
             Err(Error::NonCompactStrides)
         ));
-        assert_eq!(tensor.cpu_data_ptr::<i32>().unwrap(), data.as_ptr());
+        assert_eq!(
+            unsafe { tensor.cpu_data_ptr::<i32>() }.unwrap(),
+            data.as_ptr()
+        );
     }
 
     #[test]

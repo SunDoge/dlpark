@@ -45,7 +45,14 @@ impl DlpackFlags {
 ///
 /// This trait lets [`crate::Builder`] and [`crate::ManagedBox`] operate
 /// generically while preserving the concrete C layout selected by the caller.
-pub trait ManagedTensorBase {
+/// # Safety
+///
+/// Implementations must use a stable C-compatible layout for which
+/// [`Self::from_parts`] fully initializes a valid managed tensor. Accessors
+/// must return fields from that same value, and `deleter` must be safe to call
+/// exactly once with the original pointer. The type must have nonzero size and
+/// an alignment accepted by Rust's global allocator.
+pub unsafe trait ManagedTensorBase {
     /// Constructs a managed tensor from its embedded tensor and ownership
     /// fields.
     fn from_parts(
@@ -94,7 +101,7 @@ pub trait ManagedTensorBase {
     }
 }
 
-impl ManagedTensorBase for DLManagedTensor {
+unsafe impl ManagedTensorBase for DLManagedTensor {
     fn from_parts(
         tensor: DLTensor,
         manager_ctx: *mut c_void,
@@ -122,7 +129,7 @@ impl ManagedTensorBase for DLManagedTensor {
     }
 }
 
-impl ManagedTensorBase for DLManagedTensorVersioned {
+unsafe impl ManagedTensorBase for DLManagedTensorVersioned {
     fn from_parts(
         tensor: DLTensor,
         manager_ctx: *mut c_void,

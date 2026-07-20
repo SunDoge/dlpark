@@ -236,12 +236,12 @@ impl TryFrom<Box<Tensor>> for Builder<Box<Tensor>, metadata::CopiedSlice<Vec<i64
             dims,
             strides,
         } = dlpack_layout_from_candle(&tensor)?;
-        Ok(
-            Builder::new(tensor, metadata::CopiedSlice::new(dims, strides))
-                .data(data_ptr)
-                .dtype(dtype)
-                .device(DLDevice::CPU),
-        )
+        let builder = Builder::new(tensor, metadata::CopiedSlice::new(dims, strides));
+        // SAFETY: the boxed candle tensor keeps its initialized CPU storage
+        // alive until the managed tensor deleter runs.
+        Ok(unsafe { builder.data(data_ptr) }
+            .dtype(dtype)
+            .device(DLDevice::CPU))
     }
 }
 
@@ -388,9 +388,9 @@ pub fn candle_tensor_from_dlpack<M: ManagedTensorBase>(
     let dtype =
         candle_dtype_from_dl(dl_dtype).ok_or(Error::UnsupportedDlDataType { dtype: dl_dtype })?;
 
-    let shape = tensor.shape()?;
-    let strides = tensor.strides()?;
-    let ptr = tensor.cpu_data_ptr_bytes()?;
+    let shape = unsafe { tensor.shape()? };
+    let strides = unsafe { tensor.strides()? };
+    let ptr = unsafe { tensor.cpu_data_ptr_bytes()? };
 
     let compact = match strides {
         None => true,
@@ -404,7 +404,7 @@ pub fn candle_tensor_from_dlpack<M: ManagedTensorBase>(
         return Err(Error::SubByteStridesUnsupported { dtype: dl_dtype });
     } else {
         let s = strides.unwrap();
-        let num_bytes = tensor.num_bytes()?;
+        let num_bytes = unsafe { tensor.num_bytes()? };
         let total = validate_strided_span(shape, s, dl_dtype.element_size(), num_bytes)?;
         gather_strided_bytes(ptr, dl_dtype.element_size(), shape, s, total)
     };
@@ -517,14 +517,15 @@ mod tests {
     fn dlpack_f4_converts_to_candle_tensor_with_matching_dtype() {
         let data = Box::new(vec![0xABu8, 0xCD, 0xEF]);
         let data_ptr = data.as_ptr() as *mut c_void;
-        let dlpack = Builder::new(data, metadata::CopiedArray::new([6i64], [1i64]))
-            .data(data_ptr)
-            .dtype(DLDataType {
-                code: DLDataTypeCode::FLOAT4_E2M1FN,
-                bits: 4,
-                lanes: 1,
-            })
-            .build::<DLManagedTensor>();
+        let dlpack = unsafe {
+            Builder::new(data, metadata::CopiedArray::new([6i64], [1i64])).data(data_ptr)
+        }
+        .dtype(DLDataType {
+            code: DLDataTypeCode::FLOAT4_E2M1FN,
+            bits: 4,
+            lanes: 1,
+        })
+        .build::<DLManagedTensor>();
 
         let tensor = Tensor::try_from(&dlpack).unwrap();
 
@@ -538,14 +539,15 @@ mod tests {
         let data_ptr = data.as_ptr() as *mut c_void;
         // [3, 2] compact strides would be [2, 1]; [1, 3] is a (nonsensical
         // but sufficient) non-compact stride to exercise the rejection path.
-        let dlpack = Builder::new(data, metadata::CopiedArray::new([3, 2], [1, 3]))
-            .data(data_ptr)
-            .dtype(DLDataType {
-                code: DLDataTypeCode::FLOAT4_E2M1FN,
-                bits: 4,
-                lanes: 1,
-            })
-            .build::<DLManagedTensor>();
+        let dlpack = unsafe {
+            Builder::new(data, metadata::CopiedArray::new([3, 2], [1, 3])).data(data_ptr)
+        }
+        .dtype(DLDataType {
+            code: DLDataTypeCode::FLOAT4_E2M1FN,
+            bits: 4,
+            lanes: 1,
+        })
+        .build::<DLManagedTensor>();
 
         let err = Tensor::try_from(&dlpack).unwrap_err();
         assert!(matches!(err, Error::SubByteStridesUnsupported { .. }));
@@ -555,10 +557,11 @@ mod tests {
     fn compact_dlpack_to_candle_tensor_copies_values() {
         let data = Box::new(vec![1i32, 2, 3, 4, 5, 6]);
         let data_ptr = data.as_ptr() as *mut c_void;
-        let dlpack = Builder::new(data, metadata::CopiedArray::new([2, 3], [3, 1]))
-            .data(data_ptr)
-            .dtype(<i32 as DlpackElement>::DTYPE)
-            .build::<DLManagedTensor>();
+        let dlpack = unsafe {
+            Builder::new(data, metadata::CopiedArray::new([2, 3], [3, 1])).data(data_ptr)
+        }
+        .dtype(<i32 as DlpackElement>::DTYPE)
+        .build::<DLManagedTensor>();
 
         let tensor = Tensor::try_from(&dlpack).unwrap();
 
@@ -575,10 +578,11 @@ mod tests {
         // strides — not compact for shape [3, 2].
         let data = Box::new(vec![1i32, 2, 3, 4, 5, 6]);
         let data_ptr = data.as_ptr() as *mut c_void;
-        let dlpack = Builder::new(data, metadata::CopiedArray::new([3, 2], [1, 3]))
-            .data(data_ptr)
-            .dtype(<i32 as DlpackElement>::DTYPE)
-            .build::<DLManagedTensor>();
+        let dlpack = unsafe {
+            Builder::new(data, metadata::CopiedArray::new([3, 2], [1, 3])).data(data_ptr)
+        }
+        .dtype(<i32 as DlpackElement>::DTYPE)
+        .build::<DLManagedTensor>();
 
         let tensor = Tensor::try_from(&dlpack).unwrap();
 
@@ -595,10 +599,11 @@ mod tests {
         // past the end. Must be rejected rather than read out of bounds.
         let data = Box::new(vec![1i32, 2, 3, 4, 5, 6]);
         let data_ptr = data.as_ptr() as *mut c_void;
-        let dlpack = Builder::new(data, metadata::CopiedArray::new([2, 2], [10, 1]))
-            .data(data_ptr)
-            .dtype(<i32 as DlpackElement>::DTYPE)
-            .build::<DLManagedTensor>();
+        let dlpack = unsafe {
+            Builder::new(data, metadata::CopiedArray::new([2, 2], [10, 1])).data(data_ptr)
+        }
+        .dtype(<i32 as DlpackElement>::DTYPE)
+        .build::<DLManagedTensor>();
 
         let err = Tensor::try_from(&dlpack).unwrap_err();
         assert!(matches!(err, Error::StridedSpanOverflow));
@@ -611,10 +616,11 @@ mod tests {
         // out of bounds.
         let data = Box::new(vec![1i32, 2, 3, 4, 5, 6]);
         let data_ptr = data.as_ptr() as *mut c_void;
-        let dlpack = Builder::new(data, metadata::CopiedArray::new([3, 2], [-1, -3]))
-            .data(data_ptr)
-            .dtype(<i32 as DlpackElement>::DTYPE)
-            .build::<DLManagedTensor>();
+        let dlpack = unsafe {
+            Builder::new(data, metadata::CopiedArray::new([3, 2], [-1, -3])).data(data_ptr)
+        }
+        .dtype(<i32 as DlpackElement>::DTYPE)
+        .build::<DLManagedTensor>();
 
         let err = Tensor::try_from(&dlpack).unwrap_err();
         assert!(matches!(err, Error::StridedSpanOverflow));
@@ -624,14 +630,15 @@ mod tests {
     fn dlpack_f8e4m3_converts_to_candle_tensor_with_matching_dtype() {
         let data = Box::new(vec![0u8; 6]);
         let data_ptr = data.as_ptr() as *mut c_void;
-        let dlpack = Builder::new(data, metadata::CopiedArray::new([2, 3], [3, 1]))
-            .data(data_ptr)
-            .dtype(DLDataType {
-                code: DLDataTypeCode::FLOAT8_E4M3,
-                bits: 8,
-                lanes: 1,
-            })
-            .build::<DLManagedTensor>();
+        let dlpack = unsafe {
+            Builder::new(data, metadata::CopiedArray::new([2, 3], [3, 1])).data(data_ptr)
+        }
+        .dtype(DLDataType {
+            code: DLDataTypeCode::FLOAT8_E4M3,
+            bits: 8,
+            lanes: 1,
+        })
+        .build::<DLManagedTensor>();
 
         let tensor = Tensor::try_from(&dlpack).unwrap();
 
@@ -643,14 +650,15 @@ mod tests {
     fn dlpack_with_unmatched_dtype_is_rejected() {
         let data = Box::new(vec![0u8; 3]);
         let data_ptr = data.as_ptr() as *mut c_void;
-        let dlpack = Builder::new(data, metadata::CopiedArray::new([3i64], [1i64]))
-            .data(data_ptr)
-            .dtype(crate::ffi::DLDataType {
-                code: DLDataTypeCode(99),
-                bits: 1,
-                lanes: 1,
-            })
-            .build::<DLManagedTensor>();
+        let dlpack = unsafe {
+            Builder::new(data, metadata::CopiedArray::new([3i64], [1i64])).data(data_ptr)
+        }
+        .dtype(crate::ffi::DLDataType {
+            code: DLDataTypeCode(99),
+            bits: 1,
+            lanes: 1,
+        })
+        .build::<DLManagedTensor>();
 
         let err = Tensor::try_from(&dlpack).unwrap_err();
         assert!(matches!(err, Error::UnsupportedDlDataType { .. }));

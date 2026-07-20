@@ -220,10 +220,11 @@ mod tests {
     ) -> c_int {
         let data = Box::new(vec![7i32, 8, 9]);
         let data_ptr = data.as_ptr() as *mut c_void;
-        let raw = Builder::new(data, crate::metadata::CopiedArray::new([3i64], [1i64]))
-            .data(data_ptr)
-            .dtype(DLDataType::of::<i32>())
-            .build_raw::<DLManagedTensorVersioned>();
+        let raw = unsafe {
+            Builder::new(data, crate::metadata::CopiedArray::new([3i64], [1i64])).data(data_ptr)
+        }
+        .dtype(DLDataType::of::<i32>())
+        .build_raw::<DLManagedTensorVersioned>();
 
         unsafe {
             *out = raw;
@@ -321,14 +322,17 @@ mod tests {
             assert!(api_ref.current_work_stream(DLDevice::CPU)?.is_null());
             api_ref.with_dltensor_view_no_sync(obj.as_borrowed(), |tensor| {
                 assert_eq!(tensor.ndim, 1);
-                assert_eq!(tensor.num_elements().unwrap(), 3);
+                assert_eq!(unsafe { tensor.num_elements() }.unwrap(), 3);
             })?;
 
             let dlpack = ManagedBox::<DLManagedTensorVersioned>::extract(obj.as_borrowed())?;
             let tensor = dlpack.tensor();
             assert_eq!(tensor.ndim, 1);
-            assert_eq!(tensor.shape().unwrap(), &[3]);
-            assert_eq!(tensor.cpu_data_slice::<i32>().unwrap(), &[7, 8, 9]);
+            assert_eq!(unsafe { tensor.shape() }.unwrap(), &[3]);
+            assert_eq!(
+                unsafe { tensor.cpu_data_slice::<i32>() }.unwrap(),
+                &[7, 8, 9]
+            );
 
             Ok(())
         })
@@ -373,10 +377,11 @@ class MockTensor:
             let api = DlpackExchangeApiRef { api };
             let data = Box::new(vec![7i32, 8, 9]);
             let data_ptr = data.as_ptr() as *mut c_void;
-            let tensor = Builder::new(data, crate::metadata::CopiedArray::new([3i64], [1i64]))
-                .data(data_ptr)
-                .dtype(DLDataType::of::<i32>())
-                .build::<DLManagedTensorVersioned>();
+            let tensor = unsafe {
+                Builder::new(data, crate::metadata::CopiedArray::new([3i64], [1i64])).data(data_ptr)
+            }
+            .dtype(DLDataType::of::<i32>())
+            .build::<DLManagedTensorVersioned>();
 
             let object = api.managed_tensor_to_py_object_no_sync(tensor, py)?;
 

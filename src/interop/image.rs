@@ -76,8 +76,10 @@ where
         let shape = [height as i64, width as i64, channels as i64];
         let strides = compact_strides_array(shape).expect("image shape must fit compact strides");
 
-        let builder = Builder::new(img, metadata::CopiedArray::new(shape, strides))
-            .data(data_ptr)
+        let builder = Builder::new(img, metadata::CopiedArray::new(shape, strides));
+        // SAFETY: the boxed image owns the initialized pixel allocation
+        // addressed by data_ptr for the tensor's lifetime.
+        let builder = unsafe { builder.data(data_ptr) }
             .dtype(P::Subpixel::DTYPE)
             .device(DLDevice::CPU);
         // SAFETY: `img` was moved in above and its `Vec`-backed pixel buffer
@@ -180,7 +182,7 @@ where
 {
     ensure!(tensor.ndim == 3, InvalidNdimSnafu { ndim: tensor.ndim });
 
-    let shape = tensor.shape()?;
+    let shape = unsafe { tensor.shape()? };
     let [height, width, channels] = [shape[0], shape[1], shape[2]];
 
     ensure!(
@@ -216,7 +218,7 @@ where
         P::CHANNEL_COUNT as i64,
         1,
     ];
-    if let Some(strides) = tensor.strides()? {
+    if let Some(strides) = unsafe { tensor.strides()? } {
         let actual = [strides[0], strides[1], strides[2]];
         ensure!(
             is_compact_strides(shape, Some(strides))?,
@@ -231,7 +233,7 @@ where
         );
     }
 
-    let data = tensor.cpu_data_slice::<P::Subpixel>()?;
+    let data = unsafe { tensor.cpu_data_slice::<P::Subpixel>()? };
 
     Ok(HwcLayout {
         height,
@@ -321,11 +323,12 @@ mod tests {
         let data_ptr = data.as_ptr() as *mut c_void;
         let shape = [1, 1, 3];
         let strides = [3, 3, 1];
-        let dlpack = Builder::new(data, metadata::CopiedArray::new(&shape, &strides))
-            .data(data_ptr)
-            .byte_offset(1)
-            .dtype(u8::DTYPE)
-            .build::<DLManagedTensor>();
+        let dlpack = unsafe {
+            Builder::new(data, metadata::CopiedArray::new(&shape, &strides)).data(data_ptr)
+        }
+        .byte_offset(1)
+        .dtype(u8::DTYPE)
+        .build::<DLManagedTensor>();
 
         let img = ImageBuffer::<Rgb<u8>, _>::try_from(&dlpack).unwrap();
         assert_eq!(img.as_raw(), &[10, 20, 30]);
@@ -355,10 +358,11 @@ mod tests {
         let data_ptr = data.as_ptr() as *mut c_void;
         let shape = [1, 1, 3];
         let strides = [6, 3, 1];
-        let dlpack = Builder::new(data, metadata::CopiedArray::new(&shape, &strides))
-            .data(data_ptr)
-            .dtype(u8::DTYPE)
-            .build::<DLManagedTensor>();
+        let dlpack = unsafe {
+            Builder::new(data, metadata::CopiedArray::new(&shape, &strides)).data(data_ptr)
+        }
+        .dtype(u8::DTYPE)
+        .build::<DLManagedTensor>();
 
         let err = ImageBuffer::<Rgb<u8>, _>::try_from(&dlpack).unwrap_err();
         assert!(matches!(err, Error::UnsupportedStrides { .. }));

@@ -31,6 +31,9 @@ where
     /// transferred to the returned `ManagedBox`. The managed tensor must not
     /// have been freed or wrapped by another owner, and its deleter, if
     /// present, must be valid to call exactly once and must not unwind.
+    /// The embedded `DLTensor` pointers must satisfy the DLPack contract for
+    /// the descriptor's shape, strides, dtype, device, and byte offset for the
+    /// entire lifetime of the managed tensor.
     pub unsafe fn new(ptr: *mut M) -> Option<Self> {
         NonNull::new(ptr).map(ManagedBox)
     }
@@ -43,6 +46,9 @@ where
     /// transferred to the returned `ManagedBox`. The managed tensor must not
     /// have been freed or wrapped by another owner, and its deleter, if
     /// present, must be valid to call exactly once and must not unwind.
+    /// The embedded `DLTensor` pointers must satisfy the DLPack contract for
+    /// the descriptor's shape, strides, dtype, device, and byte offset for the
+    /// entire lifetime of the managed tensor.
     pub unsafe fn new_unchecked(ptr: *mut M) -> Self {
         Self(unsafe { NonNull::new_unchecked(ptr) })
     }
@@ -70,29 +76,29 @@ where
 
     /// Returns the tensor shape.
     pub fn shape(&self) -> Result<&[i64], tensor::Error> {
-        self.tensor().shape()
+        unsafe { self.tensor().shape() }
     }
 
     /// Returns explicit element strides, or `None` for an implicit compact
     /// layout.
     pub fn strides(&self) -> Result<Option<&[i64]>, tensor::Error> {
-        self.tensor().strides()
+        unsafe { self.tensor().strides() }
     }
 
     /// Returns the product of all shape dimensions.
     pub fn num_elements(&self) -> Result<usize, tensor::Error> {
-        self.tensor().num_elements()
+        unsafe { self.tensor().num_elements() }
     }
 
     /// Returns the logical data size in bytes, including packed sub-byte
     /// element handling.
     pub fn num_bytes(&self) -> Result<usize, tensor::Error> {
-        self.tensor().num_bytes()
+        unsafe { self.tensor().num_bytes() }
     }
 
     /// Returns compact CPU data as an immutable typed slice.
     pub fn cpu_data_slice<T: DlpackElement>(&self) -> Result<&[T], tensor::Error> {
-        self.tensor().cpu_data_slice()
+        unsafe { self.tensor().cpu_data_slice() }
     }
 
     /// Returns the CPU tensor data as a mutable typed slice, without proving exclusivity.
@@ -113,11 +119,11 @@ where
         }
 
         let tensor = self.tensor();
-        if !tensor.is_compact()? {
+        if !unsafe { tensor.is_compact()? } {
             return Err(tensor::Error::NonCompactStrides);
         }
-        let len = tensor.num_elements()?;
-        let data = tensor.cpu_data_ptr::<T>()?.cast_mut();
+        let len = unsafe { tensor.num_elements()? };
+        let data = unsafe { tensor.cpu_data_ptr::<T>()? }.cast_mut();
         Ok(unsafe { std::slice::from_raw_parts_mut(data, len) })
     }
 
@@ -198,9 +204,10 @@ mod tests {
     fn dlpack_with_flags<M: ManagedTensorBase>(flags: DlpackFlags) -> ManagedBox<M> {
         let data = Box::new(vec![1i32, 2, 3]);
         let data_ptr = data.as_ptr() as *mut c_void;
-        let builder = Builder::new(data, metadata::CopiedArray::new([3i64], [1i64]))
-            .data(data_ptr)
-            .dtype(crate::ffi::DLDataType::of::<i32>());
+        let builder = unsafe {
+            Builder::new(data, metadata::CopiedArray::new([3i64], [1i64])).data(data_ptr)
+        }
+        .dtype(crate::ffi::DLDataType::of::<i32>());
         // Safety: the fixture data above has no other live references.
         unsafe { builder.flags_unchecked(flags) }.build::<M>()
     }
@@ -243,10 +250,11 @@ mod tests {
     fn mutable_cpu_slice_unchecked_rejects_non_compact_strides() {
         let data = Box::new(vec![1i32, 2, 3, 4]);
         let data_ptr = data.as_ptr() as *mut c_void;
-        let mut dlpack = Builder::new(data, metadata::CopiedArray::new([2, 2], [1, 2]))
-            .data(data_ptr)
-            .dtype(crate::ffi::DLDataType::of::<i32>())
-            .build::<DLManagedTensor>();
+        let mut dlpack = unsafe {
+            Builder::new(data, metadata::CopiedArray::new([2, 2], [1, 2])).data(data_ptr)
+        }
+        .dtype(crate::ffi::DLDataType::of::<i32>())
+        .build::<DLManagedTensor>();
 
         let error = unsafe { dlpack.cpu_data_slice_mut_unchecked::<i32>() }.unwrap_err();
 

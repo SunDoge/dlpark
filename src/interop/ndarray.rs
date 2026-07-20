@@ -9,7 +9,7 @@ use crate::{
     managed_tensor::ManagedTensorBase, metadata::FromContext,
 };
 use ndarray::{ArrayBase, ArrayViewD, ArrayViewMutD, Dimension, IxDyn, OwnedRepr, ShapeBuilder};
-use snafu::{ResultExt, Snafu, ensure};
+use snafu::{Snafu, ensure};
 use std::os::raw::c_void;
 
 #[derive(Debug, Snafu)]
@@ -48,8 +48,10 @@ where
         #[allow(clippy::type_complexity)]
         let derive: fn(&Box<ArrayBase<OwnedRepr<T>, D>>) -> (&[usize], &[isize]) =
             |array| (array.shape(), array.strides());
-        let builder = Builder::from_context(array, derive)
-            .data(data_ptr)
+        let builder = Builder::from_context(array, derive);
+        // SAFETY: the boxed ndarray context owns the initialized data
+        // allocation addressed by data_ptr for the tensor's lifetime.
+        let builder = unsafe { builder.data(data_ptr) }
             .dtype(T::DTYPE)
             .device(DLDevice::CPU);
 
@@ -91,11 +93,9 @@ where
 {
     let tensor = dlpack.tensor();
     let (shape, strides) = shape_and_strides(tensor)?;
-    let ptr = tensor.cpu_data_ptr::<T>()?;
-    let span_len = strided_span_len(&shape, &strides)?;
-    let data = unsafe { std::slice::from_raw_parts(ptr, span_len) };
-
-    ArrayViewD::from_shape(IxDyn(&shape).strides(IxDyn(&strides)), data).context(ShapeSnafu)
+    let ptr = unsafe { tensor.cpu_data_ptr::<T>()? };
+    validate_strided_span(&shape, &strides)?;
+    Ok(unsafe { ArrayViewD::from_shape_ptr(IxDyn(&shape).strides(IxDyn(&strides)), ptr) })
 }
 
 /// Returns a mutable ndarray view into a DLPack tensor's CPU data, without proving exclusivity.
@@ -123,11 +123,10 @@ where
 
     let tensor = dlpack.tensor();
     let (shape, strides) = shape_and_strides(tensor)?;
-    let ptr = tensor.cpu_data_ptr::<T>()?.cast_mut();
-    let span_len = strided_span_len(&shape, &strides)?;
-    let data = unsafe { std::slice::from_raw_parts_mut(ptr, span_len) };
-
-    ArrayViewMutD::from_shape(IxDyn(&shape).strides(IxDyn(&strides)), data).context(ShapeSnafu)
+    validate_non_overlapping(&shape, &strides)?;
+    let ptr = unsafe { tensor.cpu_data_ptr::<T>()? }.cast_mut();
+    validate_strided_span(&shape, &strides)?;
+    Ok(unsafe { ArrayViewMutD::from_shape_ptr(IxDyn(&shape).strides(IxDyn(&strides)), ptr) })
 }
 
 /// Returns a mutable ndarray view into a DLPack tensor's CPU data.
@@ -153,8 +152,7 @@ where
 }
 
 fn shape_and_strides(tensor: &crate::ffi::DLTensor) -> Result<(Vec<usize>, Vec<usize>), Error> {
-    let shape = tensor
-        .shape()?
+    let shape = unsafe { tensor.shape()? }
         .iter()
         .enumerate()
         .map(|(axis, &dim)| {
@@ -164,8 +162,7 @@ fn shape_and_strides(tensor: &crate::ffi::DLTensor) -> Result<(Vec<usize>, Vec<u
             usize::try_from(dim).map_err(|_| Error::SpanOverflow)
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let strides = tensor
-        .strides_or_compact()?
+    let strides = unsafe { tensor.strides_or_compact()? }
         .iter()
         .enumerate()
         .map(|(axis, &stride)| {
@@ -185,12 +182,12 @@ fn shape_and_strides(tensor: &crate::ffi::DLTensor) -> Result<(Vec<usize>, Vec<u
     Ok((shape, strides))
 }
 
-fn strided_span_len(shape: &[usize], strides: &[usize]) -> Result<usize, Error> {
+fn validate_strided_span(shape: &[usize], strides: &[usize]) -> Result<(), Error> {
     if shape.is_empty() {
-        return Ok(1);
+        return Ok(());
     }
     if shape.contains(&0) {
-        return Ok(0);
+        return Ok(());
     }
 
     shape
@@ -200,6 +197,28 @@ fn strided_span_len(shape: &[usize], strides: &[usize]) -> Result<usize, Error> 
             let axis_span = (dim - 1).checked_mul(stride).ok_or(Error::SpanOverflow)?;
             span.checked_add(axis_span).ok_or(Error::SpanOverflow)
         })
+        .map(|_| ())
+}
+
+fn validate_non_overlapping(shape: &[usize], strides: &[usize]) -> Result<(), Error> {
+    let mut axes = shape
+        .iter()
+        .copied()
+        .zip(strides.iter().copied())
+        .filter(|&(dim, _)| dim > 1)
+        .collect::<Vec<_>>();
+    axes.sort_unstable_by_key(|&(_, stride)| stride);
+
+    let mut required_stride = 1usize;
+    for (dim, stride) in axes {
+        if stride < required_stride {
+            return Err(Error::Shape {
+                source: ndarray::ShapeError::from_kind(ndarray::ErrorKind::Unsupported),
+            });
+        }
+        required_stride = stride.checked_mul(dim).ok_or(Error::SpanOverflow)?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -387,6 +406,24 @@ mod tests {
             Error::Tensor {
                 source: crate::tensor::Error::NotCopied
             }
+        ));
+    }
+
+    #[test]
+    fn mut_ndarray_view_rejects_overlapping_strides() {
+        let data = Box::new(vec![1i32, 2]);
+        let data_ptr = data.as_ptr().cast_mut().cast();
+        let builder = Builder::new(data, crate::metadata::CopiedArray::new([2, 2], [0, 1]));
+        let mut dlpack = unsafe {
+            builder
+                .data(data_ptr)
+                .flags_unchecked(DlpackFlags::IS_COPIED)
+                .build::<crate::ffi::DLManagedTensorVersioned>()
+        };
+
+        assert!(matches!(
+            array_view_from_dlpack_mut::<i32, _>(&mut dlpack),
+            Err(Error::Shape { .. })
         ));
     }
 

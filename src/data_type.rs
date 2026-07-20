@@ -1,14 +1,21 @@
 use crate::ffi::{DLDataType, DLDataTypeCode};
 
 /// Maps a Rust element type to its DLPack data type descriptor.
-pub trait DlpackElement: 'static {
+///
+/// # Safety
+///
+/// `Self` must have exactly the size and alignment described by [`Self::DTYPE`],
+/// and every initialized bit pattern permitted by that DLPack dtype must be a
+/// valid value of `Self`. The dtype must be scalar (`lanes == 1`) and
+/// byte-aligned.
+pub unsafe trait DlpackElement: 'static {
     /// The scalar DLPack descriptor for this Rust element type.
     const DTYPE: DLDataType;
 }
 
 macro_rules! impl_dlpack_element {
     ($ty:ty, $code:expr, $bits:expr) => {
-        impl DlpackElement for $ty {
+        unsafe impl DlpackElement for $ty {
             const DTYPE: DLDataType = DLDataType {
                 code: $code,
                 bits: $bits,
@@ -17,8 +24,6 @@ macro_rules! impl_dlpack_element {
         }
     };
 }
-
-impl_dlpack_element!(bool, DLDataTypeCode::BOOL, 8);
 
 impl_dlpack_element!(i8, DLDataTypeCode::INT, 8);
 impl_dlpack_element!(i16, DLDataTypeCode::INT, 16);

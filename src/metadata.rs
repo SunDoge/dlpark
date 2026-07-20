@@ -29,7 +29,13 @@ pub enum Error {
 }
 
 /// Allocates and initializes shape and stride storage for a managed tensor.
-pub trait Metadata {
+/// # Safety
+///
+/// Implementations must return a fully initialized `M` allocation compatible
+/// with [`ManagedBox`](crate::ManagedBox). Its deleter must release both the
+/// managed tensor and `ctx` exactly once, using the same allocation layout that
+/// created the value.
+pub unsafe trait Metadata {
     /// Error returned while validating or allocating this metadata.
     type Error;
 
@@ -56,7 +62,11 @@ pub trait Metadata {
 }
 
 /// Metadata whose rank and element types make allocation infallible.
-pub trait InfallibleMetadata: Metadata<Error = Infallible> {
+/// # Safety
+///
+/// [`Self::allocate`] must uphold [`Metadata`]'s allocation contract and must
+/// not fail for any input accepted by the implementation.
+pub unsafe trait InfallibleMetadata: Metadata<Error = Infallible> {
     /// Allocates a managed tensor containing this metadata.
     fn allocate<C, M>(self, ctx: C) -> NonNull<M>
     where
@@ -115,7 +125,7 @@ unsafe fn allocate<M>(layout: Layout) -> NonNull<M> {
     }
 }
 
-impl<S, T, const N: usize> Metadata for CopiedArray<S, T, N>
+unsafe impl<S, T, const N: usize> Metadata for CopiedArray<S, T, N>
 where
     S: Borrow<[i64; N]>,
     T: Borrow<[i64; N]>,
@@ -141,7 +151,7 @@ where
     }
 }
 
-impl<S, T, const N: usize> InfallibleMetadata for CopiedArray<S, T, N>
+unsafe impl<S, T, const N: usize> InfallibleMetadata for CopiedArray<S, T, N>
 where
     S: Borrow<[i64; N]>,
     T: Borrow<[i64; N]>,
@@ -245,7 +255,7 @@ where
     }
 }
 
-impl<S, T, A, B, const N: usize> Metadata for GenericArray<S, T, A, B, N>
+unsafe impl<S, T, A, B, const N: usize> Metadata for GenericArray<S, T, A, B, N>
 where
     S: Borrow<[A; N]>,
     T: Borrow<[B; N]>,
@@ -387,7 +397,7 @@ where
     }
 }
 
-impl<S, T> Metadata for CopiedSlice<S, T>
+unsafe impl<S, T> Metadata for CopiedSlice<S, T>
 where
     S: AsRef<[i64]>,
     T: AsRef<[i64]>,
@@ -481,7 +491,7 @@ where
     }
 }
 
-impl<S, T, A, B> Metadata for GenericSlice<S, T, A, B>
+unsafe impl<S, T, A, B> Metadata for GenericSlice<S, T, A, B>
 where
     S: AsRef<[A]>,
     T: AsRef<[B]>,
@@ -924,8 +934,8 @@ mod tests {
         let tensor = unsafe { managed.as_ref().tensor() };
 
         assert_eq!(tensor.ndim, 2);
-        assert_eq!(tensor.shape().unwrap(), &[2, 3]);
-        assert_eq!(tensor.strides().unwrap().unwrap(), &[3, 1]);
+        assert_eq!(unsafe { tensor.shape() }.unwrap(), &[2, 3]);
+        assert_eq!(unsafe { tensor.strides() }.unwrap().unwrap(), &[3, 1]);
         unsafe { DLManagedTensor::drop_raw(managed.as_ptr()) };
     }
 
