@@ -1,6 +1,7 @@
 # dlpark
 
 [![Tests](https://img.shields.io/github/actions/workflow/status/SunDoge/dlpark/rust.yml?branch=main&style=for-the-badge&label=test)](https://github.com/SunDoge/dlpark/actions/workflows/rust.yml)
+[![Clippy](https://img.shields.io/github/actions/workflow/status/SunDoge/dlpark/clippy.yml?branch=main&style=for-the-badge&label=clippy)](https://github.com/SunDoge/dlpark/actions/workflows/clippy.yml)
 [![Miri](https://img.shields.io/github/actions/workflow/status/SunDoge/dlpark/miri.yml?branch=main&style=for-the-badge&label=miri)](https://github.com/SunDoge/dlpark/actions/workflows/miri.yml)
 [![Crates.io](https://img.shields.io/crates/v/dlpark?style=for-the-badge)](https://crates.io/crates/dlpark)
 [![docs.rs](https://img.shields.io/docsrs/dlpark/latest?style=for-the-badge)](https://docs.rs/dlpark)
@@ -92,10 +93,11 @@ let shape = [2u32, 3];
 let strides = [3i16, 1];
 let mut data = vec![0f32; 6];
 let data_ptr = data.as_mut_ptr().cast();
-let dlpack: legacy::Dlpack =
-    Builder::new(Box::new(data), GenericArray::new(&shape, &strides))
-        .data(data_ptr)
-        .build();
+let builder = Builder::new(Box::new(data), GenericArray::new(&shape, &strides));
+// SAFETY: the boxed Vec owns six initialized f32 values at data_ptr.
+let dlpack: legacy::Dlpack = unsafe { builder.data(data_ptr) }
+    .try_build()
+    .unwrap();
 ```
 
 The generic path converts each value directly into the trailing `i64`
@@ -126,12 +128,11 @@ The C Exchange API is intended for extension/library use where the consumer can 
 
 ### Reading tensor data
 
-Once you hold a `ManagedBox`, the consumer-side accessors on it (and on the underlying `DLTensor`) read metadata and CPU data without `unsafe`:
+Once you hold a `ManagedBox`, its consumer-side accessors read metadata and CPU data without `unsafe`:
 
 ```rust
 use dlpark::DlpackElement;
 
-let tensor = dlpack.tensor();                 // &DLTensor
 let shape = dlpack.shape()?;                  // &[i64]
 let strides = dlpack.strides()?;             // Option<&[i64]> (None = compact)
 let n = dlpack.num_elements()?;
@@ -139,7 +140,7 @@ let bytes = dlpack.num_bytes()?;              // sub-byte-packing aware
 let data = dlpack.cpu_data_slice::<f32>()?;   // compact CPU data, dtype-checked
 ```
 
-`cpu_data_slice` validates device (CPU only), dtype match, and compact row-major layout before forming the slice. For non-compact layouts use `DLTensor::cpu_data_ptr` / `cpu_data_ptr_bytes` to get the offset-adjusted base pointer and index manually.
+`cpu_data_slice` validates device (CPU only), dtype match, and compact row-major layout before forming the slice. Accessors directly on raw `DLTensor` are `unsafe`, because DLPack metadata cannot prove that its public pointers are readable or within an allocation. Prefer the corresponding safe `ManagedBox` accessors. Low-level consumers of non-compact layouts may use `DLTensor::cpu_data_ptr` / `cpu_data_ptr_bytes` after proving the raw tensor pointer contract.
 
 **Mutable access and the `IS_COPIED` flag.** Writing into a DLPack tensor is gated by two versioned flags, because exclusive ownership cannot be proven from a `&mut ManagedBox` alone — the producer may hold aliases:
 

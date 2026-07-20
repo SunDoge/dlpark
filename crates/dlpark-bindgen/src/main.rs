@@ -18,7 +18,12 @@ fn main() -> Result<(), Whatever> {
         )
         .replace("code: u8", "code: DLDataTypeCode")
         .replace("SetError", "set_error")
-        .replace("flags: u64", "flags: crate::DlpackFlags");
+        .replace("flags: u64", "flags: crate::DlpackFlags")
+        // bindgen preserves Doxygen code commands in doc attributes. Rustdoc
+        // otherwise treats their indented C/C++ contents as Rust doctests.
+        .replace("\\\\code{.c}", "```c")
+        .replace("\\\\code", "```text")
+        .replace("\\\\endcode", "```");
 
     std::fs::write("src/ffi.rs", &post_processed).whatever_context("failed to write file")?;
 
@@ -36,10 +41,8 @@ impl ParseCallbacks for DlpackCallbacks {
         _variant_value: bindgen::callbacks::EnumVariantValue,
     ) -> Option<String> {
         let prefix = "kDL";
-        if original_variant_name.starts_with(prefix) {
-            Some(original_variant_name[prefix.len()..].to_uppercase())
-        } else {
-            None
-        }
+        original_variant_name
+            .strip_prefix(prefix)
+            .map(str::to_uppercase)
     }
 }

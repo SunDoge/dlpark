@@ -136,9 +136,10 @@ impl<T: DlpackElement> TryFrom<Box<CudaSlice<T>>>
         let data_ptr = device_ptr_of(&slice);
 
         let builder = Builder::new(slice, metadata::CopiedArray::new([len], [1]))
-            .device(DLDevice::cuda(device_id))
-            .data(data_ptr)
-            .dtype(T::DTYPE);
+            .device(DLDevice::cuda(device_id));
+        // SAFETY: the owned CudaSlice keeps the device allocation addressed by
+        // data_ptr alive until the managed tensor deleter runs.
+        let builder = unsafe { builder.data(data_ptr) }.dtype(T::DTYPE);
 
         // SAFETY: the owned CudaSlice was moved into the builder and Rust
         // permits no outstanding views while that move occurs.
@@ -298,13 +299,13 @@ fn validated_cuda_parts<T: DlpackElement>(
             device_id: tensor.device.device_id,
         })?;
 
-    let len = tensor.num_elements()?;
-    if !tensor.is_compact()? {
+    let len = unsafe { tensor.num_elements()? };
+    if !unsafe { tensor.is_compact()? } {
         return Err(Error::Tensor {
             source: crate::tensor::Error::NonCompactStrides,
         });
     }
-    let cu_device_ptr = tensor.offset_data_ptr::<T>()? as usize as u64;
+    let cu_device_ptr = unsafe { tensor.offset_data_ptr::<T>()? } as usize as u64;
     Ok((cu_device_ptr, len, device_id))
 }
 
