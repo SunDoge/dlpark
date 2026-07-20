@@ -9,7 +9,14 @@ use std::ptr::NonNull;
 
 /// Owning RAII handle for a DLPack managed tensor pointer.
 ///
-/// Drops by calling the DLPack managed tensor deleter.
+/// Drops by calling the DLPack managed tensor deleter. If the managed tensor
+/// carries a NULL deleter (per the DLPack spec: the producer retains
+/// ownership and the consumer must not free it), `Drop` is a no-op and the
+/// allocation plus `manager_ctx` are *not* released — the caller that
+/// constructed such a tensor is responsible for reclaiming them through their
+/// original owner. `ManagedBox` therefore never calls a NULL deleter, which
+/// preserves the producer-ownership contract but means drop is not always a
+/// full release.
 pub struct ManagedBox<M: ManagedTensorBase>(NonNull<M>);
 
 impl<M> ManagedBox<M>

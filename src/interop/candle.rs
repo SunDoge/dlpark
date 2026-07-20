@@ -69,6 +69,9 @@ pub enum Error {
     ))]
     SubByteStridesUnsupported { dtype: DLDataType },
 
+    #[snafu(display("strided access spans outside the tensor data buffer"))]
+    StridedSpanOverflow,
+
     #[snafu(transparent)]
     Tensor { source: crate::tensor::Error },
 
@@ -273,20 +276,72 @@ fn candle_dtype_from_dl(dtype: DLDataType) -> Option<DType> {
     }
 }
 
+/// Validates a strided index grid and returns its total element count.
+///
+/// `shape` must be non-negative and `strides` may be negative (DLPack permits
+/// both). The total element count is computed with overflow checking. The
+/// byte span covered by the index grid — `[min_elem, max_elem] × elem_size`,
+/// taking per-axis min/max contributions so negative strides are handled —
+/// must lie entirely within `[0, num_bytes)` of the base pointer, otherwise
+/// [`Error::StridedSpanOverflow`] is returned. This is what makes the raw
+/// pointer arithmetic in [`gather_strided_bytes`] sound.
+fn validate_strided_span(
+    shape: &[i64],
+    strides: &[i64],
+    elem_size: usize,
+    num_bytes: usize,
+) -> Result<usize, Error> {
+    let mut total: usize = 1;
+    let mut min_elem: i128 = 0;
+    let mut max_elem: i128 = 0;
+    for (&d, &s) in shape.iter().zip(strides) {
+        if d < 0 {
+            return Err(Error::Tensor {
+                source: crate::tensor::Error::NegativeDimension { axis: 0, value: d },
+            });
+        }
+        total = total.checked_mul(d as usize).ok_or(Error::Tensor {
+            source: crate::tensor::Error::NumElementsOverflow,
+        })?;
+        if d == 0 {
+            continue;
+        }
+        let last = (d - 1) as i128;
+        let s = s as i128;
+        let (lo, hi) = if s >= 0 { (0, last * s) } else { (last * s, 0) };
+        min_elem += lo;
+        max_elem += hi;
+    }
+    let min_byte = min_elem
+        .checked_mul(elem_size as i128)
+        .ok_or(Error::StridedSpanOverflow)?;
+    let max_byte = max_elem
+        .checked_add(1)
+        .and_then(|m| m.checked_mul(elem_size as i128))
+        .ok_or(Error::StridedSpanOverflow)?;
+    if min_byte < 0 || max_byte > num_bytes as i128 {
+        return Err(Error::StridedSpanOverflow);
+    }
+    Ok(total)
+}
+
 /// Gathers a strided tensor into a fresh contiguous (row-major) byte buffer.
 ///
 /// Works purely in bytes — `elem_size` (from the DLPack dtype itself) stands
 /// in for a generic element type, so this needs no `T` at all. `ptr` must
 /// already be adjusted for `byte_offset`; `strides` are in elements, matching
-/// DLPack's convention.
+/// DLPack's convention. `total` is the pre-validated element count from
+/// [`validate_strided_span`], which also proved every accessed byte lies
+/// within the source buffer, so the raw `ptr.offset` below stays in bounds
+/// even for negative strides.
 fn gather_strided_bytes(
     ptr: *const u8,
     elem_size: usize,
     shape: &[i64],
     strides: &[i64],
+    total: usize,
 ) -> Vec<u8> {
     let ndim = shape.len();
-    let total: usize = shape.iter().map(|&d| d as usize).product();
     let mut out = Vec::with_capacity(total * elem_size);
     let mut idx = vec![0i64; ndim];
 
@@ -348,7 +403,10 @@ pub fn candle_tensor_from_dlpack<M: ManagedTensorBase>(
         // packed dtype has no single-element byte to copy.
         return Err(Error::SubByteStridesUnsupported { dtype: dl_dtype });
     } else {
-        gather_strided_bytes(ptr, dl_dtype.element_size(), shape, strides.unwrap())
+        let s = strides.unwrap();
+        let num_bytes = tensor.num_bytes()?;
+        let total = validate_strided_span(shape, s, dl_dtype.element_size(), num_bytes)?;
+        gather_strided_bytes(ptr, dl_dtype.element_size(), shape, s, total)
     };
 
     let dims = shape
@@ -529,6 +587,37 @@ mod tests {
             tensor.flatten_all().unwrap().to_vec1::<i32>().unwrap(),
             vec![1, 4, 2, 5, 3, 6]
         );
+    }
+
+    #[test]
+    fn non_compact_dlpack_with_out_of_bounds_stride_is_rejected() {
+        // Stride 10 on a 6-element buffer: index [1, 0] reaches element 10,
+        // past the end. Must be rejected rather than read out of bounds.
+        let data = Box::new(vec![1i32, 2, 3, 4, 5, 6]);
+        let data_ptr = data.as_ptr() as *mut c_void;
+        let dlpack = Builder::new(data, metadata::CopiedArray::new([2, 2], [10, 1]))
+            .data(data_ptr)
+            .dtype(<i32 as DlpackElement>::DTYPE)
+            .build::<DLManagedTensor>();
+
+        let err = Tensor::try_from(&dlpack).unwrap_err();
+        assert!(matches!(err, Error::StridedSpanOverflow));
+    }
+
+    #[test]
+    fn non_compact_dlpack_with_negative_stride_is_rejected_as_out_of_bounds() {
+        // With byte_offset 0 the data pointer is the allocation base, so any
+        // negative stride indexes before the buffer. Rejected rather than read
+        // out of bounds.
+        let data = Box::new(vec![1i32, 2, 3, 4, 5, 6]);
+        let data_ptr = data.as_ptr() as *mut c_void;
+        let dlpack = Builder::new(data, metadata::CopiedArray::new([3, 2], [-1, -3]))
+            .data(data_ptr)
+            .dtype(<i32 as DlpackElement>::DTYPE)
+            .build::<DLManagedTensor>();
+
+        let err = Tensor::try_from(&dlpack).unwrap_err();
+        assert!(matches!(err, Error::StridedSpanOverflow));
     }
 
     #[test]
