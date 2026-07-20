@@ -599,55 +599,6 @@ where
     }
 }
 
-/// Allocates dynamic metadata borrowed temporarily from an owned context.
-///
-/// The metadata is fully copied before `ctx` is transferred into
-/// `manager_ctx`, allowing adapters to read slices from an owner that is moved
-/// into the resulting managed tensor without creating temporary `Vec<i64>`
-/// values.
-#[cfg(feature = "ndarray")]
-pub(crate) fn allocate_generic_slice_from_context<C, M, A, B, F>(
-    ctx: C,
-    metadata: F,
-) -> Result<NonNull<M>, Error>
-where
-    C: OpaqueContext,
-    M: ManagedTensorBase,
-    A: Copy + TryInto<i64>,
-    B: Copy + TryInto<i64>,
-    F: for<'a> FnOnce(&'a C) -> (&'a [A], &'a [B]),
-{
-    let (shape, strides) = metadata(&ctx);
-    let ndim = checked_ndim(shape.len(), strides.len())?;
-
-    unsafe {
-        let (managed_tensor, shape_dst, strides_dst) = allocate_copied_slice::<M>(ndim as usize);
-        if let Err(axis) = try_copy_generic_metadata(shape, shape_dst) {
-            std::alloc::dealloc(
-                managed_tensor.as_ptr().cast(),
-                copied_slice_layout::<M>(ndim as usize).0,
-            );
-            return Err(Error::ShapeValueOverflow { axis });
-        }
-        if let Err(axis) = try_copy_generic_metadata(strides, strides_dst) {
-            std::alloc::dealloc(
-                managed_tensor.as_ptr().cast(),
-                copied_slice_layout::<M>(ndim as usize).0,
-            );
-            return Err(Error::StrideValueOverflow { axis });
-        }
-
-        Ok(initialize(
-            managed_tensor,
-            shape_dst,
-            strides_dst,
-            ndim,
-            ctx,
-            drop_copied_slice::<C, M>,
-        ))
-    }
-}
-
 /// Borrows fixed-rank metadata and allocates only the managed tensor.
 #[derive(Debug, Clone, Copy)]
 pub struct BorrowedArray<'a, const N: usize> {

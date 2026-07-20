@@ -29,8 +29,8 @@ impl DlpackFlags {
     ///
     /// Turning it on is the risky direction: `ManagedBox::cpu_data_slice_mut`
     /// and `array_view_from_dlpack_mut` trust it unconditionally to skip
-    /// aliasing checks. Leaving an already-set `IS_COPIED` on asserts
-    /// nothing new, so that case is not flagged.
+    /// aliasing checks. Leaving an already-set `IS_COPIED` on asserts nothing
+    /// new, so that case is not flagged.
     pub(crate) fn newly_asserts_is_copied(self, current: DlpackFlags) -> bool {
         self.contains(DlpackFlags::IS_COPIED) && !current.contains(DlpackFlags::IS_COPIED)
     }

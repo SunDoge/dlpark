@@ -1,5 +1,5 @@
 use candle_core::Tensor;
-use dlpark::versioned;
+use dlpark::{Builder, versioned};
 use ndarray::{Array2, ArrayViewD};
 use snafu::{ResultExt, Whatever};
 
@@ -9,7 +9,9 @@ fn main() -> Result<(), Whatever> {
     println!("ndarray array:\n{array}");
 
     // ndarray -> DLPack: zero-copy, the DLPack tensor borrows the array's own buffer.
-    let dlpack = versioned::Dlpack::try_from(array).whatever_context("ndarray -> DLPack failed")?;
+    let dlpack: versioned::Dlpack = Builder::from(array)
+        .try_build()
+        .whatever_context("ndarray -> DLPack failed")?;
 
     // DLPack -> candle::Tensor: a copy, candle has no borrowed CPU tensor type.
     let tensor = Tensor::try_from(&dlpack).whatever_context("DLPack -> candle::Tensor failed")?;
@@ -24,8 +26,10 @@ fn main() -> Result<(), Whatever> {
     assert_eq!(sum, 21.0);
 
     // candle::Tensor -> DLPack: zero-copy, boxes the whole Tensor as the DLPack manager_ctx.
-    let dlpack_back =
-        versioned::Dlpack::try_from(tensor).whatever_context("candle::Tensor -> DLPack failed")?;
+    let dlpack_back: versioned::Dlpack = Builder::try_from(tensor)
+        .whatever_context("candle::Tensor -> builder failed")?
+        .try_build()
+        .whatever_context("builder -> DLPack failed")?;
 
     // DLPack -> ndarray view: zero-copy.
     let view = ArrayViewD::<f32>::try_from(&dlpack_back)

@@ -90,6 +90,20 @@ impl<C, L> Builder<C, L> {
         Ok(self)
     }
 
+    /// Adds DLPack flags without clearing flags already set on the builder.
+    ///
+    /// This errors if the operation would newly assert
+    /// [`DlpackFlags::IS_COPIED`]. Use [`Self::insert_flags_unchecked`] when
+    /// the caller can prove the required ownership guarantee.
+    #[inline]
+    pub fn insert_flags(mut self, flags: DlpackFlags) -> Result<Self, crate::tensor::Error> {
+        if flags.newly_asserts_is_copied(self.fields.flags) {
+            return Err(crate::tensor::Error::CannotAssertIsCopied);
+        }
+        self.fields.flags.insert(flags);
+        Ok(self)
+    }
+
     /// Sets DLPack flags verbatim, including [`DlpackFlags::IS_COPIED`].
     ///
     /// # Safety
@@ -100,6 +114,18 @@ impl<C, L> Builder<C, L> {
     #[inline]
     pub unsafe fn flags_unchecked(mut self, flags: DlpackFlags) -> Self {
         self.fields.flags = flags;
+        self
+    }
+
+    /// Adds DLPack flags without clearing flags already set on the builder.
+    ///
+    /// # Safety
+    ///
+    /// If `flags` includes `IS_COPIED`, the caller must ensure that no other
+    /// reference to the tensor's data exists.
+    #[inline]
+    pub unsafe fn insert_flags_unchecked(mut self, flags: DlpackFlags) -> Self {
+        self.fields.flags.insert(flags);
         self
     }
 }
@@ -587,6 +613,38 @@ mod tests {
         };
 
         assert!(matches!(error, crate::tensor::Error::CannotAssertIsCopied));
+    }
+
+    #[test]
+    fn insert_flags_rejects_newly_asserting_is_copied() {
+        let (ctx, _) = context();
+
+        let error = match Builder::new(ctx, metadata::CopiedArray::new(&[3], &[1]))
+            .insert_flags(DlpackFlags::IS_COPIED)
+        {
+            Ok(_) => panic!("newly inserting IS_COPIED through the safe setter should fail"),
+            Err(error) => error,
+        };
+
+        assert!(matches!(error, crate::tensor::Error::CannotAssertIsCopied));
+    }
+
+    #[test]
+    fn insert_flags_preserves_existing_flags() {
+        let (ctx, _) = context();
+        let builder = unsafe {
+            Builder::new(ctx, metadata::CopiedArray::new(&[3], &[1]))
+                .flags_unchecked(DlpackFlags::IS_COPIED)
+        };
+        let tensor: ManagedBox<DLManagedTensorVersioned> = builder
+            .insert_flags(DlpackFlags::READ_ONLY)
+            .unwrap()
+            .build();
+
+        assert_eq!(
+            tensor.flags(),
+            DlpackFlags::IS_COPIED | DlpackFlags::READ_ONLY
+        );
     }
 
     #[test]

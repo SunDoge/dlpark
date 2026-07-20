@@ -36,7 +36,7 @@ use crate::{
     ManagedBox, ManagedTensorBase,
     builder::Builder,
     ffi::{DLDataType, DLDataTypeCode, DLDevice},
-    legacy, metadata, versioned,
+    metadata,
 };
 use candle_core::{
     DType, Device, Storage, Tensor, backend::BackendStorage, cpu_backend::CpuStorage,
@@ -44,8 +44,6 @@ use candle_core::{
 use snafu::Snafu;
 use std::mem::size_of;
 use std::os::raw::c_void;
-
-pub type CandleBuilder = Builder<Box<Tensor>, metadata::CopiedSlice<Vec<i64>, Vec<i64>>>;
 
 #[derive(Debug, Snafu)]
 pub enum Error {
@@ -73,9 +71,6 @@ pub enum Error {
 
     #[snafu(transparent)]
     Tensor { source: crate::tensor::Error },
-
-    #[snafu(transparent)]
-    Builder { source: crate::builder::Error },
 
     #[snafu(transparent)]
     Candle { source: candle_core::Error },
@@ -225,7 +220,7 @@ fn dlpack_layout_from_candle(tensor: &Tensor) -> Result<CandleLayout, Error> {
 /// - [`Error::UnsupportedCandleDType`] if [`dl_dtype_from_candle`] has no
 ///   mapping for the tensor's dtype (currently the packed sub-byte float
 ///   formats, and `BF16`/`F16` when the `half` feature is disabled).
-impl TryFrom<Tensor> for CandleBuilder {
+impl TryFrom<Tensor> for Builder<Box<Tensor>, metadata::CopiedSlice<Vec<i64>, Vec<i64>>> {
     type Error = Error;
 
     fn try_from(tensor: Tensor) -> Result<Self, Self::Error> {
@@ -244,51 +239,6 @@ impl TryFrom<Tensor> for CandleBuilder {
                 .dtype(dtype)
                 .device(DLDevice::CPU),
         )
-    }
-}
-
-/// Converts a CPU [`Tensor`] into a DLPack [`Builder`].
-///
-/// This compatibility function is equivalent to [`Builder::try_from`].
-pub fn candle_tensor_to_dlpack_builder(tensor: Tensor) -> Result<CandleBuilder, Error> {
-    Builder::try_from(tensor)
-}
-
-/// Converts a CPU [`Tensor`] into a DLPack [`Builder`].
-///
-/// This compatibility function is equivalent to [`Builder::try_from`].
-/// The managed tensor ABI is selected only when the builder is built.
-pub fn candle_tensor_to_versioned_dlpack_builder(tensor: Tensor) -> Result<CandleBuilder, Error> {
-    Builder::try_from(tensor)
-}
-
-/// Converts a CPU [`Tensor`] into a [`Dlpack`] (legacy DLPack ABI).
-///
-/// Use [`Builder::try_from`] when you need to adjust DLPack fields before
-/// building.
-pub fn candle_tensor_to_dlpack(tensor: Tensor) -> Result<legacy::Dlpack, Error> {
-    Ok(Builder::try_from(tensor)?.try_build()?)
-}
-
-/// Same as [`candle_tensor_to_dlpack`] but produces a [`versioned::Dlpack`]
-/// (DLPack >= 1.0).
-pub fn candle_tensor_to_versioned_dlpack(tensor: Tensor) -> Result<versioned::Dlpack, Error> {
-    Ok(Builder::try_from(tensor)?.try_build()?)
-}
-
-impl TryFrom<Tensor> for legacy::Dlpack {
-    type Error = Error;
-
-    fn try_from(tensor: Tensor) -> Result<Self, Self::Error> {
-        candle_tensor_to_dlpack(tensor)
-    }
-}
-
-impl TryFrom<Tensor> for versioned::Dlpack {
-    type Error = Error;
-
-    fn try_from(tensor: Tensor) -> Result<Self, Self::Error> {
-        candle_tensor_to_versioned_dlpack(tensor)
     }
 }
 
@@ -424,12 +374,12 @@ where
 mod tests {
     use super::*;
     use crate::ffi::{DLDataTypeCode, DLManagedTensor, DLManagedTensorVersioned};
-    use crate::{DlpackElement, DlpackFlags};
+    use crate::{DlpackElement, DlpackFlags, legacy, versioned};
 
     #[test]
     fn candle_tensor_to_legacy_dlpack_keeps_layout_and_data() {
         let tensor = Tensor::from_vec(vec![1i32, 2, 3, 4, 5, 6], (2, 3), &Device::Cpu).unwrap();
-        let dlpack = legacy::Dlpack::try_from(tensor).unwrap();
+        let dlpack: legacy::Dlpack = Builder::try_from(tensor).unwrap().try_build().unwrap();
 
         assert_eq!(dlpack.shape().unwrap(), &[2, 3]);
         assert_eq!(dlpack.strides().unwrap().unwrap(), &[3, 1]);
@@ -437,9 +387,9 @@ mod tests {
     }
 
     #[test]
-    fn candle_tensor_to_versioned_dlpack_defaults_to_empty_flags() {
+    fn candle_builder_defaults_to_empty_flags() {
         let tensor = Tensor::from_vec(vec![1f32, 2., 3., 4.], (2, 2), &Device::Cpu).unwrap();
-        let dlpack = versioned::Dlpack::try_from(tensor).unwrap();
+        let dlpack: versioned::Dlpack = Builder::try_from(tensor).unwrap().try_build().unwrap();
 
         assert_eq!(dlpack.flags(), DlpackFlags::empty());
         assert_eq!(dlpack.cpu_data_slice::<f32>().unwrap(), &[1., 2., 3., 4.]);
@@ -450,7 +400,7 @@ mod tests {
         let tensor = Tensor::from_vec(vec![1f32, 2., 3., 4.], (2, 2), &Device::Cpu).unwrap();
         let dlpack: ManagedBox<DLManagedTensorVersioned> = Builder::try_from(tensor)
             .unwrap()
-            .flags(DlpackFlags::READ_ONLY)
+            .insert_flags(DlpackFlags::READ_ONLY)
             .unwrap()
             .try_build()
             .unwrap();
@@ -465,7 +415,7 @@ mod tests {
         // Rust-side value comparisons without the separate `float8` crate —
         // so this only checks shape/dtype/byte-count, not element values.
         let tensor = Tensor::zeros((2, 3), DType::F8E4M3, &Device::Cpu).unwrap();
-        let dlpack = legacy::Dlpack::try_from(tensor).unwrap();
+        let dlpack: legacy::Dlpack = Builder::try_from(tensor).unwrap().try_build().unwrap();
 
         assert_eq!(dlpack.shape().unwrap(), &[2, 3]);
         let dtype = dlpack.tensor().dtype;
@@ -482,7 +432,7 @@ mod tests {
         // 6 elements * 4 bits = 24 bits = 3 bytes exactly, no padding.
         let tensor =
             Tensor::from_raw_buffer(&[0xAB, 0xCD, 0xEF], DType::F4, &[6], &Device::Cpu).unwrap();
-        let dlpack = legacy::Dlpack::try_from(tensor).unwrap();
+        let dlpack: legacy::Dlpack = Builder::try_from(tensor).unwrap().try_build().unwrap();
 
         assert_eq!(dlpack.shape().unwrap(), &[6]);
         let dtype = dlpack.tensor().dtype;

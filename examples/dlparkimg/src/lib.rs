@@ -1,4 +1,4 @@
-use dlpark::versioned;
+use dlpark::{versioned, Builder};
 use image::{ImageBuffer, Rgb};
 use pyo3::exceptions::{PyIOError, PyValueError};
 use pyo3::prelude::*;
@@ -7,7 +7,7 @@ use pyo3::prelude::*;
 fn read_image(filename: &str) -> PyResult<versioned::Dlpack> {
     let img = image::open(filename).map_err(|err| PyIOError::new_err(err.to_string()))?;
     let rgb_img = img.to_rgb8();
-    Ok(versioned::Dlpack::from(rgb_img))
+    Ok(Builder::from(rgb_img).build())
 }
 
 #[pyfunction]

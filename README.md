@@ -126,14 +126,14 @@ Two runnable examples:
 ### Converting between Rust and Python
 
 ```rust
-use dlpark::versioned;
+use dlpark::{Builder, versioned};
 use pyo3::prelude::*;
 
 // Rust to Python
 #[pyfunction]
 fn read_image(filename: &str) -> versioned::Dlpack {
     let img = image::open(filename).unwrap().to_rgb8();
-    versioned::Dlpack::from(img)
+    Builder::from(img).build()
 }
 
 // Python to Rust
@@ -147,28 +147,28 @@ fn write_image(filename: &str, tensor: versioned::Dlpack) {
 ### Image Processing
 
 ```rust
-use dlpark::versioned;
+use dlpark::{Builder, versioned};
 use image::{ImageBuffer, Rgb};
 
 let img = ImageBuffer::<Rgb<u8>, _>::from_vec(100, 100, vec![0; 100 * 100 * 3])?;
-let tensor = versioned::Dlpack::from(img);
+let tensor: versioned::Dlpack = Builder::from(img).build();
 let img2 = ImageBuffer::<Rgb<u8>, _>::try_from(&tensor)?;
 ```
 
 ### ndarray
 
 ```rust
-use dlpark::versioned;
+use dlpark::{Builder, versioned};
 use ndarray::{ArrayD, ArrayViewD, arr2};
 
 let array = arr2(&[[1i32, 2, 3], [4, 5, 6]]);
-let tensor = versioned::Dlpack::try_from(array)?;
+let tensor: versioned::Dlpack = Builder::from(array).try_build()?;
 let view = ArrayViewD::<i32>::try_from(&tensor)?;
 
 assert_eq!(view[[1, 2]], 6);
 
 let dynamic: ArrayD<i32> = arr2(&[[1, 2], [3, 4]]).into_dyn();
-let dynamic_tensor = versioned::Dlpack::try_from(dynamic)?;
+let dynamic_tensor: versioned::Dlpack = Builder::from(dynamic).try_build()?;
 ```
 
 ### candle
@@ -180,7 +180,7 @@ use candle_core::Tensor;
 use dlpark::{Builder, DlpackFlags, ffi::DLManagedTensorVersioned, versioned};
 
 let tensor = Tensor::new(&[1f32, 2., 3., 4.], &candle_core::Device::Cpu)?;
-let dlpack = versioned::Dlpack::try_from(tensor)?;
+let dlpack: versioned::Dlpack = Builder::try_from(tensor)?.try_build()?;
 
 let tensor2 = Tensor::try_from(&dlpack)?;
 assert_eq!(tensor2.to_vec1::<f32>()?, vec![1., 2., 3., 4.]);
@@ -188,22 +188,23 @@ assert_eq!(tensor2.to_vec1::<f32>()?, vec![1., 2., 3., 4.]);
 let tensor = Tensor::new(&[1f32, 2., 3., 4.], &candle_core::Device::Cpu)?;
 let builder = Builder::try_from(tensor)?;
 let dlpack = builder
-    .flags(DlpackFlags::READ_ONLY)
+    .insert_flags(DlpackFlags::READ_ONLY)?
     .try_build::<DLManagedTensorVersioned>()?;
 ```
 
 ### cudarc
 
-Zero-copy in both directions between a [cudarc] `CudaSlice<T>` and a DLPack tensor. `CudaBuilder::try_from` returns the regular `Builder` with a contiguous 1-D default layout (`shape = [len]`, `strides = [1]`); replace its metadata for higher-rank tensors. The reverse direction consumes the managed tensor through `TryFrom<ManagedBox<M>> for BorrowedCudaSlice<M, T>`, keeping it alive for as long as the CUDA view exists.
+Zero-copy in both directions between a [cudarc] `CudaSlice<T>` and a DLPack tensor. `Builder::try_from` returns a builder with `IS_COPIED` and a contiguous 1-D default layout (`shape = [len]`, `strides = [1]`); replace its metadata for higher-rank tensors. The reverse direction consumes the managed tensor through `TryFrom<ManagedBox<M>> for BorrowedCudaSlice<M, T>`, keeping it alive for as long as the CUDA view exists.
 
 ```rust
 use dlpark::{
-    interop::cudarc::{BorrowedCudaSlice, CudaBuilder},
+    Builder,
+    interop::cudarc::BorrowedCudaSlice,
     metadata::CopiedSlice,
     versioned,
 };
 
-let dlpack: versioned::Dlpack = CudaBuilder::try_from(cuda_slice)?
+let dlpack: versioned::Dlpack = Builder::try_from(cuda_slice)?
     .metadata(CopiedSlice::new([2, 3], [3, 1]))
     .try_build()?;
 let borrowed = BorrowedCudaSlice::<_, f32>::try_from(dlpack)?;
