@@ -1,6 +1,7 @@
 # dlpark
 
 [![Tests](https://img.shields.io/github/actions/workflow/status/SunDoge/dlpark/rust.yml?branch=main&style=for-the-badge&label=test)](https://github.com/SunDoge/dlpark/actions/workflows/rust.yml)
+[![Clippy](https://img.shields.io/github/actions/workflow/status/SunDoge/dlpark/clippy.yml?branch=main&style=for-the-badge&label=clippy)](https://github.com/SunDoge/dlpark/actions/workflows/clippy.yml)
 [![Miri](https://img.shields.io/github/actions/workflow/status/SunDoge/dlpark/miri.yml?branch=main&style=for-the-badge&label=miri)](https://github.com/SunDoge/dlpark/actions/workflows/miri.yml)
 [![Crates.io](https://img.shields.io/crates/v/dlpark?style=for-the-badge)](https://crates.io/crates/dlpark)
 [![docs.rs](https://img.shields.io/docsrs/dlpark/latest?style=for-the-badge)](https://docs.rs/dlpark)

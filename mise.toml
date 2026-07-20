@@ -1,4 +1,5 @@
 [tools]
+actionlint = "latest"
 git-cliff = "latest"
 jj = "latest"
 just = "latest"
