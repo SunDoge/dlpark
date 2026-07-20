@@ -9,8 +9,7 @@ fn main() -> Result<(), Whatever> {
     println!("ndarray array:\n{array}");
 
     // ndarray -> DLPack: zero-copy, the DLPack tensor borrows the array's own buffer.
-    let dlpack: versioned::Dlpack = Builder::from(array)
-        .try_build()
+    let dlpack = versioned::Dlpack::try_from(Box::new(array))
         .whatever_context("ndarray -> DLPack failed")?;
 
     // DLPack -> candle::Tensor: a copy, candle has no borrowed CPU tensor type.

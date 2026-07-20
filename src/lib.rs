@@ -1,21 +1,21 @@
 //! Safe ownership and interoperability helpers for [DLPack].
 //!
-//! Producers are converted into a [`Builder`], which keeps the producer alive,
-//! owns or borrows shape metadata according to its metadata type, and selects
-//! the legacy or versioned ABI only when built. The result is a [`ManagedBox`]
-//! that calls the DLPack deleter on drop.
+//! Producers convert into a [`Builder`] or directly into a [`ManagedBox`].
+//! Both keep the producer alive, and `ManagedBox` calls the DLPack deleter on
+//! drop.
 //!
 //! ```
 //! # #[cfg(feature = "ndarray")]
 //! # {
-//! use dlpark::{Builder, DlpackFlags, versioned};
+//! use dlpark::{DlpackFlags, versioned};
 //! use ndarray::arr1;
 //!
-//! let tensor: versioned::Dlpack = Builder::from(arr1(&[1_i32, 2, 3]))
-//!     .insert_flags(DlpackFlags::READ_ONLY)
-//!     .unwrap()
-//!     .try_build()
-//!     .unwrap();
+//! let array = Box::new(arr1(&[1_i32, 2, 3]));
+//! let mut tensor = versioned::Dlpack::try_from(array).unwrap();
+//! // SAFETY: retaining READ_ONLY only restricts what consumers may do.
+//! unsafe {
+//!     tensor.flags_mut().insert(DlpackFlags::READ_ONLY);
+//! }
 //! assert_eq!(tensor.shape().unwrap(), &[3]);
 //! # }
 //! ```

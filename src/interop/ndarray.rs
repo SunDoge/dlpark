@@ -1,19 +1,16 @@
 //! Zero-copy CPU interop for owned and borrowed `ndarray` arrays.
 //!
-//! Owned arrays convert into [`crate::Builder`] values. Shape and stride
-//! values are copied into the final managed tensor allocation only when the
-//! builder is built, while the array allocation remains owned by its context.
+//! Owned arrays convert directly into [`crate::ManagedBox`] values. Shape and
+//! stride values are copied into the managed tensor allocation, while the
+//! array allocation remains owned by its context.
 
 use crate::{
-    Builder, DlpackElement, DlpackFlags,
-    dlpack::ManagedBox,
-    ffi::DLDevice,
-    managed_tensor::ManagedTensorBase,
-    metadata::{self, Metadata},
+    DlpackElement, DlpackFlags, dlpack::ManagedBox, ffi::DLDevice,
+    managed_tensor::ManagedTensorBase, metadata,
 };
 use ndarray::{ArrayBase, ArrayViewD, ArrayViewMutD, Dimension, IxDyn, OwnedRepr, ShapeBuilder};
 use snafu::{ResultExt, Snafu, ensure};
-use std::os::raw::c_void;
+use std::{os::raw::c_void, ptr::NonNull};
 
 #[derive(Debug, Snafu)]
 pub enum Error {
@@ -33,74 +30,34 @@ pub enum Error {
     Tensor { source: crate::tensor::Error },
 }
 
-/// Copies an ndarray's runtime shape and strides into the managed tensor
-/// allocation when its [`Builder`] is built.
-///
-/// The pointers refer into the boxed ndarray owned by the same builder. Moving
-/// the builder does not move that allocation, and the fields are private so
-/// this relationship can only be constructed by the conversion below.
-#[derive(Debug)]
-pub struct NdarrayMetadata {
-    shape: *const usize,
-    strides: *const isize,
-    ndim: usize,
-}
-
-impl Metadata for NdarrayMetadata {
-    type Error = metadata::Error;
-
-    fn try_allocate<C, M>(self, ctx: C) -> Result<std::ptr::NonNull<M>, Self::Error>
-    where
-        C: crate::OpaqueContext,
-        M: ManagedTensorBase,
-    {
-        // SAFETY: construction boxes the ndarray before capturing these
-        // pointers, and the builder still owns that box while allocating.
-        let shape = unsafe { std::slice::from_raw_parts(self.shape, self.ndim) };
-        let strides = unsafe { std::slice::from_raw_parts(self.strides, self.ndim) };
-        metadata::GenericSlice::new(shape, strides).try_allocate(ctx)
-    }
-
-    unsafe fn allocate_unchecked<C, M>(self, ctx: C) -> std::ptr::NonNull<M>
-    where
-        C: crate::OpaqueContext,
-        M: ManagedTensorBase,
-    {
-        // SAFETY: the pointer lifetime follows from the same invariant as
-        // try_allocate; the caller supplies GenericSlice's unchecked
-        // conversion and length invariants.
-        let shape = unsafe { std::slice::from_raw_parts(self.shape, self.ndim) };
-        let strides = unsafe { std::slice::from_raw_parts(self.strides, self.ndim) };
-        unsafe { metadata::GenericSlice::new(shape, strides).allocate_unchecked(ctx) }
-    }
-}
-
-impl<T, D> From<ArrayBase<OwnedRepr<T>, D>>
-    for Builder<Box<ArrayBase<OwnedRepr<T>, D>>, NdarrayMetadata>
+impl<T, D, M> TryFrom<Box<ArrayBase<OwnedRepr<T>, D>>> for ManagedBox<M>
 where
     T: DlpackElement + Send,
     D: Dimension,
+    M: ManagedTensorBase,
 {
-    fn from(array: ArrayBase<OwnedRepr<T>, D>) -> Self {
-        let array = Box::new(array);
+    type Error = metadata::Error;
+
+    fn try_from(array: Box<ArrayBase<OwnedRepr<T>, D>>) -> Result<Self, Self::Error> {
         let data_ptr = if array.is_empty() {
             std::ptr::null_mut()
         } else {
             array.as_ptr() as *mut c_void
         };
-        let metadata = NdarrayMetadata {
-            shape: array.shape().as_ptr(),
-            strides: array.strides().as_ptr(),
-            ndim: array.ndim(),
-        };
-        let builder = Builder::new(array, metadata)
-            .data(data_ptr)
-            .dtype(T::DTYPE)
-            .device(DLDevice::CPU);
+        let mut managed: NonNull<M> =
+            metadata::try_allocate_generic_from_context(array, |array| {
+                (array.shape(), array.strides())
+            })?;
 
-        // SAFETY: the owned ndarray was moved into the builder and has no
-        // remaining aliases to its storage.
-        unsafe { builder.flags_unchecked(DlpackFlags::IS_COPIED) }
+        unsafe {
+            let managed_ref = managed.as_mut();
+            let tensor = managed_ref.tensor_mut();
+            tensor.data = data_ptr;
+            tensor.device = DLDevice::CPU;
+            tensor.dtype = T::DTYPE;
+            managed_ref.set_flags_unchecked(DlpackFlags::IS_COPIED);
+            Ok(ManagedBox::new_unchecked(managed.as_ptr()))
+        }
     }
 }
 
@@ -251,36 +208,30 @@ fn strided_span_len(shape: &[usize], strides: &[usize]) -> Result<usize, Error> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        ffi::{DLManagedTensor, DLManagedTensorVersioned},
-        legacy, versioned,
-    };
+    use crate::{legacy, versioned};
     use ndarray::{Array, arr2};
 
     /// A `[[1, 2, 3], [4, 5, 6]]` legacy tensor. Legacy tensors have no flags
     /// field, so this is always writable via the `_unchecked` accessors and
     /// never satisfies `IS_COPIED`.
     fn legacy_2x3_dlpack() -> legacy::Dlpack {
-        Builder::from(arr2(&[[1i32, 2, 3], [4, 5, 6]]))
-            .try_build::<DLManagedTensor>()
-            .unwrap()
+        legacy::Dlpack::try_from(Box::new(arr2(&[[1i32, 2, 3], [4, 5, 6]]))).unwrap()
     }
 
     /// The transpose of [`legacy_2x3_dlpack`]'s array, i.e. non-compact strides.
     fn legacy_3x2_transposed_dlpack() -> legacy::Dlpack {
         let array = arr2(&[[1i32, 2, 3], [4, 5, 6]]);
-        Builder::from(array.reversed_axes().to_owned())
-            .try_build::<DLManagedTensor>()
-            .unwrap()
+        legacy::Dlpack::try_from(Box::new(array.reversed_axes().to_owned())).unwrap()
     }
 
     /// A `[[1, 2, 3], [4, 5, 6]]` versioned tensor carrying the given flags.
     fn versioned_2x3_dlpack(flags: DlpackFlags) -> versioned::Dlpack {
-        Builder::from(arr2(&[[1i32, 2, 3], [4, 5, 6]]))
-            .flags(flags)
-            .unwrap()
-            .try_build::<DLManagedTensorVersioned>()
-            .unwrap()
+        let mut dlpack =
+            versioned::Dlpack::try_from(Box::new(arr2(&[[1i32, 2, 3], [4, 5, 6]]))).unwrap();
+        unsafe {
+            *dlpack.flags_mut() = flags;
+        }
+        dlpack
     }
 
     #[test]
@@ -295,7 +246,7 @@ mod tests {
     #[test]
     fn owned_ndarray_to_versioned_dlpack_keeps_layout_and_data() {
         let array = Array::from_shape_vec((2, 2), vec![1f32, 2., 3., 4.]).unwrap();
-        let dlpack: versioned::Dlpack = Builder::from(array).try_build().unwrap();
+        let dlpack = versioned::Dlpack::try_from(Box::new(array)).unwrap();
 
         assert_eq!(dlpack.shape().unwrap(), &[2, 2]);
         assert_eq!(dlpack.strides().unwrap().unwrap(), &[2, 1]);
@@ -305,19 +256,18 @@ mod tests {
     #[test]
     fn owned_ndarray_to_versioned_dlpack_sets_is_copied() {
         let array = Array::from_shape_vec((2, 2), vec![1f32, 2., 3., 4.]).unwrap();
-        let dlpack: versioned::Dlpack = Builder::from(array).try_build().unwrap();
+        let dlpack = versioned::Dlpack::try_from(Box::new(array)).unwrap();
 
         assert_eq!(dlpack.flags(), DlpackFlags::IS_COPIED);
     }
 
     #[test]
-    fn ndarray_builder_allows_setting_read_only_safely() {
+    fn owned_ndarray_dlpack_allows_setting_read_only_unsafely() {
         let array = Array::from_shape_vec((2, 2), vec![1f32, 2., 3., 4.]).unwrap();
-        let dlpack: versioned::Dlpack = Builder::from(array)
-            .insert_flags(DlpackFlags::READ_ONLY)
-            .unwrap()
-            .try_build()
-            .unwrap();
+        let mut dlpack = versioned::Dlpack::try_from(Box::new(array)).unwrap();
+        unsafe {
+            dlpack.flags_mut().insert(DlpackFlags::READ_ONLY);
+        }
 
         assert_eq!(
             dlpack.flags(),
@@ -328,7 +278,7 @@ mod tests {
     #[test]
     fn owned_ndarray_to_versioned_dlpack_allows_unsafe_mutation() {
         let array = Array::from_shape_vec((2, 2), vec![1f32, 2., 3., 4.]).unwrap();
-        let mut dlpack: versioned::Dlpack = Builder::from(array).try_build().unwrap();
+        let mut dlpack = versioned::Dlpack::try_from(Box::new(array)).unwrap();
 
         unsafe {
             dlpack.cpu_data_slice_mut_unchecked::<f32>().unwrap()[1] = 42.;
@@ -340,7 +290,7 @@ mod tests {
     #[test]
     fn owned_arrayd_to_dlpack_keeps_dynamic_shape() {
         let array = arr2(&[[1i32, 2], [3, 4]]).into_dyn();
-        let dlpack: legacy::Dlpack = Builder::from(array).try_build().unwrap();
+        let dlpack = legacy::Dlpack::try_from(Box::new(array)).unwrap();
 
         assert_eq!(dlpack.shape().unwrap(), &[2, 2]);
         assert_eq!(dlpack.strides().unwrap().unwrap(), &[2, 1]);
@@ -469,7 +419,7 @@ mod tests {
     #[test]
     fn sliced_owned_ndarray_to_dlpack_exports_non_standard_strides() {
         let array = Array::from_shape_vec((2, 2).strides((4, 2)), (0i32..7).collect()).unwrap();
-        let dlpack: legacy::Dlpack = Builder::from(array).try_build().unwrap();
+        let dlpack = legacy::Dlpack::try_from(Box::new(array)).unwrap();
         let view = ArrayViewD::<i32>::try_from(&dlpack).unwrap();
 
         assert_eq!(view.shape(), &[2, 2]);
