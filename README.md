@@ -158,17 +158,17 @@ let img2 = ImageBuffer::<Rgb<u8>, _>::try_from(&tensor)?;
 ### ndarray
 
 ```rust
-use dlpark::versioned;
+use dlpark::{Builder, versioned};
 use ndarray::{ArrayD, ArrayViewD, arr2};
 
 let array = arr2(&[[1i32, 2, 3], [4, 5, 6]]);
-let tensor = versioned::Dlpack::try_from(Box::new(array))?;
+let tensor: versioned::Dlpack = Builder::from(Box::new(array)).try_build()?;
 let view = ArrayViewD::<i32>::try_from(&tensor)?;
 
 assert_eq!(view[[1, 2]], 6);
 
 let dynamic: ArrayD<i32> = arr2(&[[1, 2], [3, 4]]).into_dyn();
-let dynamic_tensor = versioned::Dlpack::try_from(Box::new(dynamic))?;
+let dynamic_tensor: versioned::Dlpack = Builder::from(Box::new(dynamic)).try_build()?;
 ```
 
 ### candle

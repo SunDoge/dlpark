@@ -7,7 +7,7 @@
 use crate::{
     DlpackFlags, ManagedBox, ManagedTensorBase, OpaqueContext,
     ffi::{DLDataType, DLDevice},
-    metadata::{BorrowedArray, BorrowedSlice, InfallibleMetadata, Metadata},
+    metadata::{BorrowedArray, BorrowedSlice, FromContext, InfallibleMetadata, Metadata},
 };
 use std::{ffi::c_void, ptr::NonNull};
 
@@ -147,6 +147,24 @@ impl<C, L> Builder<C, L> {
     }
 }
 
+impl<C> Builder<C, ()> {
+    /// Creates a builder whose shape and strides are derived from its context
+    /// during allocation.
+    ///
+    /// The closure is invoked after the context has completed its final move
+    /// into the build operation. Its returned slices are converted to `i64`
+    /// and copied before the context is transferred to `manager_ctx`.
+    #[inline]
+    pub fn from_context<F, A, B>(ctx: C, derive: F) -> Builder<C, FromContext<F, A, B>>
+    where
+        A: Copy + TryInto<i64>,
+        B: Copy + TryInto<i64>,
+        F: FnOnce(&C) -> (&[A], &[B]),
+    {
+        Builder::new(ctx, FromContext::new(derive))
+    }
+}
+
 impl<C, L> Builder<C, L>
 where
     C: OpaqueContext,
@@ -215,6 +233,41 @@ where
         M: ManagedTensorBase,
     {
         unsafe { ManagedBox::new_unchecked(self.build_raw_unchecked()) }
+    }
+}
+
+impl<C, F, A, B> Builder<C, FromContext<F, A, B>>
+where
+    C: OpaqueContext,
+    A: Copy + TryInto<i64>,
+    B: Copy + TryInto<i64>,
+    F: FnOnce(&C) -> (&[A], &[B]),
+{
+    /// Derives, validates, and copies metadata, then transfers ownership to a
+    /// raw DLPack pointer.
+    #[inline]
+    pub fn try_build_raw<M>(self) -> Result<*mut M, Error>
+    where
+        M: ManagedTensorBase,
+    {
+        let Self {
+            ctx,
+            metadata,
+            fields,
+        } = self;
+        let managed =
+            crate::metadata::try_allocate_generic_from_context(ctx, metadata.into_inner())?;
+        Ok(unsafe { finish(managed, fields) }.as_ptr())
+    }
+
+    /// Derives metadata from the context and returns an owning managed tensor.
+    #[inline]
+    pub fn try_build<M>(self) -> Result<ManagedBox<M>, Error>
+    where
+        M: ManagedTensorBase,
+    {
+        self.try_build_raw()
+            .map(|raw| unsafe { ManagedBox::new_unchecked(raw) })
     }
 }
 
@@ -557,6 +610,26 @@ mod tests {
         let result: Result<ManagedBox<DLManagedTensor>, Error> =
             Builder::new(ctx, metadata::GenericSlice::new(&[1usize, 2], &[1isize])).try_build();
         assert!(matches!(result, Err(Error::MismatchedLength { .. })));
+    }
+
+    #[test]
+    fn context_metadata_is_derived_during_build() {
+        struct Context {
+            shape: Vec<usize>,
+            strides: Vec<isize>,
+        }
+
+        let builder = Builder::from_context(
+            Box::new(Context {
+                shape: vec![2, 3],
+                strides: vec![3, 1],
+            }),
+            |ctx| (ctx.shape.as_slice(), ctx.strides.as_slice()),
+        );
+        let tensor = builder.try_build::<DLManagedTensor>().unwrap();
+
+        assert_eq!(tensor.shape().unwrap(), &[2, 3]);
+        assert_eq!(tensor.strides().unwrap().unwrap(), &[3, 1]);
     }
 
     #[test]

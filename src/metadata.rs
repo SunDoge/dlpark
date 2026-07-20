@@ -619,6 +619,27 @@ where
 
 /// Copies metadata derived from an owning context after that context has
 /// reached this function's stack frame.
+#[derive(Debug, Clone, Copy)]
+pub struct FromContext<F, A, B> {
+    derive: F,
+    marker: PhantomData<fn() -> (A, B)>,
+}
+
+impl<F, A, B> FromContext<F, A, B> {
+    #[inline]
+    pub(crate) fn new(derive: F) -> Self {
+        Self {
+            derive,
+            marker: PhantomData,
+        }
+    }
+
+    #[inline]
+    pub(crate) fn into_inner(self) -> F {
+        self.derive
+    }
+}
+
 #[inline]
 pub(crate) fn try_allocate_generic_from_context<C, M, A, B, F>(
     ctx: C,

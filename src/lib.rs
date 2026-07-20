@@ -1,21 +1,20 @@
 //! Safe ownership and interoperability helpers for [DLPack].
 //!
-//! Producers convert into a [`Builder`] or directly into a [`ManagedBox`].
-//! Both keep the producer alive, and `ManagedBox` calls the DLPack deleter on
-//! drop.
+//! Producers convert into a [`Builder`], which keeps the producer alive until
+//! it builds a [`ManagedBox`]. `ManagedBox` calls the DLPack deleter on drop.
 //!
 //! ```
 //! # #[cfg(feature = "ndarray")]
 //! # {
-//! use dlpark::{DlpackFlags, versioned};
+//! use dlpark::{Builder, DlpackFlags, versioned};
 //! use ndarray::arr1;
 //!
 //! let array = Box::new(arr1(&[1_i32, 2, 3]));
-//! let mut tensor = versioned::Dlpack::try_from(array).unwrap();
-//! // SAFETY: retaining READ_ONLY only restricts what consumers may do.
-//! unsafe {
-//!     tensor.flags_mut().insert(DlpackFlags::READ_ONLY);
-//! }
+//! let tensor: versioned::Dlpack = Builder::from(array)
+//!     .insert_flags(DlpackFlags::READ_ONLY)
+//!     .unwrap()
+//!     .try_build()
+//!     .unwrap();
 //! assert_eq!(tensor.shape().unwrap(), &[3]);
 //! # }
 //! ```
