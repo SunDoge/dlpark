@@ -133,7 +133,7 @@ use pyo3::prelude::*;
 #[pyfunction]
 fn read_image(filename: &str) -> versioned::Dlpack {
     let img = image::open(filename).unwrap().to_rgb8();
-    Builder::from(img).build()
+    Builder::from(Box::new(img)).build()
 }
 
 // Python to Rust
@@ -151,7 +151,7 @@ use dlpark::{Builder, versioned};
 use image::{ImageBuffer, Rgb};
 
 let img = ImageBuffer::<Rgb<u8>, _>::from_vec(100, 100, vec![0; 100 * 100 * 3])?;
-let tensor: versioned::Dlpack = Builder::from(img).build();
+let tensor: versioned::Dlpack = Builder::from(Box::new(img)).build();
 let img2 = ImageBuffer::<Rgb<u8>, _>::try_from(&tensor)?;
 ```
 
@@ -180,13 +180,13 @@ use candle_core::Tensor;
 use dlpark::{Builder, DlpackFlags, ffi::DLManagedTensorVersioned, versioned};
 
 let tensor = Tensor::new(&[1f32, 2., 3., 4.], &candle_core::Device::Cpu)?;
-let dlpack: versioned::Dlpack = Builder::try_from(tensor)?.try_build()?;
+let dlpack: versioned::Dlpack = Builder::try_from(Box::new(tensor))?.try_build()?;
 
 let tensor2 = Tensor::try_from(&dlpack)?;
 assert_eq!(tensor2.to_vec1::<f32>()?, vec![1., 2., 3., 4.]);
 
 let tensor = Tensor::new(&[1f32, 2., 3., 4.], &candle_core::Device::Cpu)?;
-let builder = Builder::try_from(tensor)?;
+let builder = Builder::try_from(Box::new(tensor))?;
 let dlpack = builder
     .insert_flags(DlpackFlags::READ_ONLY)?
     .try_build::<DLManagedTensorVersioned>()?;
@@ -204,7 +204,7 @@ use dlpark::{
     versioned,
 };
 
-let dlpack: versioned::Dlpack = Builder::try_from(cuda_slice)?
+let dlpack: versioned::Dlpack = Builder::try_from(Box::new(cuda_slice))?
     .metadata(CopiedSlice::new([2, 3], [3, 1]))
     .try_build()?;
 let borrowed = BorrowedCudaSlice::<_, f32>::try_from(dlpack)?;

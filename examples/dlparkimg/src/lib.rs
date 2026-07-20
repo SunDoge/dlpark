@@ -7,7 +7,7 @@ use pyo3::prelude::*;
 fn read_image(filename: &str) -> PyResult<versioned::Dlpack> {
     let img = image::open(filename).map_err(|err| PyIOError::new_err(err.to_string()))?;
     let rgb_img = img.to_rgb8();
-    Ok(Builder::from(rgb_img).build())
+    Ok(Builder::from(Box::new(rgb_img)).build())
 }
 
 #[pyfunction]

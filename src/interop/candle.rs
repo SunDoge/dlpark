@@ -212,7 +212,7 @@ fn dlpack_layout_from_candle(tensor: &Tensor) -> Result<CandleLayout, Error> {
     })
 }
 
-/// Converts a CPU [`Tensor`] into a DLPack [`Builder`].
+/// Converts a boxed CPU [`Tensor`] into a DLPack [`Builder`].
 ///
 /// # Errors
 ///
@@ -220,10 +220,10 @@ fn dlpack_layout_from_candle(tensor: &Tensor) -> Result<CandleLayout, Error> {
 /// - [`Error::UnsupportedCandleDType`] if `dl_dtype_from_candle` has no
 ///   mapping for the tensor's dtype (currently the packed sub-byte float
 ///   formats, and `BF16`/`F16` when the `half` feature is disabled).
-impl TryFrom<Tensor> for Builder<Box<Tensor>, metadata::CopiedSlice<Vec<i64>, Vec<i64>>> {
+impl TryFrom<Box<Tensor>> for Builder<Box<Tensor>, metadata::CopiedSlice<Vec<i64>, Vec<i64>>> {
     type Error = Error;
 
-    fn try_from(tensor: Tensor) -> Result<Self, Self::Error> {
+    fn try_from(tensor: Box<Tensor>) -> Result<Self, Self::Error> {
         if !tensor.device().is_cpu() {
             return Err(Error::UnsupportedDevice);
         }
@@ -234,7 +234,7 @@ impl TryFrom<Tensor> for Builder<Box<Tensor>, metadata::CopiedSlice<Vec<i64>, Ve
             strides,
         } = dlpack_layout_from_candle(&tensor)?;
         Ok(
-            Builder::new(Box::new(tensor), metadata::CopiedSlice::new(dims, strides))
+            Builder::new(tensor, metadata::CopiedSlice::new(dims, strides))
                 .data(data_ptr)
                 .dtype(dtype)
                 .device(DLDevice::CPU),
@@ -379,7 +379,10 @@ mod tests {
     #[test]
     fn candle_tensor_to_legacy_dlpack_keeps_layout_and_data() {
         let tensor = Tensor::from_vec(vec![1i32, 2, 3, 4, 5, 6], (2, 3), &Device::Cpu).unwrap();
-        let dlpack: legacy::Dlpack = Builder::try_from(tensor).unwrap().try_build().unwrap();
+        let dlpack: legacy::Dlpack = Builder::try_from(Box::new(tensor))
+            .unwrap()
+            .try_build()
+            .unwrap();
 
         assert_eq!(dlpack.shape().unwrap(), &[2, 3]);
         assert_eq!(dlpack.strides().unwrap().unwrap(), &[3, 1]);
@@ -389,7 +392,10 @@ mod tests {
     #[test]
     fn candle_builder_defaults_to_empty_flags() {
         let tensor = Tensor::from_vec(vec![1f32, 2., 3., 4.], (2, 2), &Device::Cpu).unwrap();
-        let dlpack: versioned::Dlpack = Builder::try_from(tensor).unwrap().try_build().unwrap();
+        let dlpack: versioned::Dlpack = Builder::try_from(Box::new(tensor))
+            .unwrap()
+            .try_build()
+            .unwrap();
 
         assert_eq!(dlpack.flags(), DlpackFlags::empty());
         assert_eq!(dlpack.cpu_data_slice::<f32>().unwrap(), &[1., 2., 3., 4.]);
@@ -398,7 +404,7 @@ mod tests {
     #[test]
     fn candle_tensor_to_versioned_builder_allows_flags_before_build() {
         let tensor = Tensor::from_vec(vec![1f32, 2., 3., 4.], (2, 2), &Device::Cpu).unwrap();
-        let dlpack: ManagedBox<DLManagedTensorVersioned> = Builder::try_from(tensor)
+        let dlpack: ManagedBox<DLManagedTensorVersioned> = Builder::try_from(Box::new(tensor))
             .unwrap()
             .insert_flags(DlpackFlags::READ_ONLY)
             .unwrap()
@@ -415,7 +421,10 @@ mod tests {
         // Rust-side value comparisons without the separate `float8` crate —
         // so this only checks shape/dtype/byte-count, not element values.
         let tensor = Tensor::zeros((2, 3), DType::F8E4M3, &Device::Cpu).unwrap();
-        let dlpack: legacy::Dlpack = Builder::try_from(tensor).unwrap().try_build().unwrap();
+        let dlpack: legacy::Dlpack = Builder::try_from(Box::new(tensor))
+            .unwrap()
+            .try_build()
+            .unwrap();
 
         assert_eq!(dlpack.shape().unwrap(), &[2, 3]);
         let dtype = dlpack.tensor().dtype;
@@ -432,7 +441,10 @@ mod tests {
         // 6 elements * 4 bits = 24 bits = 3 bytes exactly, no padding.
         let tensor =
             Tensor::from_raw_buffer(&[0xAB, 0xCD, 0xEF], DType::F4, &[6], &Device::Cpu).unwrap();
-        let dlpack: legacy::Dlpack = Builder::try_from(tensor).unwrap().try_build().unwrap();
+        let dlpack: legacy::Dlpack = Builder::try_from(Box::new(tensor))
+            .unwrap()
+            .try_build()
+            .unwrap();
 
         assert_eq!(dlpack.shape().unwrap(), &[6]);
         let dtype = dlpack.tensor().dtype;

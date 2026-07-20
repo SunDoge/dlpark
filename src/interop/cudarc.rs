@@ -115,15 +115,15 @@ pub enum Error {
 }
 
 // ---------------------------------------------------------------------------
-// Forward: CudaSlice<T> → ManagedBox
+// Forward: Box<CudaSlice<T>> → Builder
 // ---------------------------------------------------------------------------
 
-impl<T: DlpackElement> TryFrom<CudaSlice<T>>
+impl<T: DlpackElement> TryFrom<Box<CudaSlice<T>>>
     for Builder<Box<CudaSlice<T>>, metadata::CopiedArray<[i64; 1], [i64; 1], 1>>
 {
     type Error = Error;
 
-    fn try_from(slice: CudaSlice<T>) -> Result<Self, Self::Error> {
+    fn try_from(slice: Box<CudaSlice<T>>) -> Result<Self, Self::Error> {
         let len = i64::try_from(slice.len()).map_err(|source| Error::LengthOverflow {
             len: slice.len(),
             source,
@@ -135,7 +135,7 @@ impl<T: DlpackElement> TryFrom<CudaSlice<T>>
             })?;
         let data_ptr = device_ptr_of(&slice);
 
-        let builder = Builder::new(Box::new(slice), metadata::CopiedArray::new([len], [1]))
+        let builder = Builder::new(slice, metadata::CopiedArray::new([len], [1]))
             .device(DLDevice::cuda(device_id))
             .data(data_ptr)
             .dtype(T::DTYPE);
@@ -157,8 +157,9 @@ impl<T: DlpackElement> TryFrom<CudaSlice<T>>
 ///
 /// - [`metadata::Error::MismatchedLength`] if `shape.len() != strides.len()`
 /// - [`metadata::Error::NdimOverflow`] if `shape.len()` overflows `i32`
+#[allow(clippy::type_complexity)]
 pub fn from_cuda_slice<'a, T: DlpackElement>(
-    slice: CudaSlice<T>,
+    slice: Box<CudaSlice<T>>,
     shape: &'a [i64],
     strides: &'a [i64],
 ) -> Result<Builder<Box<CudaSlice<T>>, metadata::CopiedSlice<&'a [i64], &'a [i64]>>, Error> {

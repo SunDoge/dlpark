@@ -26,7 +26,7 @@ fn main() -> Result<(), Whatever> {
     assert_eq!(sum, 21.0);
 
     // candle::Tensor -> DLPack: zero-copy, boxes the whole Tensor as the DLPack manager_ctx.
-    let dlpack_back: versioned::Dlpack = Builder::try_from(tensor)
+    let dlpack_back: versioned::Dlpack = Builder::try_from(Box::new(tensor))
         .whatever_context("candle::Tensor -> builder failed")?
         .try_build()
         .whatever_context("builder -> DLPack failed")?;
