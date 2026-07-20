@@ -13,11 +13,15 @@ impl Default for DLPackVersion {
 }
 
 bitflags! {
+    /// Flags carried by `DLManagedTensorVersioned`.
     #[repr(transparent)]
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     pub struct DlpackFlags: u64 {
+        /// Consumers must not modify the tensor data.
         const READ_ONLY = 1 << 0;
+        /// The export owns an unaliased copy of the tensor data.
         const IS_COPIED = 1 << 1;
+        /// Packed sub-byte data has per-element padding.
         const IS_SUBBYTE_TYPE_PADDED = 1 << 2;
     }
 }
@@ -36,17 +40,29 @@ impl DlpackFlags {
     }
 }
 
+/// Common operations implemented by the legacy and versioned managed tensor
+/// ABIs.
+///
+/// This trait lets [`crate::Builder`] and [`crate::ManagedBox`] operate
+/// generically while preserving the concrete C layout selected by the caller.
 pub trait ManagedTensorBase {
+    /// Constructs a managed tensor from its embedded tensor and ownership
+    /// fields.
     fn from_parts(
         tensor: DLTensor,
         manager_ctx: *mut c_void,
         deleter: Option<unsafe extern "C" fn(self_: *mut Self)>,
     ) -> Self;
 
+    /// Returns the embedded tensor descriptor.
     fn tensor(&self) -> &DLTensor;
+    /// Returns mutable access used while initializing the descriptor.
     fn tensor_mut(&mut self) -> &mut DLTensor;
+    /// Returns the producer-owned opaque context pointer.
     fn manager_ctx(&self) -> *mut c_void;
+    /// Returns the managed tensor deleter.
     fn deleter(&self) -> Option<unsafe extern "C" fn(self_: *mut Self)>;
+    /// Returns versioned flags, or empty flags for the legacy ABI.
     fn flags(&self) -> DlpackFlags {
         DlpackFlags::empty()
     }

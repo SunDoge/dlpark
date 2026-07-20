@@ -1,3 +1,5 @@
+//! Owning handles for DLPack managed tensors.
+
 use crate::DlpackElement;
 use crate::DlpackFlags;
 use crate::ManagedTensorBase;
@@ -54,26 +56,34 @@ where
         self.0.as_ptr()
     }
 
+    /// Returns the embedded raw tensor descriptor.
     pub fn tensor(&self) -> &crate::ffi::DLTensor {
         unsafe { self.0.as_ref() }.tensor()
     }
 
+    /// Returns the tensor shape.
     pub fn shape(&self) -> Result<&[i64], tensor::Error> {
         self.tensor().shape()
     }
 
+    /// Returns explicit element strides, or `None` for an implicit compact
+    /// layout.
     pub fn strides(&self) -> Result<Option<&[i64]>, tensor::Error> {
         self.tensor().strides()
     }
 
+    /// Returns the product of all shape dimensions.
     pub fn num_elements(&self) -> Result<usize, tensor::Error> {
         self.tensor().num_elements()
     }
 
+    /// Returns the logical data size in bytes, including packed sub-byte
+    /// element handling.
     pub fn num_bytes(&self) -> Result<usize, tensor::Error> {
         self.tensor().num_bytes()
     }
 
+    /// Returns compact CPU data as an immutable typed slice.
     pub fn cpu_data_slice<T: DlpackElement>(&self) -> Result<&[T], tensor::Error> {
         self.tensor().cpu_data_slice()
     }
@@ -152,6 +162,7 @@ impl ManagedBox<DLManagedTensorVersioned> {
         &mut unsafe { self.0.as_mut() }.flags
     }
 
+    /// Returns the ABI version declared by this managed tensor.
     pub fn version(&self) -> DLPackVersion {
         unsafe { self.0.as_ref() }.version
     }

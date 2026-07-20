@@ -13,6 +13,12 @@ use std::{ffi::c_void, ptr::NonNull};
 
 pub use crate::metadata::Error;
 
+/// Deferred construction of a DLPack managed tensor.
+///
+/// `C` is transferred into `manager_ctx` and keeps the data allocation alive.
+/// `L` controls shape/stride storage, allocation layout, and whether building
+/// can fail. The managed tensor ABI is selected by the type parameter passed
+/// to `build` or `try_build`.
 pub struct Builder<C, L> {
     ctx: C,
     metadata: L,
@@ -29,6 +35,8 @@ struct TensorFields {
 }
 
 impl<C, L> Builder<C, L> {
+    /// Creates a builder with CPU device, null data, default dtype, zero byte
+    /// offset, and empty flags.
     #[inline]
     pub fn new(ctx: C, metadata: L) -> Self {
         Self {
@@ -44,12 +52,18 @@ impl<C, L> Builder<C, L> {
         }
     }
 
+    /// Sets the base data pointer stored in `DLTensor`.
+    ///
+    /// The context must keep the pointed-to allocation valid until the
+    /// managed tensor deleter runs.
     #[inline]
     pub fn data(mut self, data: *mut c_void) -> Self {
         self.fields.data = data;
         self
     }
 
+    /// Replaces the shape/stride storage strategy without changing scalar
+    /// tensor fields or the owning context.
     #[inline]
     pub fn metadata<L2>(self, metadata: L2) -> Builder<C, L2> {
         let Self { ctx, fields, .. } = self;
@@ -60,18 +74,21 @@ impl<C, L> Builder<C, L> {
         }
     }
 
+    /// Sets the DLPack device descriptor.
     #[inline]
     pub fn device(mut self, device: DLDevice) -> Self {
         self.fields.device = device;
         self
     }
 
+    /// Sets the DLPack element type descriptor.
     #[inline]
     pub fn dtype(mut self, dtype: DLDataType) -> Self {
         self.fields.dtype = dtype;
         self
     }
 
+    /// Sets the byte offset from the base data pointer to the first element.
     #[inline]
     pub fn byte_offset(mut self, byte_offset: u64) -> Self {
         self.fields.byte_offset = byte_offset;
@@ -151,6 +168,8 @@ where
         Ok(unsafe { finish(managed, fields) }.as_ptr())
     }
 
+    /// Validates runtime metadata, allocates the managed tensor, and returns
+    /// an owning handle.
     #[inline]
     pub fn try_build<M>(self) -> Result<ManagedBox<M>, L::Error>
     where
@@ -219,6 +238,7 @@ where
         unsafe { finish(managed, fields) }.as_ptr()
     }
 
+    /// Builds an owning managed tensor when the metadata layout is infallible.
     #[inline]
     pub fn build<M>(self) -> ManagedBox<M>
     where

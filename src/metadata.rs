@@ -1,3 +1,8 @@
+//! Shape and stride allocation strategies for [`crate::Builder`].
+//!
+//! Copied metadata shares the managed tensor allocation. Borrowed metadata
+//! avoids the copy but requires the caller to uphold its lifetime contract.
+
 use crate::{OpaqueContext, ffi::DLTensor, managed_tensor::ManagedTensorBase};
 use snafu::{ResultExt, Snafu, ensure};
 use std::{alloc::Layout, borrow::Borrow, convert::Infallible, marker::PhantomData, ptr::NonNull};
@@ -23,9 +28,12 @@ pub enum Error {
     StrideValueOverflow { axis: usize },
 }
 
+/// Allocates and initializes shape and stride storage for a managed tensor.
 pub trait Metadata {
+    /// Error returned while validating or allocating this metadata.
     type Error;
 
+    /// Validates metadata and allocates a managed tensor containing it.
     fn try_allocate<C, M>(self, ctx: C) -> Result<NonNull<M>, Self::Error>
     where
         C: OpaqueContext,
@@ -47,7 +55,9 @@ pub trait Metadata {
         M: ManagedTensorBase;
 }
 
+/// Metadata whose rank and element types make allocation infallible.
 pub trait InfallibleMetadata: Metadata<Error = Infallible> {
+    /// Allocates a managed tensor containing this metadata.
     fn allocate<C, M>(self, ctx: C) -> NonNull<M>
     where
         C: OpaqueContext,
@@ -204,6 +214,8 @@ where
     S: Borrow<[i64; N]>,
     T: Borrow<[i64; N]>,
 {
+    /// Creates fixed-rank metadata that will be copied into the managed tensor
+    /// allocation.
     #[inline]
     pub fn new(shape: S, strides: T) -> Self {
         Self { shape, strides }
@@ -300,6 +312,8 @@ where
     A: Copy + TryInto<i64>,
     B: Copy + TryInto<i64>,
 {
+    /// Creates fixed-rank metadata whose values are converted to `i64` while
+    /// allocating.
     #[inline]
     pub fn new(shape: S, strides: T) -> Self {
         Self {
@@ -433,6 +447,8 @@ where
     S: AsRef<[i64]>,
     T: AsRef<[i64]>,
 {
+    /// Creates runtime-rank metadata that will be copied into the managed
+    /// tensor allocation.
     #[inline]
     pub fn new(shape: S, strides: T) -> Self {
         Self { shape, strides }
@@ -551,6 +567,8 @@ where
     A: Copy + TryInto<i64>,
     B: Copy + TryInto<i64>,
 {
+    /// Creates runtime-rank metadata whose values are converted to `i64`
+    /// while allocating.
     #[inline]
     pub fn new(shape: S, strides: T) -> Self {
         Self {
@@ -607,6 +625,7 @@ pub struct BorrowedArray<'a, const N: usize> {
 }
 
 impl<'a, const N: usize> BorrowedArray<'a, N> {
+    /// Creates fixed-rank metadata that points to caller-owned arrays.
     #[inline]
     pub fn new(shape: &'a [i64; N], strides: &'a [i64; N]) -> Self {
         Self { shape, strides }
@@ -648,6 +667,7 @@ pub struct BorrowedSlice<'a> {
 }
 
 impl<'a> BorrowedSlice<'a> {
+    /// Creates runtime-rank metadata that points to caller-owned slices.
     #[inline]
     pub fn new(shape: &'a [i64], strides: &'a [i64]) -> Self {
         Self { shape, strides }

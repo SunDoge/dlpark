@@ -1,3 +1,9 @@
+//! Zero-copy HWC image interop for owned and borrowed `image` buffers.
+//!
+//! Owned image buffers convert into [`crate::Builder`] values with
+//! [`crate::DlpackFlags::IS_COPIED`] set. Reverse conversions validate an HWC
+//! compact layout before exposing the DLPack data as image storage.
+
 use crate::{
     Builder, DlpackElement, DlpackFlags, ManagedBox, ManagedTensorBase,
     ffi::DLDevice,

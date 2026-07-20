@@ -5,7 +5,7 @@
 //!
 //! # Forward direction (`Tensor` → `legacy::Dlpack`/`versioned::Dlpack`)
 //!
-//! Zero-copy: the whole [`Tensor`] is boxed as the DLPack `manager_ctx`,
+//! Zero-copy: the whole `candle_core::Tensor` is boxed as the DLPack `manager_ctx`,
 //! keeping its `Arc`-refcounted storage alive for the DLPack tensor's
 //! lifetime. Only CPU tensors are supported — candle's CUDA backend needs
 //! separate investigation and a CUDA toolchain to verify against.
@@ -13,7 +13,7 @@
 //! Candle's storage sits behind an `RwLock`, so the exported pointer aliases
 //! memory candle itself can still mutate; there is no way to enforce
 //! read-only access at the type level. Versioned exports leave flags empty by
-//! default; use [`Builder::try_from`] if you want to set
+//! default; use [`crate::Builder::try_from`] if you want to set
 //! [`crate::DlpackFlags::READ_ONLY`] before building.
 //!
 //! # Reverse direction (`&ManagedBox<M>` → `Tensor`)
@@ -29,7 +29,7 @@
 //! sub-byte ones (all but `F8E4M3`) as `dummy` types where every *compute*
 //! operation panics, but raw byte storage/round-tripping works fine, which is
 //! all zero-copy DLPack interop needs. Only the compact (non-strided,
-//! zero-offset) case is supported for these — see [`dl_dtype_from_candle`]'s
+//! zero-offset) case is supported for these — see `dl_dtype_from_candle`'s
 //! doc for why per-element addressing doesn't make sense for them.
 
 use crate::{
@@ -217,7 +217,7 @@ fn dlpack_layout_from_candle(tensor: &Tensor) -> Result<CandleLayout, Error> {
 /// # Errors
 ///
 /// - [`Error::UnsupportedDevice`] if the tensor is not on CPU.
-/// - [`Error::UnsupportedCandleDType`] if [`dl_dtype_from_candle`] has no
+/// - [`Error::UnsupportedCandleDType`] if `dl_dtype_from_candle` has no
 ///   mapping for the tensor's dtype (currently the packed sub-byte float
 ///   formats, and `BF16`/`F16` when the `half` feature is disabled).
 impl TryFrom<Tensor> for Builder<Box<Tensor>, metadata::CopiedSlice<Vec<i64>, Vec<i64>>> {
@@ -322,7 +322,7 @@ fn gather_strided_bytes(
 /// # Errors
 ///
 /// - [`Error::UnsupportedDlDataType`] if the DLPack tensor's dtype has no
-///   [`candle_dtype_from_dl`] mapping.
+///   `candle_dtype_from_dl` mapping.
 /// - Propagates [`crate::tensor::Error`] for device/null/offset issues (e.g.
 ///   the source tensor is not on CPU).
 pub fn candle_tensor_from_dlpack<M: ManagedTensorBase>(

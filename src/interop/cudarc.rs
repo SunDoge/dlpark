@@ -1,25 +1,26 @@
 //! CUDA interop via [`cudarc`].
 //!
-//! Provides zero-copy conversion between [`CudaSlice<T>`] and DLPack managed
+//! Provides zero-copy conversion between `CudaSlice<T>` and DLPack managed
 //! tensors in both directions.
 //!
-//! # `CudaSlice<T>` → [`Builder`]
+//! # `CudaSlice<T>` → [`crate::Builder`]
 //!
-//! [`Builder::try_from`] treats the flat device buffer as a contiguous 1-D
+//! [`crate::Builder::try_from`] treats the flat device buffer as a contiguous 1-D
 //! tensor with shape `[slice.len()]` and strides `[1]`. Call
-//! [`Builder::metadata`] to replace that default before building a tensor with
+//! [`crate::Builder::metadata`] to replace that default before building a tensor with
 //! a higher-rank layout. The slice is heap-boxed and stored as the
 //! `manager_ctx`; the underlying CUDA allocation is freed when the DLPack
 //! deleter fires. Because ownership is transferred without any remaining Rust
-//! views, the builder starts with [`DlpackFlags::IS_COPIED`].
+//! views, the builder starts with [`crate::DlpackFlags::IS_COPIED`].
 //!
-//! # `to_cuda_slice` direction (`ManagedBox` → [`BorrowedCudaSlice`])
+//! # `to_cuda_slice` direction (`ManagedBox` → [`crate::interop::cudarc::BorrowedCudaSlice`])
 //!
 //! `upgrade_device_ptr` wraps the DLPack tensor's raw device pointer into a
 //! proper `CudaSlice<T>`. Because the DLPack tensor owns that allocation, we
-//! must NOT call `cudaFree` when our `CudaSlice` is done. [`BorrowedCudaSlice`]
+//! must NOT call `cudaFree` when our `CudaSlice` is done.
+//! [`crate::interop::cudarc::BorrowedCudaSlice`]
 //! owns both the managed tensor and the slice view. Its view destructor calls
-//! [`CudaSlice::leak`], preventing the double-free, before the managed tensor
+//! `CudaSlice::leak`, preventing the double-free, before the managed tensor
 //! is dropped.
 //!
 //! Unlike the forward direction, this conversion takes a single owned
@@ -52,9 +53,9 @@
 //!
 //! # Stream synchronization
 //!
-//! Converting a [`CudaSlice`] into a builder records a read fence on the
+//! Converting a `CudaSlice` into a builder records a read fence on the
 //! slice's stream via
-//! [`DevicePtr::device_ptr`] before capturing the pointer. The consumer must
+//! `DevicePtr::device_ptr` before capturing the pointer. The consumer must
 //! wait on that stream before reading the data.
 //!
 //! `to_cuda_slice` creates a fresh `CudaContext`/stream for the given device

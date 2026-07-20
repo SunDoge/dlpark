@@ -1,3 +1,9 @@
+//! Zero-copy CPU interop for owned and borrowed `ndarray` arrays.
+//!
+//! Owned arrays convert into [`crate::Builder`] values. Shape and stride
+//! values are copied into the final managed tensor allocation only when the
+//! builder is built, while the array allocation remains owned by its context.
+
 use crate::{
     Builder, DlpackElement, DlpackFlags,
     dlpack::ManagedBox,
