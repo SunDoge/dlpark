@@ -1,6 +1,6 @@
 [package]
 name = "dlpark"
-version = "0.8.0-alpha.2"
+version = "0.8.0-alpha.3"
 edition = "2024"
 description = "dlpack Rust binding for Python"
 documentation = "https://docs.rs/dlpark"
@@ -8,7 +8,16 @@ readme = "README.md"
 homepage = "https://crates.io/crates/dlpark"
 repository = "https://github.com/SunDoge/dlpark"
 license = "Apache-2.0"
-exclude = [".github/"]
+include = [
+  "CHANGELOG.md",
+  "Cargo.lock",
+  "Cargo.toml",
+  "LICENSE",
+  "README.md",
+  "benches/**",
+  "examples/profile_builder.rs",
+  "src/**",
+]
 
 [workspace]
 resolver = "2"

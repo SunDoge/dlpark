@@ -1,3 +1,5 @@
+//! Owning handles for DLPack managed tensors.
+
 use crate::DlpackElement;
 use crate::DlpackFlags;
 use crate::ManagedTensorBase;
@@ -54,26 +56,34 @@ where
         self.0.as_ptr()
     }
 
+    /// Returns the embedded raw tensor descriptor.
     pub fn tensor(&self) -> &crate::ffi::DLTensor {
         unsafe { self.0.as_ref() }.tensor()
     }
 
+    /// Returns the tensor shape.
     pub fn shape(&self) -> Result<&[i64], tensor::Error> {
         self.tensor().shape()
     }
 
+    /// Returns explicit element strides, or `None` for an implicit compact
+    /// layout.
     pub fn strides(&self) -> Result<Option<&[i64]>, tensor::Error> {
         self.tensor().strides()
     }
 
+    /// Returns the product of all shape dimensions.
     pub fn num_elements(&self) -> Result<usize, tensor::Error> {
         self.tensor().num_elements()
     }
 
+    /// Returns the logical data size in bytes, including packed sub-byte
+    /// element handling.
     pub fn num_bytes(&self) -> Result<usize, tensor::Error> {
         self.tensor().num_bytes()
     }
 
+    /// Returns compact CPU data as an immutable typed slice.
     pub fn cpu_data_slice<T: DlpackElement>(&self) -> Result<&[T], tensor::Error> {
         self.tensor().cpu_data_slice()
     }
@@ -88,8 +98,6 @@ where
     /// The caller must ensure that no other references access the underlying
     /// data for the lifetime of the returned slice. Exclusive access to this
     /// `ManagedBox` alone does not prove that the producer has no aliases.
-    /// Prefer [`Self::cpu_data_slice_mut`], which additionally requires
-    /// [`DlpackFlags::IS_COPIED`] and needs no `unsafe` block.
     pub unsafe fn cpu_data_slice_mut_unchecked<T: DlpackElement>(
         &mut self,
     ) -> Result<&mut [T], tensor::Error> {
@@ -108,12 +116,11 @@ where
 
     /// Returns the CPU tensor data as a mutable typed slice.
     ///
-    /// This rejects tensors carrying [`DlpackFlags::READ_ONLY`], and requires
-    /// [`DlpackFlags::IS_COPIED`] to be set: per the DLPack spec, a tensor
-    /// copied specifically for this export has no other live aliases, which
-    /// is what makes this safe to call without an `unsafe` block. Legacy
-    /// tensors have no flags field and so can never satisfy `IS_COPIED`; use
-    /// [`Self::cpu_data_slice_mut_unchecked`] for those.
+    /// This rejects tensors carrying [`DlpackFlags::READ_ONLY`] and requires
+    /// [`DlpackFlags::IS_COPIED`] to be set. Legacy tensors have no flags
+    /// field and therefore cannot satisfy this requirement; use
+    /// [`Self::cpu_data_slice_mut_unchecked`] when the caller can prove
+    /// exclusivity independently.
     pub fn cpu_data_slice_mut<T: DlpackElement>(&mut self) -> Result<&mut [T], tensor::Error> {
         if !self.flags().contains(DlpackFlags::IS_COPIED) {
             return Err(tensor::Error::NotCopied);
@@ -143,34 +150,21 @@ impl ManagedBox<DLManagedTensorVersioned> {
         unsafe { self.0.as_ref() }.flags
     }
 
-    /// Sets DLPack flags, erroring if this would newly assert
-    /// [`DlpackFlags::IS_COPIED`] (turn it on when it wasn't already set).
-    /// See [`Self::flags_mut`] to assert it.
-    pub fn set_flags(&mut self, flags: DlpackFlags) -> Result<(), tensor::Error> {
-        if flags.newly_asserts_is_copied(self.flags()) {
-            return Err(tensor::Error::CannotAssertIsCopied);
-        }
-        *unsafe { self.flags_mut() } = flags;
-        Ok(())
-    }
-
-    /// Returns a mutable reference to the DLPack bitmask flags.
+    /// Returns mutable access to the DLPack bitmask flags.
     ///
     /// # Safety
     ///
-    /// Writing [`DlpackFlags::IS_COPIED`] through this reference asserts
-    /// that no other reference to the tensor's data exists — see
-    /// [`crate::managed_tensor::ManagedTensorBase::set_flags_unchecked`].
+    /// The caller must preserve the producer's mutability and ownership
+    /// guarantees. In particular, setting [`DlpackFlags::IS_COPIED`] asserts
+    /// that no other reference to the tensor data exists, while clearing
+    /// [`DlpackFlags::READ_ONLY`] asserts that consumers may modify it.
     pub unsafe fn flags_mut(&mut self) -> &mut DlpackFlags {
         &mut unsafe { self.0.as_mut() }.flags
     }
 
+    /// Returns the ABI version declared by this managed tensor.
     pub fn version(&self) -> DLPackVersion {
         unsafe { self.0.as_ref() }.version
-    }
-
-    pub fn version_mut(&mut self) -> &mut DLPackVersion {
-        &mut unsafe { self.0.as_mut() }.version
     }
 }
 
@@ -253,7 +247,7 @@ mod tests {
     }
 
     #[test]
-    fn mutable_cpu_slice_updates_is_copied_tensor_without_unsafe() {
+    fn mutable_cpu_slice_updates_is_copied_tensor() {
         let mut dlpack = dlpack_with_flags::<DLManagedTensorVersioned>(DlpackFlags::IS_COPIED);
 
         dlpack.cpu_data_slice_mut::<i32>().unwrap()[1] = 7;
@@ -288,5 +282,16 @@ mod tests {
         let error = dlpack.cpu_data_slice_mut::<i32>().unwrap_err();
 
         assert!(matches!(error, tensor::Error::NotCopied));
+    }
+
+    #[test]
+    fn flags_mut_updates_versioned_tensor() {
+        let mut dlpack = dlpack_with_flags::<DLManagedTensorVersioned>(DlpackFlags::empty());
+
+        unsafe {
+            *dlpack.flags_mut() |= DlpackFlags::READ_ONLY;
+        }
+
+        assert_eq!(dlpack.flags(), DlpackFlags::READ_ONLY);
     }
 }

@@ -2,6 +2,7 @@ use crate::ffi::{DLDataType, DLDataTypeCode};
 
 /// Maps a Rust element type to its DLPack data type descriptor.
 pub trait DlpackElement: 'static {
+    /// The scalar DLPack descriptor for this Rust element type.
     const DTYPE: DLDataType;
 }
 
@@ -39,6 +40,7 @@ impl_dlpack_element!(half::f16, DLDataTypeCode::FLOAT, 16);
 impl_dlpack_element!(half::bf16, DLDataTypeCode::BFLOAT, 16);
 
 impl DLDataType {
+    /// Constructs a scalar, single-lane data type descriptor.
     pub const fn scalar(code: DLDataTypeCode, bits: u8) -> Self {
         Self {
             code,
@@ -47,14 +49,17 @@ impl DLDataType {
         }
     }
 
+    /// Returns the descriptor registered for `T`.
     pub const fn of<T: DlpackElement>() -> Self {
         T::DTYPE
     }
 
+    /// Returns whether code, bit width, and lane count all match.
     pub fn matches(&self, other: Self) -> bool {
         self.code == other.code && self.bits == other.bits && self.lanes == other.lanes
     }
 
+    /// Returns whether this descriptor exactly represents `T`.
     pub fn is<T: DlpackElement>(&self) -> bool {
         self.matches(T::DTYPE)
     }

@@ -1,11 +1,13 @@
 use crate::ffi::{DLDevice, DLDeviceType};
 
 impl DLDevice {
+    /// The process-local CPU device.
     pub const CPU: Self = Self {
         device_type: DLDeviceType::CPU,
         device_id: 0,
     };
 
+    /// Constructs a CUDA device descriptor with the given ordinal.
     pub fn cuda(device_id: i32) -> Self {
         Self {
             device_type: DLDeviceType::CUDA,

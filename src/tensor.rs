@@ -1,3 +1,5 @@
+//! Validation, layout inspection, and CPU data access for raw DLPack tensors.
+
 use crate::{
     DlpackElement,
     ffi::{DLDataType, DLDevice, DLDeviceType, DLTensor},
@@ -323,7 +325,7 @@ impl DLTensor {
     ///
     /// - [`Error::NotCpu`] if the tensor is not on CPU.
     /// - [`Error::NullData`] if the data pointer is null for a non-empty tensor.
-    /// - Offset arithmetic errors from [`Self::offset_data_ptr`].
+    /// - Errors while applying the tensor's byte offset to its data pointer.
     pub fn cpu_data_ptr_bytes(&self) -> Result<*const u8, Error> {
         ensure!(
             self.device.device_type == DLDeviceType::CPU,

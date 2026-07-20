@@ -11,6 +11,9 @@ use std::sync::Arc;
 /// Implementations must ensure that [`OpaqueContext::drop_raw`] may be called
 /// on any thread and does not depend on thread-local state.
 pub unsafe trait OpaqueContext {
+    /// Transfers the context into the opaque pointer stored in `manager_ctx`.
+    ///
+    /// The pointer must be recoverable by [`OpaqueContext::drop_raw`].
     fn into_raw(self) -> *mut c_void;
 
     /// Drops the raw context pointer and deallocates the underlying resources.

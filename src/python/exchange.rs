@@ -138,8 +138,8 @@ impl DlpackExchangeApiRef {
     /// Borrows a temporary non-owning `DLTensor` view from the producer.
     ///
     /// The producer owns the shape, strides, and data pointers. The view is only
-    /// valid during the callback and must not be stored or wrapped as an owned
-    /// [`OwnedDlpackTensor`].
+    /// valid during the callback and must not be stored or wrapped as an
+    /// owning managed tensor.
     pub fn with_dltensor_view_no_sync<R>(
         &self,
         obj: Borrowed<'_, '_, PyAny>,

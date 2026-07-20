@@ -7,12 +7,18 @@
 use crate::{
     DlpackFlags, ManagedBox, ManagedTensorBase, OpaqueContext,
     ffi::{DLDataType, DLDevice},
-    metadata::{BorrowedArray, BorrowedSlice, InfallibleMetadata, Metadata},
+    metadata::{BorrowedArray, BorrowedSlice, FromContext, InfallibleMetadata, Metadata},
 };
 use std::{ffi::c_void, ptr::NonNull};
 
 pub use crate::metadata::Error;
 
+/// Deferred construction of a DLPack managed tensor.
+///
+/// `C` is transferred into `manager_ctx` and keeps the data allocation alive.
+/// `L` controls shape/stride storage, allocation layout, and whether building
+/// can fail. The managed tensor ABI is selected by the type parameter passed
+/// to `build` or `try_build`.
 pub struct Builder<C, L> {
     ctx: C,
     metadata: L,
@@ -29,6 +35,8 @@ struct TensorFields {
 }
 
 impl<C, L> Builder<C, L> {
+    /// Creates a builder with CPU device, null data, default dtype, zero byte
+    /// offset, and empty flags.
     #[inline]
     pub fn new(ctx: C, metadata: L) -> Self {
         Self {
@@ -44,12 +52,18 @@ impl<C, L> Builder<C, L> {
         }
     }
 
+    /// Sets the base data pointer stored in `DLTensor`.
+    ///
+    /// The context must keep the pointed-to allocation valid until the
+    /// managed tensor deleter runs.
     #[inline]
     pub fn data(mut self, data: *mut c_void) -> Self {
         self.fields.data = data;
         self
     }
 
+    /// Replaces the shape/stride storage strategy without changing scalar
+    /// tensor fields or the owning context.
     #[inline]
     pub fn metadata<L2>(self, metadata: L2) -> Builder<C, L2> {
         let Self { ctx, fields, .. } = self;
@@ -60,18 +74,21 @@ impl<C, L> Builder<C, L> {
         }
     }
 
+    /// Sets the DLPack device descriptor.
     #[inline]
     pub fn device(mut self, device: DLDevice) -> Self {
         self.fields.device = device;
         self
     }
 
+    /// Sets the DLPack element type descriptor.
     #[inline]
     pub fn dtype(mut self, dtype: DLDataType) -> Self {
         self.fields.dtype = dtype;
         self
     }
 
+    /// Sets the byte offset from the base data pointer to the first element.
     #[inline]
     pub fn byte_offset(mut self, byte_offset: u64) -> Self {
         self.fields.byte_offset = byte_offset;
@@ -90,6 +107,20 @@ impl<C, L> Builder<C, L> {
         Ok(self)
     }
 
+    /// Adds DLPack flags without clearing flags already set on the builder.
+    ///
+    /// This errors if the operation would newly assert
+    /// [`DlpackFlags::IS_COPIED`]. Use [`Self::insert_flags_unchecked`] when
+    /// the caller can prove the required ownership guarantee.
+    #[inline]
+    pub fn insert_flags(mut self, flags: DlpackFlags) -> Result<Self, crate::tensor::Error> {
+        if flags.newly_asserts_is_copied(self.fields.flags) {
+            return Err(crate::tensor::Error::CannotAssertIsCopied);
+        }
+        self.fields.flags.insert(flags);
+        Ok(self)
+    }
+
     /// Sets DLPack flags verbatim, including [`DlpackFlags::IS_COPIED`].
     ///
     /// # Safety
@@ -101,6 +132,36 @@ impl<C, L> Builder<C, L> {
     pub unsafe fn flags_unchecked(mut self, flags: DlpackFlags) -> Self {
         self.fields.flags = flags;
         self
+    }
+
+    /// Adds DLPack flags without clearing flags already set on the builder.
+    ///
+    /// # Safety
+    ///
+    /// If `flags` includes `IS_COPIED`, the caller must ensure that no other
+    /// reference to the tensor's data exists.
+    #[inline]
+    pub unsafe fn insert_flags_unchecked(mut self, flags: DlpackFlags) -> Self {
+        self.fields.flags.insert(flags);
+        self
+    }
+}
+
+impl<C> Builder<C, ()> {
+    /// Creates a builder whose shape and strides are derived from its context
+    /// during allocation.
+    ///
+    /// The closure is invoked after the context has completed its final move
+    /// into the build operation. Its returned slices are converted to `i64`
+    /// and copied before the context is transferred to `manager_ctx`.
+    #[inline]
+    pub fn from_context<F, A, B>(ctx: C, derive: F) -> Builder<C, FromContext<F, A, B>>
+    where
+        A: Copy + TryInto<i64>,
+        B: Copy + TryInto<i64>,
+        F: FnOnce(&C) -> (&[A], &[B]),
+    {
+        Builder::new(ctx, FromContext::new(derive))
     }
 }
 
@@ -125,6 +186,8 @@ where
         Ok(unsafe { finish(managed, fields) }.as_ptr())
     }
 
+    /// Validates runtime metadata, allocates the managed tensor, and returns
+    /// an owning handle.
     #[inline]
     pub fn try_build<M>(self) -> Result<ManagedBox<M>, L::Error>
     where
@@ -173,6 +236,41 @@ where
     }
 }
 
+impl<C, F, A, B> Builder<C, FromContext<F, A, B>>
+where
+    C: OpaqueContext,
+    A: Copy + TryInto<i64>,
+    B: Copy + TryInto<i64>,
+    F: FnOnce(&C) -> (&[A], &[B]),
+{
+    /// Derives, validates, and copies metadata, then transfers ownership to a
+    /// raw DLPack pointer.
+    #[inline]
+    pub fn try_build_raw<M>(self) -> Result<*mut M, Error>
+    where
+        M: ManagedTensorBase,
+    {
+        let Self {
+            ctx,
+            metadata,
+            fields,
+        } = self;
+        let managed =
+            crate::metadata::try_allocate_generic_from_context(ctx, metadata.into_inner())?;
+        Ok(unsafe { finish(managed, fields) }.as_ptr())
+    }
+
+    /// Derives metadata from the context and returns an owning managed tensor.
+    #[inline]
+    pub fn try_build<M>(self) -> Result<ManagedBox<M>, Error>
+    where
+        M: ManagedTensorBase,
+    {
+        self.try_build_raw()
+            .map(|raw| unsafe { ManagedBox::new_unchecked(raw) })
+    }
+}
+
 impl<C, L> Builder<C, L>
 where
     C: OpaqueContext,
@@ -193,6 +291,7 @@ where
         unsafe { finish(managed, fields) }.as_ptr()
     }
 
+    /// Builds an owning managed tensor when the metadata layout is infallible.
     #[inline]
     pub fn build<M>(self) -> ManagedBox<M>
     where
@@ -514,6 +613,26 @@ mod tests {
     }
 
     #[test]
+    fn context_metadata_is_derived_during_build() {
+        struct Context {
+            shape: Vec<usize>,
+            strides: Vec<isize>,
+        }
+
+        let builder = Builder::from_context(
+            Box::new(Context {
+                shape: vec![2, 3],
+                strides: vec![3, 1],
+            }),
+            |ctx| (ctx.shape.as_slice(), ctx.strides.as_slice()),
+        );
+        let tensor = builder.try_build::<DLManagedTensor>().unwrap();
+
+        assert_eq!(tensor.shape().unwrap(), &[2, 3]);
+        assert_eq!(tensor.strides().unwrap().unwrap(), &[3, 1]);
+    }
+
+    #[test]
     fn generic_metadata_reports_conversion_axis() {
         let (ctx, drop_count) = context();
         let result: Result<ManagedBox<DLManagedTensor>, Error> = Builder::new(
@@ -587,6 +706,38 @@ mod tests {
         };
 
         assert!(matches!(error, crate::tensor::Error::CannotAssertIsCopied));
+    }
+
+    #[test]
+    fn insert_flags_rejects_newly_asserting_is_copied() {
+        let (ctx, _) = context();
+
+        let error = match Builder::new(ctx, metadata::CopiedArray::new(&[3], &[1]))
+            .insert_flags(DlpackFlags::IS_COPIED)
+        {
+            Ok(_) => panic!("newly inserting IS_COPIED through the safe setter should fail"),
+            Err(error) => error,
+        };
+
+        assert!(matches!(error, crate::tensor::Error::CannotAssertIsCopied));
+    }
+
+    #[test]
+    fn insert_flags_preserves_existing_flags() {
+        let (ctx, _) = context();
+        let builder = unsafe {
+            Builder::new(ctx, metadata::CopiedArray::new(&[3], &[1]))
+                .flags_unchecked(DlpackFlags::IS_COPIED)
+        };
+        let tensor: ManagedBox<DLManagedTensorVersioned> = builder
+            .insert_flags(DlpackFlags::READ_ONLY)
+            .unwrap()
+            .build();
+
+        assert_eq!(
+            tensor.flags(),
+            DlpackFlags::IS_COPIED | DlpackFlags::READ_ONLY
+        );
     }
 
     #[test]

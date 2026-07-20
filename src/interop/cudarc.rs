@@ -1,24 +1,26 @@
 //! CUDA interop via [`cudarc`].
 //!
-//! Provides zero-copy conversion between [`CudaSlice<T>`] and DLPack managed
+//! Provides zero-copy conversion between `CudaSlice<T>` and DLPack managed
 //! tensors in both directions.
 //!
-//! # `CudaSlice<T>` → [`Builder`]
+//! # `CudaSlice<T>` → [`crate::Builder`]
 //!
-//! [`CudaBuilder::try_from`] treats the flat device buffer as a contiguous 1-D
+//! [`crate::Builder::try_from`] treats the flat device buffer as a contiguous 1-D
 //! tensor with shape `[slice.len()]` and strides `[1]`. Call
-//! [`Builder::metadata`] to replace that default before building a tensor with
+//! [`crate::Builder::metadata`] to replace that default before building a tensor with
 //! a higher-rank layout. The slice is heap-boxed and stored as the
 //! `manager_ctx`; the underlying CUDA allocation is freed when the DLPack
-//! deleter fires.
+//! deleter fires. Because ownership is transferred without any remaining Rust
+//! views, the builder starts with [`crate::DlpackFlags::IS_COPIED`].
 //!
-//! # `to_cuda_slice` direction (`ManagedBox` → [`BorrowedCudaSlice`])
+//! # `to_cuda_slice` direction (`ManagedBox` → [`crate::interop::cudarc::BorrowedCudaSlice`])
 //!
 //! `upgrade_device_ptr` wraps the DLPack tensor's raw device pointer into a
 //! proper `CudaSlice<T>`. Because the DLPack tensor owns that allocation, we
-//! must NOT call `cudaFree` when our `CudaSlice` is done. [`BorrowedCudaSlice`]
+//! must NOT call `cudaFree` when our `CudaSlice` is done.
+//! [`crate::interop::cudarc::BorrowedCudaSlice`]
 //! owns both the managed tensor and the slice view. Its view destructor calls
-//! [`CudaSlice::leak`], preventing the double-free, before the managed tensor
+//! `CudaSlice::leak`, preventing the double-free, before the managed tensor
 //! is dropped.
 //!
 //! Unlike the forward direction, this conversion takes a single owned
@@ -51,9 +53,9 @@
 //!
 //! # Stream synchronization
 //!
-//! Converting a [`CudaSlice`] into a builder records a read fence on the
+//! Converting a `CudaSlice` into a builder records a read fence on the
 //! slice's stream via
-//! [`DevicePtr::device_ptr`] before capturing the pointer. The consumer must
+//! `DevicePtr::device_ptr` before capturing the pointer. The consumer must
 //! wait on that stream before reading the data.
 //!
 //! `to_cuda_slice` creates a fresh `CudaContext`/stream for the given device
@@ -61,13 +63,12 @@
 //! is responsible for explicit synchronization.
 
 use crate::{
-    Borrowed, DlpackElement,
+    Borrowed, DlpackElement, DlpackFlags,
     builder::Builder,
     dlpack::ManagedBox,
-    ffi::{DLDevice, DLDeviceType, DLManagedTensor, DLManagedTensorVersioned},
-    legacy,
+    ffi::{DLDevice, DLDeviceType},
     managed_tensor::ManagedTensorBase,
-    metadata, versioned,
+    metadata,
 };
 use cudarc::driver::{CudaContext, CudaSlice, CudaStream, DevicePtr};
 use snafu::{Snafu, ensure};
@@ -111,22 +112,18 @@ pub enum Error {
 
     #[snafu(transparent)]
     Tensor { source: crate::tensor::Error },
-
-    #[snafu(transparent)]
-    Builder { source: crate::builder::Error },
 }
 
 // ---------------------------------------------------------------------------
-// Forward: CudaSlice<T> → ManagedBox
+// Forward: Box<CudaSlice<T>> → Builder
 // ---------------------------------------------------------------------------
 
-/// A [`Builder`] that owns a CUDA slice with a contiguous 1-D default layout.
-pub type CudaBuilder<T> = Builder<Box<CudaSlice<T>>, metadata::CopiedArray<[i64; 1], [i64; 1], 1>>;
-
-impl<T: DlpackElement> TryFrom<CudaSlice<T>> for CudaBuilder<T> {
+impl<T: DlpackElement> TryFrom<Box<CudaSlice<T>>>
+    for Builder<Box<CudaSlice<T>>, metadata::CopiedArray<[i64; 1], [i64; 1], 1>>
+{
     type Error = Error;
 
-    fn try_from(slice: CudaSlice<T>) -> Result<Self, Self::Error> {
+    fn try_from(slice: Box<CudaSlice<T>>) -> Result<Self, Self::Error> {
         let len = i64::try_from(slice.len()).map_err(|source| Error::LengthOverflow {
             len: slice.len(),
             source,
@@ -138,16 +135,18 @@ impl<T: DlpackElement> TryFrom<CudaSlice<T>> for CudaBuilder<T> {
             })?;
         let data_ptr = device_ptr_of(&slice);
 
-        Ok(
-            Builder::new(Box::new(slice), metadata::CopiedArray::new([len], [1]))
-                .device(DLDevice::cuda(device_id))
-                .data(data_ptr)
-                .dtype(T::DTYPE),
-        )
+        let builder = Builder::new(slice, metadata::CopiedArray::new([len], [1]))
+            .device(DLDevice::cuda(device_id))
+            .data(data_ptr)
+            .dtype(T::DTYPE);
+
+        // SAFETY: the owned CudaSlice was moved into the builder and Rust
+        // permits no outstanding views while that move occurs.
+        Ok(unsafe { builder.flags_unchecked(DlpackFlags::IS_COPIED) })
     }
 }
 
-/// Wrap a [`CudaSlice<T>`] as a [`legacy::Dlpack`].
+/// Wraps a [`CudaSlice<T>`] in a [`Builder`] with explicit shape and strides.
 ///
 /// - `slice` — owned GPU buffer; ownership is transferred into the DLPack
 ///   tensor's `manager_ctx` via `Box<CudaSlice<T>>`
@@ -158,25 +157,13 @@ impl<T: DlpackElement> TryFrom<CudaSlice<T>> for CudaBuilder<T> {
 ///
 /// - [`metadata::Error::MismatchedLength`] if `shape.len() != strides.len()`
 /// - [`metadata::Error::NdimOverflow`] if `shape.len()` overflows `i32`
-pub fn from_cuda_slice<T: DlpackElement>(
-    slice: CudaSlice<T>,
-    shape: &[i64],
-    strides: &[i64],
-) -> Result<legacy::Dlpack, Error> {
-    Ok(CudaBuilder::try_from(slice)?
-        .metadata(metadata::CopiedSlice::new(shape, strides))
-        .try_build::<DLManagedTensor>()?)
-}
-
-/// Same as [`from_cuda_slice`] but produces a [`DLManagedTensorVersioned`] (DLPack ≥ 1.0).
-pub fn from_cuda_slice_versioned<T: DlpackElement>(
-    slice: CudaSlice<T>,
-    shape: &[i64],
-    strides: &[i64],
-) -> Result<versioned::Dlpack, Error> {
-    Ok(CudaBuilder::try_from(slice)?
-        .metadata(metadata::CopiedSlice::new(shape, strides))
-        .try_build::<DLManagedTensorVersioned>()?)
+#[allow(clippy::type_complexity)]
+pub fn from_cuda_slice<'a, T: DlpackElement>(
+    slice: Box<CudaSlice<T>>,
+    shape: &'a [i64],
+    strides: &'a [i64],
+) -> Result<Builder<Box<CudaSlice<T>>, metadata::CopiedSlice<&'a [i64], &'a [i64]>>, Error> {
+    Ok(Builder::try_from(slice)?.metadata(metadata::CopiedSlice::new(shape, strides)))
 }
 
 // ---------------------------------------------------------------------------

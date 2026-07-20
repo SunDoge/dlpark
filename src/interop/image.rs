@@ -1,9 +1,14 @@
+//! Zero-copy HWC image interop for owned and borrowed `image` buffers.
+//!
+//! Boxed owned image buffers convert into [`crate::Builder`] values with
+//! [`crate::DlpackFlags::IS_COPIED`] set. Reverse conversions validate an HWC
+//! compact layout before exposing the DLPack data as image storage.
+
 use crate::{
     Builder, DlpackElement, DlpackFlags, ManagedBox, ManagedTensorBase,
-    ffi::{DLDevice, DLManagedTensor, DLManagedTensorVersioned},
-    legacy, metadata,
+    ffi::DLDevice,
+    metadata,
     tensor::{compact_strides_array, is_compact_strides},
-    versioned,
 };
 use image::{ImageBuffer, Pixel};
 use snafu::{Snafu, ensure};
@@ -51,43 +56,19 @@ pub enum Error {
 }
 
 // ---------------------------------------------------------------------------
-// Forward: ImageBuffer → ManagedBox  (infallible, so From not TryFrom)
+// Forward: ImageBuffer → Builder  (infallible, so From not TryFrom)
 //
 // Box<ImageBuffer> is used directly as the OpaqueContext, which avoids
-// extracting the inner Vec and double-boxing it. One allocation total.
+// extracting the inner Vec and double-boxing it.
 // ---------------------------------------------------------------------------
 
-impl<P> From<ImageBuffer<P, Vec<P::Subpixel>>> for legacy::Dlpack
+impl<P> From<Box<ImageBuffer<P, Vec<P::Subpixel>>>>
+    for Builder<Box<ImageBuffer<P, Vec<P::Subpixel>>>, metadata::CopiedArray<[i64; 3], [i64; 3], 3>>
 where
     P: Pixel + Send,
     P::Subpixel: DlpackElement + Send,
 {
-    fn from(img: ImageBuffer<P, Vec<P::Subpixel>>) -> Self {
-        let width = img.width();
-        let height = img.height();
-        let channels = P::CHANNEL_COUNT;
-        // Take the data pointer before boxing. The Box keeps the entire ImageBuffer
-        // (and its inner Vec pixel buffer) alive for the lifetime of the DLPack tensor.
-        let data_ptr = img.as_raw().as_ptr() as *mut c_void;
-        let shape = [height as i64, width as i64, channels as i64];
-        let strides = compact_strides_array(shape).expect("image shape must fit compact strides");
-
-        let builder = Builder::new(Box::new(img), metadata::CopiedArray::new(&shape, &strides))
-            .data(data_ptr)
-            .dtype(P::Subpixel::DTYPE)
-            .device(DLDevice::CPU);
-        // Safety: `img` was moved in above and its `Vec`-backed pixel buffer
-        // has no other live references.
-        unsafe { builder.flags_unchecked(DlpackFlags::IS_COPIED) }.build::<DLManagedTensor>()
-    }
-}
-
-impl<P> From<ImageBuffer<P, Vec<P::Subpixel>>> for versioned::Dlpack
-where
-    P: Pixel + Send,
-    P::Subpixel: DlpackElement + Send,
-{
-    fn from(img: ImageBuffer<P, Vec<P::Subpixel>>) -> Self {
+    fn from(img: Box<ImageBuffer<P, Vec<P::Subpixel>>>) -> Self {
         let width = img.width();
         let height = img.height();
         let channels = P::CHANNEL_COUNT;
@@ -95,13 +76,13 @@ where
         let shape = [height as i64, width as i64, channels as i64];
         let strides = compact_strides_array(shape).expect("image shape must fit compact strides");
 
-        let builder = Builder::new(Box::new(img), metadata::CopiedArray::new(&shape, &strides))
+        let builder = Builder::new(img, metadata::CopiedArray::new(shape, strides))
             .data(data_ptr)
             .dtype(P::Subpixel::DTYPE)
             .device(DLDevice::CPU);
-        // Safety: `img` was moved in above and its `Vec`-backed pixel buffer
+        // SAFETY: `img` was moved in above and its `Vec`-backed pixel buffer
         // has no other live references.
-        unsafe { builder.flags_unchecked(DlpackFlags::IS_COPIED) }.build::<DLManagedTensorVersioned>()
+        unsafe { builder.flags_unchecked(DlpackFlags::IS_COPIED) }
     }
 }
 
@@ -267,12 +248,13 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{ffi::DLManagedTensor, legacy, versioned};
     use image::Rgb;
 
     #[test]
     fn test_image_to_dlpack() {
         let img = ImageBuffer::<Rgb<u8>, _>::from_vec(4, 4, vec![0u8; 48]).unwrap();
-        let dlpack = legacy::Dlpack::from(img);
+        let dlpack: legacy::Dlpack = Builder::from(Box::new(img)).build();
 
         assert_eq!(dlpack.shape().unwrap(), &[4, 4, 3]);
     }
@@ -280,17 +262,33 @@ mod tests {
     #[test]
     fn versioned_image_to_dlpack_sets_is_copied() {
         let img = ImageBuffer::<Rgb<u8>, _>::from_vec(4, 4, vec![0u8; 48]).unwrap();
-        let dlpack = versioned::Dlpack::from(img);
+        let dlpack: versioned::Dlpack = Builder::from(Box::new(img)).build();
 
         assert_eq!(dlpack.flags(), DlpackFlags::IS_COPIED);
     }
 
     #[test]
-    fn versioned_image_to_dlpack_allows_safe_mutation() {
+    fn image_builder_allows_setting_read_only_safely() {
         let img = ImageBuffer::<Rgb<u8>, _>::from_vec(4, 4, vec![0u8; 48]).unwrap();
-        let mut dlpack = versioned::Dlpack::from(img);
+        let dlpack: versioned::Dlpack = Builder::from(Box::new(img))
+            .insert_flags(DlpackFlags::READ_ONLY)
+            .unwrap()
+            .build();
 
-        dlpack.cpu_data_slice_mut::<u8>().unwrap()[0] = 42;
+        assert_eq!(
+            dlpack.flags(),
+            DlpackFlags::IS_COPIED | DlpackFlags::READ_ONLY
+        );
+    }
+
+    #[test]
+    fn versioned_image_to_dlpack_allows_unsafe_mutation() {
+        let img = ImageBuffer::<Rgb<u8>, _>::from_vec(4, 4, vec![0u8; 48]).unwrap();
+        let mut dlpack: versioned::Dlpack = Builder::from(Box::new(img)).build();
+
+        unsafe {
+            dlpack.cpu_data_slice_mut_unchecked::<u8>().unwrap()[0] = 42;
+        }
 
         assert_eq!(dlpack.cpu_data_slice::<u8>().unwrap()[0], 42);
     }
@@ -298,7 +296,7 @@ mod tests {
     #[test]
     fn test_borrowed_roundtrip() {
         let img = ImageBuffer::<Rgb<u8>, _>::from_vec(4, 4, vec![42u8; 48]).unwrap();
-        let dlpack = legacy::Dlpack::from(img);
+        let dlpack: legacy::Dlpack = Builder::from(Box::new(img)).build();
 
         let img2 = ImageBuffer::<Rgb<u8>, _>::try_from(&dlpack).unwrap();
         assert_eq!(img2.width(), 4);
@@ -309,7 +307,7 @@ mod tests {
     #[test]
     fn test_owned_roundtrip() {
         let img = ImageBuffer::<Rgb<u8>, _>::from_vec(4, 4, vec![99u8; 48]).unwrap();
-        let dlpack = legacy::Dlpack::from(img);
+        let dlpack: legacy::Dlpack = Builder::from(Box::new(img)).build();
 
         let img2 = ImageBuffer::<Rgb<u8>, DlpackContainer<_, u8>>::try_from(dlpack).unwrap();
         assert_eq!(img2.width(), 4);

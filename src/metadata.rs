@@ -1,3 +1,8 @@
+//! Shape and stride allocation strategies for [`crate::Builder`].
+//!
+//! Copied metadata shares the managed tensor allocation. Borrowed metadata
+//! avoids the copy but requires the caller to uphold its lifetime contract.
+
 use crate::{OpaqueContext, ffi::DLTensor, managed_tensor::ManagedTensorBase};
 use snafu::{ResultExt, Snafu, ensure};
 use std::{alloc::Layout, borrow::Borrow, convert::Infallible, marker::PhantomData, ptr::NonNull};
@@ -23,9 +28,12 @@ pub enum Error {
     StrideValueOverflow { axis: usize },
 }
 
+/// Allocates and initializes shape and stride storage for a managed tensor.
 pub trait Metadata {
+    /// Error returned while validating or allocating this metadata.
     type Error;
 
+    /// Validates metadata and allocates a managed tensor containing it.
     fn try_allocate<C, M>(self, ctx: C) -> Result<NonNull<M>, Self::Error>
     where
         C: OpaqueContext,
@@ -47,7 +55,9 @@ pub trait Metadata {
         M: ManagedTensorBase;
 }
 
+/// Metadata whose rank and element types make allocation infallible.
 pub trait InfallibleMetadata: Metadata<Error = Infallible> {
+    /// Allocates a managed tensor containing this metadata.
     fn allocate<C, M>(self, ctx: C) -> NonNull<M>
     where
         C: OpaqueContext,
@@ -204,6 +214,8 @@ where
     S: Borrow<[i64; N]>,
     T: Borrow<[i64; N]>,
 {
+    /// Creates fixed-rank metadata that will be copied into the managed tensor
+    /// allocation.
     #[inline]
     pub fn new(shape: S, strides: T) -> Self {
         Self { shape, strides }
@@ -300,6 +312,8 @@ where
     A: Copy + TryInto<i64>,
     B: Copy + TryInto<i64>,
 {
+    /// Creates fixed-rank metadata whose values are converted to `i64` while
+    /// allocating.
     #[inline]
     pub fn new(shape: S, strides: T) -> Self {
         Self {
@@ -433,6 +447,8 @@ where
     S: AsRef<[i64]>,
     T: AsRef<[i64]>,
 {
+    /// Creates runtime-rank metadata that will be copied into the managed
+    /// tensor allocation.
     #[inline]
     pub fn new(shape: S, strides: T) -> Self {
         Self { shape, strides }
@@ -551,6 +567,8 @@ where
     A: Copy + TryInto<i64>,
     B: Copy + TryInto<i64>,
 {
+    /// Creates runtime-rank metadata whose values are converted to `i64`
+    /// while allocating.
     #[inline]
     pub fn new(shape: S, strides: T) -> Self {
         Self {
@@ -599,37 +617,54 @@ where
     }
 }
 
-/// Allocates dynamic metadata borrowed temporarily from an owned context.
-///
-/// The metadata is fully copied before `ctx` is transferred into
-/// `manager_ctx`, allowing adapters to read slices from an owner that is moved
-/// into the resulting managed tensor without creating temporary `Vec<i64>`
-/// values.
-#[cfg(feature = "ndarray")]
-pub(crate) fn allocate_generic_slice_from_context<C, M, A, B, F>(
+/// Copies metadata derived from an owning context after that context has
+/// reached this function's stack frame.
+#[derive(Debug, Clone, Copy)]
+pub struct FromContext<F, A, B> {
+    derive: F,
+    marker: PhantomData<fn() -> (A, B)>,
+}
+
+impl<F, A, B> FromContext<F, A, B> {
+    #[inline]
+    pub(crate) fn new(derive: F) -> Self {
+        Self {
+            derive,
+            marker: PhantomData,
+        }
+    }
+
+    #[inline]
+    pub(crate) fn into_inner(self) -> F {
+        self.derive
+    }
+}
+
+#[inline]
+pub(crate) fn try_allocate_generic_from_context<C, M, A, B, F>(
     ctx: C,
-    metadata: F,
+    derive: F,
 ) -> Result<NonNull<M>, Error>
 where
     C: OpaqueContext,
     M: ManagedTensorBase,
     A: Copy + TryInto<i64>,
     B: Copy + TryInto<i64>,
-    F: for<'a> FnOnce(&'a C) -> (&'a [A], &'a [B]),
+    F: FnOnce(&C) -> (&[A], &[B]),
 {
-    let (shape, strides) = metadata(&ctx);
-    let ndim = checked_ndim(shape.len(), strides.len())?;
+    let (shape_src, strides_src) = derive(&ctx);
+    let ndim = checked_ndim(shape_src.len(), strides_src.len())?;
 
     unsafe {
-        let (managed_tensor, shape_dst, strides_dst) = allocate_copied_slice::<M>(ndim as usize);
-        if let Err(axis) = try_copy_generic_metadata(shape, shape_dst) {
+        let (managed_tensor, shape, strides) = allocate_copied_slice::<M>(ndim as usize);
+        if let Err(axis) = try_copy_generic_metadata(shape_src, shape) {
             std::alloc::dealloc(
                 managed_tensor.as_ptr().cast(),
                 copied_slice_layout::<M>(ndim as usize).0,
             );
             return Err(Error::ShapeValueOverflow { axis });
         }
-        if let Err(axis) = try_copy_generic_metadata(strides, strides_dst) {
+        if let Err(axis) = try_copy_generic_metadata(strides_src, strides) {
             std::alloc::dealloc(
                 managed_tensor.as_ptr().cast(),
                 copied_slice_layout::<M>(ndim as usize).0,
@@ -639,8 +674,8 @@ where
 
         Ok(initialize(
             managed_tensor,
-            shape_dst,
-            strides_dst,
+            shape,
+            strides,
             ndim,
             ctx,
             drop_copied_slice::<C, M>,
@@ -656,6 +691,7 @@ pub struct BorrowedArray<'a, const N: usize> {
 }
 
 impl<'a, const N: usize> BorrowedArray<'a, N> {
+    /// Creates fixed-rank metadata that points to caller-owned arrays.
     #[inline]
     pub fn new(shape: &'a [i64; N], strides: &'a [i64; N]) -> Self {
         Self { shape, strides }
@@ -697,6 +733,7 @@ pub struct BorrowedSlice<'a> {
 }
 
 impl<'a> BorrowedSlice<'a> {
+    /// Creates runtime-rank metadata that points to caller-owned slices.
     #[inline]
     pub fn new(shape: &'a [i64], strides: &'a [i64]) -> Self {
         Self { shape, strides }
