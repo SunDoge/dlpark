@@ -78,20 +78,23 @@ filter_unconventional = false
 split_commits = false
 # regex for preprocessing the commit messages
 commit_preprocessors = [
-    # Replace issue numbers
-    # { pattern = '\((\w+\s)?#([0-9]+)\)', replace = "([#${2}](<REPO>/issues/${2}))"},
-    # Check spelling of the commit with https://github.com/crate-ci/typos
-    # If the spelling is incorrect, it will be automatically fixed.
-    # { pattern = '.*', replace_command = 'typos --write-changes -' },
+  # Replace issue numbers
+  # { pattern = '\((\w+\s)?#([0-9]+)\)', replace = "([#${2}](<REPO>/issues/${2}))"},
+  # Check spelling of the commit with https://github.com/crate-ci/typos
+  # If the spelling is incorrect, it will be automatically fixed.
+  # { pattern = '.*', replace_command = 'typos --write-changes -' },
 ]
 # regex for parsing and grouping commits
 commit_parsers = [
-    { field = "github.pr_labels", pattern = "breaking-change", group = "<!-- 0 --> 🏗️ Breaking changes" },
-    { field = "github.pr_labels", pattern = "enhancement", group = "<!-- 1 --> 🚀 Features" },
-    { field = "github.pr_labels", pattern = "bug", group = "<!-- 2 --> 🐛 Fixes" },
-    { field = "github.pr_labels", pattern = "documentation", group = "<!-- 3 --> 📝 Documentation" },
-    { field = "github.pr_labels", pattern = "dependencies", group = "<!-- 4 --> 🧪 Dependencies" },
-    { field = "github.pr_labels", pattern = ".*", group = "<!-- 5 --> 🌀 Miscellaneous" },
+  { field = "github.pr_labels", pattern = "breaking-change", group = "<!-- 0 --> 🏗️ Breaking changes" },
+  { field = "github.pr_labels", pattern = "enhancement", group = "<!-- 1 --> 🚀 Features" },
+  { field = "github.pr_labels", pattern = "bug", group = "<!-- 2 --> 🐛 Fixes" },
+  { field = "github.pr_labels", pattern = "documentation", group = "<!-- 3 --> 📝 Documentation" },
+  { field = "github.pr_labels", pattern = "dependencies", group = "<!-- 4 --> 🧪 Dependencies" },
+  { field = "github.pr_labels", pattern = ".*", group = "<!-- 5 --> 🌀 Miscellaneous" },
+
+  # Unlabelled PRs and direct commits
+  { message = ".*", group = "<!-- 5 --> 🌀 Miscellaneous" },
 ]
 # filter out the commits that are not matched by commit parsers
 filter_commits = false
