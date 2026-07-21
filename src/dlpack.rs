@@ -70,28 +70,33 @@ where
     }
 
     /// Returns the embedded raw tensor descriptor.
+    #[inline]
     pub fn tensor(&self) -> &crate::ffi::DLTensor {
         unsafe { self.0.as_ref() }.tensor()
     }
 
     /// Returns the tensor shape.
+    #[inline]
     pub fn shape(&self) -> Result<&[i64], tensor::Error> {
         unsafe { self.tensor().shape() }
     }
 
     /// Returns explicit element strides, or `None` for an implicit compact
     /// layout.
+    #[inline]
     pub fn strides(&self) -> Result<Option<&[i64]>, tensor::Error> {
         unsafe { self.tensor().strides() }
     }
 
     /// Returns the product of all shape dimensions.
+    #[inline]
     pub fn num_elements(&self) -> Result<usize, tensor::Error> {
         unsafe { self.tensor().num_elements() }
     }
 
     /// Returns the logical data size in bytes, including packed sub-byte
     /// element handling.
+    #[inline]
     pub fn num_bytes(&self) -> Result<usize, tensor::Error> {
         unsafe { self.tensor().num_bytes() }
     }
@@ -159,6 +164,7 @@ impl ManagedBox<DLManagedTensorVersioned> {
     ///
     /// Only present on the versioned tensor ABI; the legacy `DLManagedTensor`
     /// has no `flags` field.
+    #[inline]
     pub fn flags(&self) -> DlpackFlags {
         unsafe { self.0.as_ref() }.flags
     }
@@ -176,6 +182,7 @@ impl ManagedBox<DLManagedTensorVersioned> {
     }
 
     /// Returns the ABI version declared by this managed tensor.
+    #[inline]
     pub fn version(&self) -> DLPackVersion {
         unsafe { self.0.as_ref() }.version
     }

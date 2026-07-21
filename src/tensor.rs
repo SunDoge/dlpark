@@ -69,6 +69,7 @@ pub enum Error {
 /// Computes compact row-major strides for a shape.
 ///
 /// Returns an empty vector for scalar tensors.
+#[inline]
 pub fn compact_strides(shape: &[i64]) -> Result<Vec<i64>, Error> {
     validate_shape_dimensions(shape)?;
 
@@ -84,6 +85,7 @@ pub fn compact_strides(shape: &[i64]) -> Result<Vec<i64>, Error> {
 }
 
 /// Computes compact row-major strides for a fixed-rank shape.
+#[inline]
 pub fn compact_strides_array<T, const N: usize>(shape: [T; N]) -> Result<[i64; N], Error>
 where
     T: Into<i64> + Copy,
@@ -273,6 +275,7 @@ impl DLTensor {
     ///
     /// The shape and optional strides pointers must satisfy the requirements
     /// of [`Self::shape`] and [`Self::strides`].
+    #[inline]
     pub unsafe fn is_compact(&self) -> Result<bool, Error> {
         is_compact_strides(unsafe { self.shape()? }, unsafe { self.strides()? })
     }
@@ -408,6 +411,7 @@ impl DLTensor {
         Ok(data.with_addr(data_addr).cast::<T>())
     }
 
+    #[inline]
     pub fn data_ptr(&self) -> *const c_void {
         self.data as *const c_void
     }

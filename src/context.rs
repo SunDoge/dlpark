@@ -30,10 +30,12 @@ pub unsafe trait OpaqueContext {
 }
 
 unsafe impl<T: Sized + Send> OpaqueContext for Box<T> {
+    #[inline]
     fn into_raw(self) -> *mut c_void {
         Box::into_raw(self) as *mut _
     }
 
+    #[inline]
     unsafe fn drop_raw(raw: *mut c_void) {
         if !raw.is_null() {
             unsafe {
@@ -44,9 +46,11 @@ unsafe impl<T: Sized + Send> OpaqueContext for Box<T> {
 }
 
 unsafe impl<T: Sized + Send + Sync> OpaqueContext for Arc<T> {
+    #[inline]
     fn into_raw(self) -> *mut c_void {
         Arc::into_raw(self) as *mut c_void
     }
+    #[inline]
     unsafe fn drop_raw(raw: *mut c_void) {
         if !raw.is_null() {
             unsafe {
