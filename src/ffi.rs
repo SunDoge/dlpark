@@ -5,13 +5,13 @@ pub const DLPACK_MINOR_VERSION: u32 = 3;
 pub const DLPACK_FLAG_BITMASK_READ_ONLY: u32 = 1;
 pub const DLPACK_FLAG_BITMASK_IS_COPIED: u32 = 2;
 pub const DLPACK_FLAG_BITMASK_IS_SUBBYTE_TYPE_PADDED: u32 = 4;
-#[doc = " \\brief The DLPack version.\n\n A change in major version indicates that we have changed the\n data layout of the ABI - DLManagedTensorVersioned.\n\n A change in minor version indicates that we have added new\n code, such as a new device type, but the ABI is kept the same.\n\n If an obtained DLPack tensor has a major version that disagrees\n with the version number specified in this header file\n (i.e. major != DLPACK_MAJOR_VERSION), the consumer must call the deleter\n (and it is safe to do so). It is not safe to access any other fields\n as the memory layout will have changed.\n\n In the case of a minor version mismatch, the tensor can be safely used as\n long as the consumer knows how to interpret all fields. Minor version\n updates indicate the addition of enumeration values."]
+#[doc = " The DLPack version.\n\n A change in major version indicates that we have changed the\n data layout of the ABI - DLManagedTensorVersioned.\n\n A change in minor version indicates that we have added new\n code, such as a new device type, but the ABI is kept the same.\n\n If an obtained DLPack tensor has a major version that disagrees\n with the version number specified in this header file\n (i.e. major != DLPACK_MAJOR_VERSION), the consumer must call the deleter\n (and it is safe to do so). It is not safe to access any other fields\n as the memory layout will have changed.\n\n In the case of a minor version mismatch, the tensor can be safely used as\n long as the consumer knows how to interpret all fields. Minor version\n updates indicate the addition of enumeration values."]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct DLPackVersion {
-    #[doc = " \\brief DLPack major version."]
+    #[doc = " DLPack major version."]
     pub major: u32,
-    #[doc = " \\brief DLPack minor version."]
+    #[doc = " DLPack minor version."]
     pub minor: u32,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
@@ -24,49 +24,49 @@ const _: () = {
         [::std::mem::offset_of!(DLPackVersion, minor) - 4usize];
 };
 impl DLDeviceType {
-    #[doc = " \\brief CPU device"]
+    #[doc = " CPU device"]
     pub const CPU: DLDeviceType = DLDeviceType(1);
-    #[doc = " \\brief CUDA GPU device"]
+    #[doc = " CUDA GPU device"]
     pub const CUDA: DLDeviceType = DLDeviceType(2);
-    #[doc = " \\brief Pinned CUDA CPU memory by cudaMallocHost"]
+    #[doc = " Pinned CUDA CPU memory by cudaMallocHost"]
     pub const CUDAHOST: DLDeviceType = DLDeviceType(3);
-    #[doc = " \\brief OpenCL devices."]
+    #[doc = " OpenCL devices."]
     pub const OPENCL: DLDeviceType = DLDeviceType(4);
-    #[doc = " \\brief Vulkan buffer for next generation graphics."]
+    #[doc = " Vulkan buffer for next generation graphics."]
     pub const VULKAN: DLDeviceType = DLDeviceType(7);
-    #[doc = " \\brief Metal for Apple GPU."]
+    #[doc = " Metal for Apple GPU."]
     pub const METAL: DLDeviceType = DLDeviceType(8);
-    #[doc = " \\brief Verilog simulator buffer"]
+    #[doc = " Verilog simulator buffer"]
     pub const VPI: DLDeviceType = DLDeviceType(9);
-    #[doc = " \\brief ROCm GPUs for AMD GPUs"]
+    #[doc = " ROCm GPUs for AMD GPUs"]
     pub const ROCM: DLDeviceType = DLDeviceType(10);
-    #[doc = " \\brief Pinned ROCm CPU memory allocated by hipMallocHost"]
+    #[doc = " Pinned ROCm CPU memory allocated by hipMallocHost"]
     pub const ROCMHOST: DLDeviceType = DLDeviceType(11);
-    #[doc = " \\brief Reserved extension device type,\n used for quickly test extension device\n The semantics can differ depending on the implementation."]
+    #[doc = " Reserved extension device type,\n used for quickly test extension device\n The semantics can differ depending on the implementation."]
     pub const EXTDEV: DLDeviceType = DLDeviceType(12);
-    #[doc = " \\brief CUDA managed/unified memory allocated by cudaMallocManaged"]
+    #[doc = " CUDA managed/unified memory allocated by cudaMallocManaged"]
     pub const CUDAMANAGED: DLDeviceType = DLDeviceType(13);
-    #[doc = " \\brief Unified shared memory allocated on a oneAPI non-partititioned\n device. Call to oneAPI runtime is required to determine the device\n type, the USM allocation type and the sycl context it is bound to.\n"]
+    #[doc = " Unified shared memory allocated on a oneAPI non-partititioned\n device. Call to oneAPI runtime is required to determine the device\n type, the USM allocation type and the sycl context it is bound to.\n"]
     pub const ONEAPI: DLDeviceType = DLDeviceType(14);
-    #[doc = " \\brief GPU support for next generation WebGPU standard."]
+    #[doc = " GPU support for next generation WebGPU standard."]
     pub const WEBGPU: DLDeviceType = DLDeviceType(15);
-    #[doc = " \\brief Qualcomm Hexagon DSP"]
+    #[doc = " Qualcomm Hexagon DSP"]
     pub const HEXAGON: DLDeviceType = DLDeviceType(16);
-    #[doc = " \\brief Microsoft MAIA devices"]
+    #[doc = " Microsoft MAIA devices"]
     pub const MAIA: DLDeviceType = DLDeviceType(17);
-    #[doc = " \\brief AWS Trainium"]
+    #[doc = " AWS Trainium"]
     pub const TRN: DLDeviceType = DLDeviceType(18);
 }
 #[repr(transparent)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct DLDeviceType(pub ::std::os::raw::c_uint);
-#[doc = " \\brief A Device for Tensor and operator."]
+#[doc = " A Device for Tensor and operator."]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct DLDevice {
-    #[doc = " \\brief The device type used in the device."]
+    #[doc = " The device type used in the device."]
     pub device_type: DLDeviceType,
-    #[doc = " \\brief The device index.\n For vanilla CPU memory, pinned memory, or managed memory, this is set to 0."]
+    #[doc = " The device index.\n For vanilla CPU memory, pinned memory, or managed memory, this is set to 0."]
     pub device_id: i32,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
@@ -78,56 +78,56 @@ const _: () = {
     ["Offset of field: DLDevice::device_id"][::std::mem::offset_of!(DLDevice, device_id) - 4usize];
 };
 impl DLDataTypeCode {
-    #[doc = " \\brief signed integer"]
+    #[doc = " signed integer"]
     pub const INT: DLDataTypeCode = DLDataTypeCode(0);
-    #[doc = " \\brief unsigned integer"]
+    #[doc = " unsigned integer"]
     pub const UINT: DLDataTypeCode = DLDataTypeCode(1);
-    #[doc = " \\brief IEEE floating point"]
+    #[doc = " IEEE floating point"]
     pub const FLOAT: DLDataTypeCode = DLDataTypeCode(2);
-    #[doc = " \\brief Opaque handle type, reserved for testing purposes.\n Frameworks need to agree on the handle data type for the exchange to be well-defined."]
+    #[doc = " Opaque handle type, reserved for testing purposes.\n Frameworks need to agree on the handle data type for the exchange to be well-defined."]
     pub const OPAQUEHANDLE: DLDataTypeCode = DLDataTypeCode(3);
-    #[doc = " \\brief bfloat16"]
+    #[doc = " bfloat16"]
     pub const BFLOAT: DLDataTypeCode = DLDataTypeCode(4);
-    #[doc = " \\brief complex number\n (C/C++/Python layout: compact struct per complex number)"]
+    #[doc = " complex number\n (C/C++/Python layout: compact struct per complex number)"]
     pub const COMPLEX: DLDataTypeCode = DLDataTypeCode(5);
-    #[doc = " \\brief boolean"]
+    #[doc = " boolean"]
     pub const BOOL: DLDataTypeCode = DLDataTypeCode(6);
-    #[doc = " \\brief FP8 data types"]
+    #[doc = " FP8 data types"]
     pub const FLOAT8_E3M4: DLDataTypeCode = DLDataTypeCode(7);
-    #[doc = " \\brief FP8 data types"]
+    #[doc = " FP8 data types"]
     pub const FLOAT8_E4M3: DLDataTypeCode = DLDataTypeCode(8);
-    #[doc = " \\brief FP8 data types"]
+    #[doc = " FP8 data types"]
     pub const FLOAT8_E4M3B11FNUZ: DLDataTypeCode = DLDataTypeCode(9);
-    #[doc = " \\brief FP8 data types"]
+    #[doc = " FP8 data types"]
     pub const FLOAT8_E4M3FN: DLDataTypeCode = DLDataTypeCode(10);
-    #[doc = " \\brief FP8 data types"]
+    #[doc = " FP8 data types"]
     pub const FLOAT8_E4M3FNUZ: DLDataTypeCode = DLDataTypeCode(11);
-    #[doc = " \\brief FP8 data types"]
+    #[doc = " FP8 data types"]
     pub const FLOAT8_E5M2: DLDataTypeCode = DLDataTypeCode(12);
-    #[doc = " \\brief FP8 data types"]
+    #[doc = " FP8 data types"]
     pub const FLOAT8_E5M2FNUZ: DLDataTypeCode = DLDataTypeCode(13);
-    #[doc = " \\brief FP8 data types"]
+    #[doc = " FP8 data types"]
     pub const FLOAT8_E8M0FNU: DLDataTypeCode = DLDataTypeCode(14);
-    #[doc = " \\brief FP6 data types\n Setting bits != 6 is currently unspecified, and the producer must ensure it is set\n while the consumer must stop importing if the value is unexpected."]
+    #[doc = " FP6 data types\n Setting bits != 6 is currently unspecified, and the producer must ensure it is set\n while the consumer must stop importing if the value is unexpected."]
     pub const FLOAT6_E2M3FN: DLDataTypeCode = DLDataTypeCode(15);
-    #[doc = " \\brief FP6 data types\n Setting bits != 6 is currently unspecified, and the producer must ensure it is set\n while the consumer must stop importing if the value is unexpected."]
+    #[doc = " FP6 data types\n Setting bits != 6 is currently unspecified, and the producer must ensure it is set\n while the consumer must stop importing if the value is unexpected."]
     pub const FLOAT6_E3M2FN: DLDataTypeCode = DLDataTypeCode(16);
-    #[doc = " \\brief FP4 data types\n Setting bits != 4 is currently unspecified, and the producer must ensure it is set\n while the consumer must stop importing if the value is unexpected."]
+    #[doc = " FP4 data types\n Setting bits != 4 is currently unspecified, and the producer must ensure it is set\n while the consumer must stop importing if the value is unexpected."]
     pub const FLOAT4_E2M1FN: DLDataTypeCode = DLDataTypeCode(17);
 }
 #[repr(transparent)]
-#[doc = " \\brief The type code options DLDataType."]
+#[doc = " The type code options DLDataType."]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct DLDataTypeCode(pub u8);
-#[doc = " \\brief The data type the tensor can hold. The data type is assumed to follow the\n native endian-ness. An explicit error message should be raised when attempting to\n export an array with non-native endianness\n\n  Examples\n   - float: type_code = 2, bits = 32, lanes = 1\n   - float4(vectorized 4 float): type_code = 2, bits = 32, lanes = 4\n   - int8: type_code = 0, bits = 8, lanes = 1\n   - std::complex<float>: type_code = 5, bits = 64, lanes = 1\n   - bool: type_code = 6, bits = 8, lanes = 1 (as per common array library convention, the underlying storage size of bool is 8 bits)\n   - float8_e4m3: type_code = 8, bits = 8, lanes = 1 (packed in memory)\n   - float6_e3m2fn: type_code = 16, bits = 6, lanes = 1 (packed in memory)\n   - float4_e2m1fn: type_code = 17, bits = 4, lanes = 1 (packed in memory)\n\n  When a sub-byte type is packed, DLPack requires the data to be in little bit-endian, i.e.,\n  for a packed data set D ((D >> (i * bits)) && bit_mask) stores the i-th element."]
+#[doc = " The data type the tensor can hold. The data type is assumed to follow the\n native endian-ness. An explicit error message should be raised when attempting to\n export an array with non-native endianness\n\n  Examples\n   - float: type_code = 2, bits = 32, lanes = 1\n   - float4(vectorized 4 float): type_code = 2, bits = 32, lanes = 4\n   - int8: type_code = 0, bits = 8, lanes = 1\n   - std::complex<float>: type_code = 5, bits = 64, lanes = 1\n   - bool: type_code = 6, bits = 8, lanes = 1 (as per common array library convention, the underlying storage size of bool is 8 bits)\n   - float8_e4m3: type_code = 8, bits = 8, lanes = 1 (packed in memory)\n   - float6_e3m2fn: type_code = 16, bits = 6, lanes = 1 (packed in memory)\n   - float4_e2m1fn: type_code = 17, bits = 4, lanes = 1 (packed in memory)\n\n  When a sub-byte type is packed, DLPack requires the data to be in little bit-endian, i.e.,\n  for a packed data set D ((D >> (i * bits)) && bit_mask) stores the i-th element."]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct DLDataType {
-    #[doc = " \\brief Type code of base types.\n We keep it uint8_t instead of DLDataTypeCode for minimal memory\n footprint, but the value should be one of DLDataTypeCode enum values."]
+    #[doc = " Type code of base types.\n We keep it uint8_t instead of DLDataTypeCode for minimal memory\n footprint, but the value should be one of DLDataTypeCode enum values."]
     pub code: DLDataTypeCode,
-    #[doc = " \\brief Number of bits, common choices are 8, 16, 32."]
+    #[doc = " Number of bits, common choices are 8, 16, 32."]
     pub bits: u8,
-    #[doc = " \\brief Number of lanes in the type, used for vector types."]
+    #[doc = " Number of lanes in the type, used for vector types."]
     pub lanes: u16,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
@@ -138,23 +138,23 @@ const _: () = {
     ["Offset of field: DLDataType::bits"][::std::mem::offset_of!(DLDataType, bits) - 1usize];
     ["Offset of field: DLDataType::lanes"][::std::mem::offset_of!(DLDataType, lanes) - 2usize];
 };
-#[doc = " \\brief Plain C Tensor object, does not manage memory."]
+#[doc = " Plain C Tensor object, does not manage memory."]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct DLTensor {
-    #[doc = " \\brief The data pointer points to the allocated data. This will be CUDA\n device pointer or cl_mem handle in OpenCL. It may be opaque on some device\n types. This pointer is always aligned to 256 bytes as in CUDA. The\n `byte_offset` field should be used to point to the beginning of the data.\n\n Note that as of Nov 2021, multiple libraries (CuPy, PyTorch, TensorFlow,\n TVM, perhaps others) do not adhere to this 256 byte alignment requirement\n on CPU/CUDA/ROCm, and always use `byte_offset=0`.  This must be fixed\n (after which this note will be updated); at the moment it is recommended\n to not rely on the data pointer being correctly aligned.\n\n For given DLTensor, the size of memory required to store the contents of\n data is calculated as follows:\n\n ```c\n static inline size_t GetDataSize(const DLTensor* t) {\n   size_t size = 1;\n   for (tvm_index_t i = 0; i < t->ndim; ++i) {\n     size *= t->shape[i];\n   }\n   size *= (t->dtype.bits * t->dtype.lanes + 7) / 8;\n   return size;\n }\n ```\n\n Note that if the tensor is of size zero, then the data pointer should be\n set to `NULL`."]
+    #[doc = " The data pointer points to the allocated data. This will be CUDA\n device pointer or cl_mem handle in OpenCL. It may be opaque on some device\n types. This pointer is always aligned to 256 bytes as in CUDA. The\n `byte_offset` field should be used to point to the beginning of the data.\n\n Note that as of Nov 2021, multiple libraries (CuPy, PyTorch, TensorFlow,\n TVM, perhaps others) do not adhere to this 256 byte alignment requirement\n on CPU/CUDA/ROCm, and always use `byte_offset=0`.  This must be fixed\n (after which this note will be updated); at the moment it is recommended\n to not rely on the data pointer being correctly aligned.\n\n For given DLTensor, the size of memory required to store the contents of\n data is calculated as follows:\n\n ```c\n static inline size_t GetDataSize(const DLTensor* t) {\n   size_t size = 1;\n   for (tvm_index_t i = 0; i < t->ndim; ++i) {\n     size *= t->shape[i];\n   }\n   size *= (t->dtype.bits * t->dtype.lanes + 7) / 8;\n   return size;\n }\n ```\n\n Note that if the tensor is of size zero, then the data pointer should be\n set to `NULL`."]
     pub data: *mut ::std::os::raw::c_void,
-    #[doc = " \\brief The device of the tensor"]
+    #[doc = " The device of the tensor"]
     pub device: DLDevice,
-    #[doc = " \\brief Number of dimensions"]
+    #[doc = " Number of dimensions"]
     pub ndim: i32,
-    #[doc = " \\brief The data type of the pointer"]
+    #[doc = " The data type of the pointer"]
     pub dtype: DLDataType,
-    #[doc = " \\brief The shape of the tensor\n\n  When ndim == 0, shape can be set to NULL."]
+    #[doc = " The shape of the tensor\n\n  When ndim == 0, shape can be set to NULL."]
     pub shape: *mut i64,
-    #[doc = " \\brief strides of the tensor (in number of elements, not bytes),\n  can not be NULL if ndim != 0, must points to\n  an array of ndim elements that specifies the strides,\n  so consumer can always rely on strides[dim] being valid for 0 <= dim < ndim.\n\n  When ndim == 0, strides can be set to NULL.\n\n  \\note Before DLPack v1.2, strides can be NULL to indicate contiguous data.\n        This is not allowed in DLPack v1.2 and later. The rationale\n        is to simplify the consumer handling."]
+    #[doc = " strides of the tensor (in number of elements, not bytes),\n  can not be NULL if ndim != 0, must points to\n  an array of ndim elements that specifies the strides,\n  so consumer can always rely on strides[dim] being valid for 0 <= dim < ndim.\n\n  When ndim == 0, strides can be set to NULL.\n\n  \\note Before DLPack v1.2, strides can be NULL to indicate contiguous data.\n        This is not allowed in DLPack v1.2 and later. The rationale\n        is to simplify the consumer handling."]
     pub strides: *mut i64,
-    #[doc = " \\brief The offset in bytes to the beginning pointer to data"]
+    #[doc = " The offset in bytes to the beginning pointer to data"]
     pub byte_offset: u64,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
@@ -170,15 +170,15 @@ const _: () = {
     ["Offset of field: DLTensor::byte_offset"]
         [::std::mem::offset_of!(DLTensor, byte_offset) - 40usize];
 };
-#[doc = " \\brief C Tensor object, manage memory of DLTensor. This data structure is\n  intended to facilitate the borrowing of DLTensor by another framework. It is\n  not meant to transfer the tensor. When the borrowing framework doesn't need\n  the tensor, it should call the deleter to notify the host that the resource\n  is no longer needed.\n\n \\note This data structure is used as Legacy DLManagedTensor\n       in DLPack exchange and is deprecated after DLPack v0.8\n       Use DLManagedTensorVersioned instead.\n       This data structure may get renamed or deleted in future versions.\n\n \\sa DLManagedTensorVersioned"]
+#[doc = " C Tensor object, manage memory of DLTensor. This data structure is\n  intended to facilitate the borrowing of DLTensor by another framework. It is\n  not meant to transfer the tensor. When the borrowing framework doesn't need\n  the tensor, it should call the deleter to notify the host that the resource\n  is no longer needed.\n\n \\note This data structure is used as Legacy DLManagedTensor\n       in DLPack exchange and is deprecated after DLPack v0.8\n       Use DLManagedTensorVersioned instead.\n       This data structure may get renamed or deleted in future versions.\n\n \\sa DLManagedTensorVersioned"]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct DLManagedTensor {
-    #[doc = " \\brief DLTensor which is being memory managed"]
+    #[doc = " DLTensor which is being memory managed"]
     pub dl_tensor: DLTensor,
-    #[doc = " \\brief the context of the original host framework of DLManagedTensor in\n   which DLManagedTensor is used in the framework. It can also be NULL."]
+    #[doc = " the context of the original host framework of DLManagedTensor in\n   which DLManagedTensor is used in the framework. It can also be NULL."]
     pub manager_ctx: *mut ::std::os::raw::c_void,
-    #[doc = " \\brief Destructor - this should be called\n to destruct the manager_ctx  which backs the DLManagedTensor. It can be\n NULL if there is no way for the caller to provide a reasonable destructor.\n The destructor deletes the argument self as well."]
+    #[doc = " Destructor - this should be called\n to destruct the manager_ctx  which backs the DLManagedTensor. It can be\n NULL if there is no way for the caller to provide a reasonable destructor.\n The destructor deletes the argument self as well."]
     pub deleter: ::std::option::Option<unsafe extern "C" fn(self_: *mut DLManagedTensor)>,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
@@ -192,19 +192,19 @@ const _: () = {
     ["Offset of field: DLManagedTensor::deleter"]
         [::std::mem::offset_of!(DLManagedTensor, deleter) - 56usize];
 };
-#[doc = " \\brief A versioned and managed C Tensor object, manage memory of DLTensor.\n\n This data structure is intended to facilitate the borrowing of DLTensor by\n another framework. It is not meant to transfer the tensor. When the borrowing\n framework doesn't need the tensor, it should call the deleter to notify the\n host that the resource is no longer needed.\n\n \\note This is the current standard DLPack exchange data structure."]
+#[doc = " A versioned and managed C Tensor object, manage memory of DLTensor.\n\n This data structure is intended to facilitate the borrowing of DLTensor by\n another framework. It is not meant to transfer the tensor. When the borrowing\n framework doesn't need the tensor, it should call the deleter to notify the\n host that the resource is no longer needed.\n\n \\note This is the current standard DLPack exchange data structure."]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct DLManagedTensorVersioned {
-    #[doc = " \\brief The API and ABI version of the current managed Tensor"]
+    #[doc = " The API and ABI version of the current managed Tensor"]
     pub version: DLPackVersion,
-    #[doc = " \\brief the context of the original host framework.\n\n Stores DLManagedTensorVersioned is used in the\n framework. It can also be NULL."]
+    #[doc = " the context of the original host framework.\n\n Stores DLManagedTensorVersioned is used in the\n framework. It can also be NULL."]
     pub manager_ctx: *mut ::std::os::raw::c_void,
-    #[doc = " \\brief Destructor.\n\n This should be called to destruct manager_ctx which holds the DLManagedTensorVersioned.\n It can be NULL if there is no way for the caller to provide a reasonable\n destructor. The destructor deletes the argument self as well."]
+    #[doc = " Destructor.\n\n This should be called to destruct manager_ctx which holds the DLManagedTensorVersioned.\n It can be NULL if there is no way for the caller to provide a reasonable\n destructor. The destructor deletes the argument self as well."]
     pub deleter: ::std::option::Option<unsafe extern "C" fn(self_: *mut DLManagedTensorVersioned)>,
-    #[doc = " \\brief Additional bitmask flags information about the tensor.\n\n By default the flags should be set to 0.\n\n \\note Future ABI changes should keep everything until this field\n       stable, to ensure that deleter can be correctly called.\n\n \\sa DLPACK_FLAG_BITMASK_READ_ONLY\n \\sa DLPACK_FLAG_BITMASK_IS_COPIED"]
+    #[doc = " Additional bitmask flags information about the tensor.\n\n By default the flags should be set to 0.\n\n \\note Future ABI changes should keep everything until this field\n       stable, to ensure that deleter can be correctly called.\n\n \\sa DLPACK_FLAG_BITMASK_READ_ONLY\n \\sa DLPACK_FLAG_BITMASK_IS_COPIED"]
     pub flags: crate::DlpackFlags,
-    #[doc = " \\brief DLTensor which is being memory managed"]
+    #[doc = " DLTensor which is being memory managed"]
     pub dl_tensor: DLTensor,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
@@ -224,7 +224,7 @@ const _: () = {
     ["Offset of field: DLManagedTensorVersioned::dl_tensor"]
         [::std::mem::offset_of!(DLManagedTensorVersioned, dl_tensor) - 32usize];
 };
-#[doc = " \\brief Request a producer library to create a new tensor.\n\n Create a new `DLManagedTensorVersioned` within the context of the producer\n library. The allocation is defined via the prototype DLTensor.\n\n This function is exposed by the framework through the DLPackExchangeAPI.\n\n \\param prototype The prototype DLTensor. Only the dtype, ndim, shape,\n        and device fields are used.\n \\param out The output DLManagedTensorVersioned.\n \\param error_ctx Context for `set_error`.\n \\param set_error The function to set the error.\n \\return The owning DLManagedTensorVersioned* or NULL on failure.\n         set_error is called exactly when NULL is returned (the implementer\n         must ensure this).\n \\note - As a C function, must not thrown C++ exceptions.\n       - Error propagation via set_error to avoid any direct need\n         of Python API. Due to this `set_error` may have to ensure the GIL is\n         held since it will presumably set a Python error.\n\n \\sa DLPackExchangeAPI"]
+#[doc = " Request a producer library to create a new tensor.\n\n Create a new `DLManagedTensorVersioned` within the context of the producer\n library. The allocation is defined via the prototype DLTensor.\n\n This function is exposed by the framework through the DLPackExchangeAPI.\n\n \\param prototype The prototype DLTensor. Only the dtype, ndim, shape,\n        and device fields are used.\n \\param out The output DLManagedTensorVersioned.\n \\param error_ctx Context for `set_error`.\n \\param set_error The function to set the error.\n \\return The owning DLManagedTensorVersioned* or NULL on failure.\n         set_error is called exactly when NULL is returned (the implementer\n         must ensure this).\n \\note - As a C function, must not thrown C++ exceptions.\n       - Error propagation via set_error to avoid any direct need\n         of Python API. Due to this `set_error` may have to ensure the GIL is\n         held since it will presumably set a Python error.\n\n \\sa DLPackExchangeAPI"]
 pub type DLPackManagedTensorAllocator = ::std::option::Option<
     unsafe extern "C" fn(
         prototype: *mut DLTensor,
@@ -239,21 +239,21 @@ pub type DLPackManagedTensorAllocator = ::std::option::Option<
         >,
     ) -> ::std::os::raw::c_int,
 >;
-#[doc = " \\brief Exports a PyObject* Tensor/NDArray to a DLManagedTensorVersioned.\n\n This function does not perform any stream synchronization. The consumer should query\n DLPackCurrentWorkStream to get the current work stream and launch kernels on it.\n\n This function is exposed by the framework through the DLPackExchangeAPI.\n\n \\param py_object The Python object to convert. Must have the same type\n        as the one the `DLPackExchangeAPI` was discovered from.\n \\param out The output DLManagedTensorVersioned.\n \\return The owning DLManagedTensorVersioned* or NULL on failure with a\n         Python exception set. If the data cannot be described using DLPack\n         this should be a BufferError if possible.\n \\note - As a C function, must not thrown C++ exceptions.\n\n \\sa DLPackExchangeAPI, DLPackCurrentWorkStream"]
+#[doc = " Exports a PyObject* Tensor/NDArray to a DLManagedTensorVersioned.\n\n This function does not perform any stream synchronization. The consumer should query\n DLPackCurrentWorkStream to get the current work stream and launch kernels on it.\n\n This function is exposed by the framework through the DLPackExchangeAPI.\n\n \\param py_object The Python object to convert. Must have the same type\n        as the one the `DLPackExchangeAPI` was discovered from.\n \\param out The output DLManagedTensorVersioned.\n \\return The owning DLManagedTensorVersioned* or NULL on failure with a\n         Python exception set. If the data cannot be described using DLPack\n         this should be a BufferError if possible.\n \\note - As a C function, must not thrown C++ exceptions.\n\n \\sa DLPackExchangeAPI, DLPackCurrentWorkStream"]
 pub type DLPackManagedTensorFromPyObjectNoSync = ::std::option::Option<
     unsafe extern "C" fn(
         py_object: *mut ::std::os::raw::c_void,
         out: *mut *mut DLManagedTensorVersioned,
     ) -> ::std::os::raw::c_int,
 >;
-#[doc = " \\brief Exports a PyObject* Tensor/NDArray to a provided DLTensor.\n\n This function provides a faster interface for temporary, non-owning, exchange.\n The producer (implementer) still owns the memory of data, strides, shape.\n The liveness of the DLTensor and the data it views is only guaranteed until\n control is returned.\n\n This function currently assumes that the producer (implementer) can fill\n in the DLTensor shape and strides without the need for temporary allocations.\n\n This function does not perform any stream synchronization. The consumer should query\n DLPackCurrentWorkStream to get the current work stream and launch kernels on it.\n\n This function is exposed by the framework through the DLPackExchangeAPI.\n\n \\param py_object The Python object to convert. Must have the same type\n        as the one the `DLPackExchangeAPI` was discovered from.\n \\param out The output DLTensor, whose space is pre-allocated on stack.\n \\return 0 on success, -1 on failure with a Python exception set.\n \\note - As a C function, must not thrown C++ exceptions.\n\n \\sa DLPackExchangeAPI, DLPackCurrentWorkStream"]
+#[doc = " Exports a PyObject* Tensor/NDArray to a provided DLTensor.\n\n This function provides a faster interface for temporary, non-owning, exchange.\n The producer (implementer) still owns the memory of data, strides, shape.\n The liveness of the DLTensor and the data it views is only guaranteed until\n control is returned.\n\n This function currently assumes that the producer (implementer) can fill\n in the DLTensor shape and strides without the need for temporary allocations.\n\n This function does not perform any stream synchronization. The consumer should query\n DLPackCurrentWorkStream to get the current work stream and launch kernels on it.\n\n This function is exposed by the framework through the DLPackExchangeAPI.\n\n \\param py_object The Python object to convert. Must have the same type\n        as the one the `DLPackExchangeAPI` was discovered from.\n \\param out The output DLTensor, whose space is pre-allocated on stack.\n \\return 0 on success, -1 on failure with a Python exception set.\n \\note - As a C function, must not thrown C++ exceptions.\n\n \\sa DLPackExchangeAPI, DLPackCurrentWorkStream"]
 pub type DLPackDLTensorFromPyObjectNoSync = ::std::option::Option<
     unsafe extern "C" fn(
         py_object: *mut ::std::os::raw::c_void,
         out: *mut DLTensor,
     ) -> ::std::os::raw::c_int,
 >;
-#[doc = " \\brief Obtain the current work stream of a device.\n\n Obtain the current work stream of a device from the producer framework.\n For example, it should map to torch.cuda.current_stream in PyTorch.\n\n When device_type is kDLCPU, the consumer do not have to query the stream\n and the producer can simply return NULL when queried.\n The consumer do not have to do anything on stream sync or setting.\n So CPU only framework can just provide a dummy implementation that\n always set out_current_stream[0] to NULL.\n\n \\param device_type The device type.\n \\param device_id The device id.\n \\param out_current_stream The output current work stream.\n\n \\return 0 on success, -1 on failure with a Python exception set.\n \\note - As a C function, must not thrown C++ exceptions.\n\n \\sa DLPackExchangeAPI"]
+#[doc = " Obtain the current work stream of a device.\n\n Obtain the current work stream of a device from the producer framework.\n For example, it should map to torch.cuda.current_stream in PyTorch.\n\n When device_type is kDLCPU, the consumer do not have to query the stream\n and the producer can simply return NULL when queried.\n The consumer do not have to do anything on stream sync or setting.\n So CPU only framework can just provide a dummy implementation that\n always set out_current_stream[0] to NULL.\n\n \\param device_type The device type.\n \\param device_id The device id.\n \\param out_current_stream The output current work stream.\n\n \\return 0 on success, -1 on failure with a Python exception set.\n \\note - As a C function, must not thrown C++ exceptions.\n\n \\sa DLPackExchangeAPI"]
 pub type DLPackCurrentWorkStream = ::std::option::Option<
     unsafe extern "C" fn(
         device_type: DLDeviceType,
@@ -261,20 +261,20 @@ pub type DLPackCurrentWorkStream = ::std::option::Option<
         out_current_stream: *mut *mut ::std::os::raw::c_void,
     ) -> ::std::os::raw::c_int,
 >;
-#[doc = " \\brief Imports a DLManagedTensorVersioned to a PyObject* Tensor/NDArray.\n\n Convert an owning DLManagedTensorVersioned* to the Python tensor of the\n producer (implementer) library with the correct type.\n\n This function does not perform any stream synchronization.\n\n This function is exposed by the framework through the DLPackExchangeAPI.\n\n \\param tensor The DLManagedTensorVersioned to convert the ownership of the\n        tensor is stolen.\n \\param out_py_object The output Python object.\n \\return 0 on success, -1 on failure with a Python exception set.\n\n \\sa DLPackExchangeAPI"]
+#[doc = " Imports a DLManagedTensorVersioned to a PyObject* Tensor/NDArray.\n\n Convert an owning DLManagedTensorVersioned* to the Python tensor of the\n producer (implementer) library with the correct type.\n\n This function does not perform any stream synchronization.\n\n This function is exposed by the framework through the DLPackExchangeAPI.\n\n \\param tensor The DLManagedTensorVersioned to convert the ownership of the\n        tensor is stolen.\n \\param out_py_object The output Python object.\n \\return 0 on success, -1 on failure with a Python exception set.\n\n \\sa DLPackExchangeAPI"]
 pub type DLPackManagedTensorToPyObjectNoSync = ::std::option::Option<
     unsafe extern "C" fn(
         tensor: *mut DLManagedTensorVersioned,
         out_py_object: *mut *mut ::std::os::raw::c_void,
     ) -> ::std::os::raw::c_int,
 >;
-#[doc = " \\brief DLPackExchangeAPI stable header.\n \\sa DLPackExchangeAPI"]
+#[doc = " DLPackExchangeAPI stable header.\n \\sa DLPackExchangeAPI"]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct DLPackExchangeAPIHeader {
-    #[doc = " \\brief The provided DLPack version the consumer must check major version\n        compatibility before using this struct."]
+    #[doc = " The provided DLPack version the consumer must check major version\n        compatibility before using this struct."]
     pub version: DLPackVersion,
-    #[doc = " \\brief Optional pointer to an older DLPackExchangeAPI in the chain.\n\n It must be NULL if the framework does not support older versions.\n If the current major version is larger than the one supported by the\n consumer, the consumer may walk this to find an earlier supported version.\n\n \\sa DLPackExchangeAPI"]
+    #[doc = " Optional pointer to an older DLPackExchangeAPI in the chain.\n\n It must be NULL if the framework does not support older versions.\n If the current major version is larger than the one supported by the\n consumer, the consumer may walk this to find an earlier supported version.\n\n \\sa DLPackExchangeAPI"]
     pub prev_api: *mut DLPackExchangeAPIHeader,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
@@ -287,21 +287,21 @@ const _: () = {
     ["Offset of field: DLPackExchangeAPIHeader::prev_api"]
         [::std::mem::offset_of!(DLPackExchangeAPIHeader, prev_api) - 8usize];
 };
-#[doc = " \\brief Framework-specific function pointers table for DLPack exchange.\n\n Additionally to `__dlpack__()` we define a C function table sharable by\n\n Python implementations via `__dlpack_c_exchange_api__`.\n This attribute must be set on the type as a Python PyCapsule\n with name \"dlpack_exchange_api\".\n\n A consumer library may use a pattern such as:\n\n ```text\n\n  PyObject *api_capsule = PyObject_GetAttrString(\n    (PyObject *)Py_TYPE(tensor_obj), \"__dlpack_c_exchange_api__\")\n  );\n  if (api_capsule == NULL) { goto handle_error; }\n  MyDLPackExchangeAPI *api = (MyDLPackExchangeAPI *)PyCapsule_GetPointer(\n    api_capsule, \"dlpack_exchange_api\"\n  );\n  Py_DECREF(api_capsule);\n  if (api == NULL) { goto handle_error; }\n\n ```\n\n Note that this must be defined on the type. The consumer should look up the\n attribute on the type and may cache the result for each unique type.\n\n The precise API table is given by:\n ```text\n struct MyDLPackExchangeAPI : public DLPackExchangeAPI {\n   MyDLPackExchangeAPI() {\n     header.version.major = DLPACK_MAJOR_VERSION;\n     header.version.minor = DLPACK_MINOR_VERSION;\n     header.prev_version_api = nullptr;\n\n     managed_tensor_allocator = MyDLPackManagedTensorAllocator;\n     managed_tensor_from_py_object_no_sync = MyDLPackManagedTensorFromPyObjectNoSync;\n     managed_tensor_to_py_object_no_sync = MyDLPackManagedTensorToPyObjectNoSync;\n     dltensor_from_py_object_no_sync = MyDLPackDLTensorFromPyObjectNoSync;\n     current_work_stream = MyDLPackCurrentWorkStream;\n  }\n\n  static const DLPackExchangeAPI* Global() {\n     static MyDLPackExchangeAPI inst;\n     return &inst;\n  }\n };\n ```\n\n Guidelines for leveraging DLPackExchangeAPI:\n\n There are generally two kinds of consumer needs for DLPack exchange:\n - N0: library support, where consumer.kernel(x, y, z) would like to run a kernel\n       with the data from x, y, z. The consumer is also expected to run the kernel with the same\n       stream context as the producer. For example, when x, y, z is torch.Tensor,\n       consumer should query exchange_api->current_work_stream to get the\n       current stream and launch the kernel with the same stream.\n       This setup is necessary for no synchronization in kernel launch and maximum compatibility\n       with CUDA graph capture in the producer.\n       This is the desirable behavior for library extension support for frameworks like PyTorch.\n - N1: data ingestion and retention\n\n Note that obj.__dlpack__() API should provide useful ways for N1.\n The primary focus of the current DLPackExchangeAPI is to enable faster exchange N0\n with the support of the function pointer current_work_stream.\n\n Array/Tensor libraries should statically create and initialize this structure\n then return a pointer to DLPackExchangeAPI as an int value in Tensor/Array.\n The DLPackExchangeAPI* must stay alive throughout the lifetime of the process.\n\n One simple way to do so is to create a static instance of DLPackExchangeAPI\n within the framework and return a pointer to it. The following code\n shows an example to do so in C++. It should also be reasonably easy\n to do so in other languages."]
+#[doc = " Framework-specific function pointers table for DLPack exchange.\n\n Additionally to `__dlpack__()` we define a C function table sharable by\n\n Python implementations via `__dlpack_c_exchange_api__`.\n This attribute must be set on the type as a Python PyCapsule\n with name \"dlpack_exchange_api\".\n\n A consumer library may use a pattern such as:\n\n ```text\n\n  PyObject *api_capsule = PyObject_GetAttrString(\n    (PyObject *)Py_TYPE(tensor_obj), \"__dlpack_c_exchange_api__\")\n  );\n  if (api_capsule == NULL) { goto handle_error; }\n  MyDLPackExchangeAPI *api = (MyDLPackExchangeAPI *)PyCapsule_GetPointer(\n    api_capsule, \"dlpack_exchange_api\"\n  );\n  Py_DECREF(api_capsule);\n  if (api == NULL) { goto handle_error; }\n\n ```\n\n Note that this must be defined on the type. The consumer should look up the\n attribute on the type and may cache the result for each unique type.\n\n The precise API table is given by:\n ```text\n struct MyDLPackExchangeAPI : public DLPackExchangeAPI {\n   MyDLPackExchangeAPI() {\n     header.version.major = DLPACK_MAJOR_VERSION;\n     header.version.minor = DLPACK_MINOR_VERSION;\n     header.prev_version_api = nullptr;\n\n     managed_tensor_allocator = MyDLPackManagedTensorAllocator;\n     managed_tensor_from_py_object_no_sync = MyDLPackManagedTensorFromPyObjectNoSync;\n     managed_tensor_to_py_object_no_sync = MyDLPackManagedTensorToPyObjectNoSync;\n     dltensor_from_py_object_no_sync = MyDLPackDLTensorFromPyObjectNoSync;\n     current_work_stream = MyDLPackCurrentWorkStream;\n  }\n\n  static const DLPackExchangeAPI* Global() {\n     static MyDLPackExchangeAPI inst;\n     return &inst;\n  }\n };\n ```\n\n Guidelines for leveraging DLPackExchangeAPI:\n\n There are generally two kinds of consumer needs for DLPack exchange:\n - N0: library support, where consumer.kernel(x, y, z) would like to run a kernel\n       with the data from x, y, z. The consumer is also expected to run the kernel with the same\n       stream context as the producer. For example, when x, y, z is torch.Tensor,\n       consumer should query exchange_api->current_work_stream to get the\n       current stream and launch the kernel with the same stream.\n       This setup is necessary for no synchronization in kernel launch and maximum compatibility\n       with CUDA graph capture in the producer.\n       This is the desirable behavior for library extension support for frameworks like PyTorch.\n - N1: data ingestion and retention\n\n Note that obj.__dlpack__() API should provide useful ways for N1.\n The primary focus of the current DLPackExchangeAPI is to enable faster exchange N0\n with the support of the function pointer current_work_stream.\n\n Array/Tensor libraries should statically create and initialize this structure\n then return a pointer to DLPackExchangeAPI as an int value in Tensor/Array.\n The DLPackExchangeAPI* must stay alive throughout the lifetime of the process.\n\n One simple way to do so is to create a static instance of DLPackExchangeAPI\n within the framework and return a pointer to it. The following code\n shows an example to do so in C++. It should also be reasonably easy\n to do so in other languages."]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct DLPackExchangeAPI {
-    #[doc = " \\brief The header that remains stable across versions."]
+    #[doc = " The header that remains stable across versions."]
     pub header: DLPackExchangeAPIHeader,
-    #[doc = " \\brief Producer function pointer for DLPackManagedTensorAllocator\n        This function must not be NULL.\n \\sa DLPackManagedTensorAllocator"]
+    #[doc = " Producer function pointer for DLPackManagedTensorAllocator\n        This function must not be NULL.\n \\sa DLPackManagedTensorAllocator"]
     pub managed_tensor_allocator: DLPackManagedTensorAllocator,
-    #[doc = " \\brief Producer function pointer for DLPackManagedTensorFromPyObject\n        This function must be not NULL.\n \\sa DLPackManagedTensorFromPyObject"]
+    #[doc = " Producer function pointer for DLPackManagedTensorFromPyObject\n        This function must be not NULL.\n \\sa DLPackManagedTensorFromPyObject"]
     pub managed_tensor_from_py_object_no_sync: DLPackManagedTensorFromPyObjectNoSync,
-    #[doc = " \\brief Producer function pointer for DLPackManagedTensorToPyObject\n        This function must be not NULL.\n \\sa DLPackManagedTensorToPyObjectNoSync"]
+    #[doc = " Producer function pointer for DLPackManagedTensorToPyObject\n        This function must be not NULL.\n \\sa DLPackManagedTensorToPyObjectNoSync"]
     pub managed_tensor_to_py_object_no_sync: DLPackManagedTensorToPyObjectNoSync,
-    #[doc = " \\brief Producer function pointer for DLPackDLTensorFromPyObject\n        This function can be NULL when the producer does not support this function.\n \\sa DLPackDLTensorFromPyObjectNoSync"]
+    #[doc = " Producer function pointer for DLPackDLTensorFromPyObject\n        This function can be NULL when the producer does not support this function.\n \\sa DLPackDLTensorFromPyObjectNoSync"]
     pub dltensor_from_py_object_no_sync: DLPackDLTensorFromPyObjectNoSync,
-    #[doc = " \\brief Producer function pointer for DLPackCurrentWorkStream\n        This function must be not NULL.\n \\sa DLPackCurrentWorkStream"]
+    #[doc = " Producer function pointer for DLPackCurrentWorkStream\n        This function must be not NULL.\n \\sa DLPackCurrentWorkStream"]
     pub current_work_stream: DLPackCurrentWorkStream,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]

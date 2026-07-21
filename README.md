@@ -147,7 +147,7 @@ let data = dlpack.cpu_data_slice::<f32>()?;   // compact CPU data, dtype-checked
 - `DlpackFlags::IS_COPIED` asserts the export owns an unaliased copy. `cpu_data_slice_mut` requires it and needs no `unsafe`.
 - `DlpackFlags::READ_ONLY` forbids mutation; both mut accessors reject it.
 
-Without `IS_COPIED`, use the `unsafe ..._mut_unchecked` accessors and prove exclusivity yourself. **Legacy `DLManagedTensor` has no flags field**, so it can never satisfy `IS_COPIED` — mutation of a legacy tensor always goes through the `_unchecked` path. Interop adapters mirror this: `interop::ndarray::array_view_from_dlpack_mut` is the safe, `IS_COPIED`-gated path; `_unchecked` is the escape hatch.
+Without `IS_COPIED`, use the `unsafe ..._mut_unchecked` accessors and prove exclusivity yourself. **Legacy `DLManagedTensor` has no flags field**, so it can never satisfy `IS_COPIED` — mutation of a legacy tensor always goes through the `_unchecked` path. Interop adapters mirror this: `ArrayViewMutD::try_from(&mut dlpack)` is the safe, `IS_COPIED`-gated path; `array_view_from_dlpack_mut_unchecked` is the escape hatch.
 
 `ManagedBox::flags()` / `version()` read the versioned fields; `flags_mut` is `unsafe` because setting `IS_COPIED` or clearing `READ_ONLY` asserts the corresponding ownership/mutability guarantee.
 

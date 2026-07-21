@@ -32,7 +32,7 @@ impl DlpackFlags {
     /// when it wasn't already set.
     ///
     /// Turning it on is the risky direction: `ManagedBox::cpu_data_slice_mut`
-    /// and `array_view_from_dlpack_mut` trust it unconditionally to skip
+    /// and safe mutable ndarray conversion trust it unconditionally to skip
     /// aliasing checks. Leaving an already-set `IS_COPIED` on asserts nothing
     /// new, so that case is not flagged.
     pub(crate) fn newly_asserts_is_copied(self, current: DlpackFlags) -> bool {
@@ -86,7 +86,7 @@ pub unsafe trait ManagedTensorBase {
     ///
     /// If `flags` includes `IS_COPIED`, the caller must ensure that no other
     /// reference to the tensor's data exists: `ManagedBox::cpu_data_slice_mut`
-    /// and `array_view_from_dlpack_mut` trust that bit unconditionally and
+    /// and safe mutable ndarray conversion trust that bit unconditionally and
     /// skip aliasing checks accordingly.
     unsafe fn set_flags_unchecked(&mut self, _flags: crate::DlpackFlags) {}
 

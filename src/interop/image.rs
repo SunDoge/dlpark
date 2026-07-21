@@ -3,6 +3,17 @@
 //! Boxed owned image buffers convert into [`crate::Builder`] values with
 //! [`crate::DlpackFlags::IS_COPIED`] set. Reverse conversions validate an HWC
 //! compact layout before exposing the DLPack data as image storage.
+//!
+//! ```
+//! use dlpark::{Builder, versioned};
+//! use image::{ImageBuffer, Rgb};
+//!
+//! let image = ImageBuffer::<Rgb<u8>, _>::from_raw(1, 1, vec![10, 20, 30]).unwrap();
+//! let dlpack: versioned::Dlpack = Builder::from(Box::new(image)).build();
+//! let image = ImageBuffer::<Rgb<u8>, &[u8]>::try_from(&dlpack)?;
+//! assert_eq!(image.get_pixel(0, 0).0, [10, 20, 30]);
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! ```
 
 use crate::{
     Builder, DlpackElement, DlpackFlags, ManagedBox, ManagedTensorBase,
@@ -19,22 +30,29 @@ use std::{marker::PhantomData, ops::Deref, os::raw::c_void};
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Snafu)]
+/// Errors produced while validating a DLPack tensor as an image buffer.
 pub enum Error {
+    /// The tensor is not a three-dimensional HWC layout.
     #[snafu(display("tensor must have exactly 3 dimensions (H, W, C), got {ndim}"))]
     InvalidNdim { ndim: i32 },
 
+    /// The final dimension differs from the pixel type's channel count.
     #[snafu(display("channel count mismatch: expected {expected}, got {actual}"))]
     ChannelMismatch { expected: u8, actual: i64 },
 
+    /// At least one HWC dimension is zero or negative.
     #[snafu(display("all dimensions must be positive"))]
     NonPositiveDimension,
 
+    /// An image dimension cannot be represented by the `image` crate.
     #[snafu(display("dimension {dimension} with value {value} does not fit in u32"))]
     DimensionOverflow { dimension: &'static str, value: i64 },
 
+    /// The number of image elements overflowed `usize`.
     #[snafu(display("element count overflows usize"))]
     ElementCountOverflow,
 
+    /// The tensor is not compact in HWC row-major order.
     #[snafu(display(
         "unsupported strides: expected [{expected_0}, {expected_1}, {expected_2}], \
          got [{actual_0}, {actual_1}, {actual_2}]"
@@ -48,9 +66,11 @@ pub enum Error {
         actual_2: i64,
     },
 
+    /// The validated storage was still too short for the requested image.
     #[snafu(display("failed to construct ImageBuffer: buffer size does not match dimensions"))]
     BufferTooSmall,
 
+    /// The underlying DLPack tensor failed validation.
     #[snafu(transparent)]
     Tensor { source: crate::tensor::Error },
 }
@@ -62,6 +82,11 @@ pub enum Error {
 // extracting the inner Vec and double-boxing it.
 // ---------------------------------------------------------------------------
 
+/// Converts a boxed, vector-backed image into a configurable DLPack builder.
+///
+/// The pixel allocation is reused without copying and exported as compact HWC
+/// data. The builder starts with [`DlpackFlags::IS_COPIED`] because ownership
+/// of the image has been transferred without retaining aliases.
 impl<P> From<Box<ImageBuffer<P, Vec<P::Subpixel>>>>
     for Builder<Box<ImageBuffer<P, Vec<P::Subpixel>>>, metadata::CopiedArray<[i64; 3], [i64; 3], 3>>
 where

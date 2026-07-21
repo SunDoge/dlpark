@@ -3,6 +3,17 @@
 //! Boxed owned arrays convert into [`crate::Builder`] values. Shape and stride
 //! values are derived from the array and copied only when the builder is
 //! built, while the array allocation remains owned by its context.
+//!
+//! ```
+//! use dlpark::{Builder, versioned};
+//! use ndarray::{ArrayViewD, arr2};
+//!
+//! let builder = Builder::from(Box::new(arr2(&[[1_i32, 2], [3, 4]])));
+//! let dlpack: versioned::Dlpack = builder.try_build()?;
+//! let view = ArrayViewD::<i32>::try_from(&dlpack)?;
+//! assert_eq!(view[[1, 0]], 3);
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! ```
 
 use crate::{
     Builder, DlpackElement, DlpackFlags, dlpack::ManagedBox, ffi::DLDevice,
@@ -13,23 +24,36 @@ use snafu::{Snafu, ensure};
 use std::os::raw::c_void;
 
 #[derive(Debug, Snafu)]
+/// Errors produced while validating a DLPack tensor as an ndarray view.
 pub enum Error {
+    /// An ndarray view cannot represent a negative DLPack stride.
     #[snafu(display("DLPack stride {axis} is negative: {value}"))]
     NegativeStride { axis: usize, value: i64 },
 
+    /// A DLPack stride cannot be represented by ndarray's `usize` stride.
     #[snafu(display("DLPack stride {axis} with value {value} does not fit in usize"))]
     DlpackStrideOverflow { axis: usize, value: i64 },
 
+    /// The address span described by the shape and strides overflowed.
     #[snafu(display("strided ndarray view span overflows usize"))]
     SpanOverflow,
 
+    /// ndarray rejected the converted shape and strides.
     #[snafu(display("failed to build ndarray shape"))]
     Shape { source: ndarray::ShapeError },
 
+    /// The underlying DLPack tensor failed validation.
     #[snafu(transparent)]
     Tensor { source: crate::tensor::Error },
 }
 
+/// Converts a boxed owned ndarray into a configurable DLPack builder.
+///
+/// The array is not copied. Its shape and strides are converted to DLPack's
+/// `i64` representation during [`Builder::try_build`], after the boxed array
+/// has reached its stable location in the manager context. The resulting
+/// builder starts with [`DlpackFlags::IS_COPIED`] because ownership has been
+/// transferred and no ndarray aliases remain.
 impl<T, D> From<Box<ArrayBase<OwnedRepr<T>, D>>>
     for Builder<
         Box<ArrayBase<OwnedRepr<T>, D>>,
@@ -68,7 +92,11 @@ where
     type Error = Error;
 
     fn try_from(dlpack: &'a ManagedBox<M>) -> Result<Self, Self::Error> {
-        array_view_from_dlpack(dlpack)
+        let tensor = dlpack.tensor();
+        let (shape, strides) = shape_and_strides(tensor)?;
+        let ptr = unsafe { tensor.cpu_data_ptr::<T>()? };
+        validate_strided_span(&shape, &strides)?;
+        Ok(unsafe { ArrayViewD::from_shape_ptr(IxDyn(&shape).strides(IxDyn(&strides)), ptr) })
     }
 }
 
@@ -80,22 +108,12 @@ where
     type Error = Error;
 
     fn try_from(dlpack: &'a mut ManagedBox<M>) -> Result<Self, Self::Error> {
-        array_view_from_dlpack_mut(dlpack)
-    }
-}
+        if !dlpack.flags().contains(DlpackFlags::IS_COPIED) {
+            return Err(crate::tensor::Error::NotCopied.into());
+        }
 
-pub fn array_view_from_dlpack<'a, T, M>(
-    dlpack: &'a ManagedBox<M>,
-) -> Result<ArrayViewD<'a, T>, Error>
-where
-    T: DlpackElement,
-    M: ManagedTensorBase,
-{
-    let tensor = dlpack.tensor();
-    let (shape, strides) = shape_and_strides(tensor)?;
-    let ptr = unsafe { tensor.cpu_data_ptr::<T>()? };
-    validate_strided_span(&shape, &strides)?;
-    Ok(unsafe { ArrayViewD::from_shape_ptr(IxDyn(&shape).strides(IxDyn(&strides)), ptr) })
+        unsafe { array_view_from_dlpack_mut_unchecked(dlpack) }
+    }
 }
 
 /// Returns a mutable ndarray view into a DLPack tensor's CPU data, without proving exclusivity.
@@ -108,7 +126,7 @@ where
 /// The caller must ensure that no other references access the underlying
 /// data for the lifetime of the returned view. Exclusive access to this
 /// `ManagedBox` alone does not prove that the producer has no aliases.
-/// Prefer [`array_view_from_dlpack_mut`], which additionally requires
+/// Prefer [`ArrayViewMutD::try_from`], which additionally requires
 /// [`DlpackFlags::IS_COPIED`] and needs no `unsafe` block.
 pub unsafe fn array_view_from_dlpack_mut_unchecked<'a, T, M>(
     dlpack: &'a mut ManagedBox<M>,
@@ -127,28 +145,6 @@ where
     let ptr = unsafe { tensor.cpu_data_ptr::<T>()? }.cast_mut();
     validate_strided_span(&shape, &strides)?;
     Ok(unsafe { ArrayViewMutD::from_shape_ptr(IxDyn(&shape).strides(IxDyn(&strides)), ptr) })
-}
-
-/// Returns a mutable ndarray view into a DLPack tensor's CPU data.
-///
-/// This rejects tensors carrying [`DlpackFlags::READ_ONLY`], and requires
-/// [`DlpackFlags::IS_COPIED`] to be set: per the DLPack spec, a tensor
-/// copied specifically for this export has no other live aliases, which is
-/// what makes this safe to call without an `unsafe` block. Legacy tensors
-/// have no flags field and so can never satisfy `IS_COPIED`; use
-/// [`array_view_from_dlpack_mut_unchecked`] for those.
-pub fn array_view_from_dlpack_mut<'a, T, M>(
-    dlpack: &'a mut ManagedBox<M>,
-) -> Result<ArrayViewMutD<'a, T>, Error>
-where
-    T: DlpackElement,
-    M: ManagedTensorBase,
-{
-    if !dlpack.flags().contains(DlpackFlags::IS_COPIED) {
-        return Err(crate::tensor::Error::NotCopied.into());
-    }
-
-    unsafe { array_view_from_dlpack_mut_unchecked(dlpack) }
 }
 
 fn shape_and_strides(tensor: &crate::ffi::DLTensor) -> Result<(Vec<usize>, Vec<usize>), Error> {
@@ -330,7 +326,7 @@ mod tests {
     #[test]
     fn borrowed_dlpack_to_ndarray_view_preserves_strides() {
         let dlpack = legacy_3x2_transposed_dlpack();
-        let view = array_view_from_dlpack::<i32, _>(&dlpack).unwrap();
+        let view = ArrayViewD::<i32>::try_from(&dlpack).unwrap();
 
         assert_eq!(view.shape(), &[3, 2]);
         assert_eq!(view.strides(), &[1, 3]);
@@ -363,7 +359,7 @@ mod tests {
         assert_eq!(view.strides(), &[1, 3]);
         view[[2, 1]] = 42;
 
-        let view = array_view_from_dlpack::<i32, _>(&dlpack).unwrap();
+        let view = ArrayViewD::<i32>::try_from(&dlpack).unwrap();
         assert_eq!(view[[2, 1]], 42);
     }
 
@@ -386,7 +382,7 @@ mod tests {
     fn mut_ndarray_view_updates_is_copied_tensor_without_unsafe() {
         let mut dlpack = versioned_2x3_dlpack(DlpackFlags::IS_COPIED);
 
-        let mut view = array_view_from_dlpack_mut::<i32, _>(&mut dlpack).unwrap();
+        let mut view = ArrayViewMutD::<i32>::try_from(&mut dlpack).unwrap();
         view[[1, 2]] = 42;
 
         assert_eq!(
@@ -399,7 +395,7 @@ mod tests {
     fn mut_ndarray_view_rejects_tensor_without_is_copied() {
         let mut dlpack = versioned_2x3_dlpack(DlpackFlags::empty());
 
-        let error = array_view_from_dlpack_mut::<i32, _>(&mut dlpack).unwrap_err();
+        let error = ArrayViewMutD::<i32>::try_from(&mut dlpack).unwrap_err();
 
         assert!(matches!(
             error,
@@ -422,7 +418,7 @@ mod tests {
         };
 
         assert!(matches!(
-            array_view_from_dlpack_mut::<i32, _>(&mut dlpack),
+            ArrayViewMutD::<i32>::try_from(&mut dlpack),
             Err(Error::Shape { .. })
         ));
     }
@@ -431,7 +427,7 @@ mod tests {
     fn mut_ndarray_view_rejects_legacy_tensor_as_never_copied() {
         let mut dlpack = legacy_2x3_dlpack();
 
-        let error = array_view_from_dlpack_mut::<i32, _>(&mut dlpack).unwrap_err();
+        let error = ArrayViewMutD::<i32>::try_from(&mut dlpack).unwrap_err();
 
         assert!(matches!(
             error,
