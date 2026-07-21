@@ -19,6 +19,7 @@ fn main() -> Result<(), Whatever> {
         .replace("code: u8", "code: DLDataTypeCode")
         .replace("SetError", "set_error")
         .replace("flags: u64", "flags: crate::DlpackFlags")
+        .replace("\\\\brief ", "")
         // bindgen preserves Doxygen code commands in doc attributes. Rustdoc
         // otherwise treats their indented C/C++ contents as Rust doctests.
         .replace("\\\\code{.c}", "```c")
