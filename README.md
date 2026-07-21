@@ -137,14 +137,14 @@ let shape = dlpack.shape()?;                  // &[i64]
 let strides = dlpack.strides()?;             // Option<&[i64]> (None = compact)
 let n = dlpack.num_elements()?;
 let bytes = dlpack.num_bytes()?;              // sub-byte-packing aware
-let data = dlpack.cpu_data_slice::<f32>()?;   // compact CPU data, dtype-checked
+let data = unsafe { dlpack.tensor().cpu_slice::<f32>()? }; // compact CPU data, dtype-checked
 ```
 
-`cpu_data_slice` validates device (CPU only), dtype match, and compact row-major layout before forming the slice. Accessors directly on raw `DLTensor` are `unsafe`, because DLPack metadata cannot prove that its public pointers are readable or within an allocation. Prefer the corresponding safe `ManagedBox` accessors. Low-level consumers of non-compact layouts may use `DLTensor::cpu_data_ptr` / `cpu_data_ptr_bytes` after proving the raw tensor pointer contract.
+`cpu_slice` validates device (CPU only), dtype match, and compact row-major layout before forming the slice. Read-only data access lives on raw `DLTensor` and is `unsafe`, because DLPack metadata cannot prove that its public pointers are readable or within an allocation. Low-level consumers may use `DLTensor::offset_data_ptr` / `offset_bytes_ptr` to obtain a device-agnostic pointer with `byte_offset` applied; `data_ptr` returns the original unadjusted pointer. Mutable access lives on `ManagedBox`, where versioned flags can enforce `READ_ONLY` and `IS_COPIED`.
 
 **Mutable access and the `IS_COPIED` flag.** Writing into a DLPack tensor is gated by two versioned flags, because exclusive ownership cannot be proven from a `&mut ManagedBox` alone — the producer may hold aliases:
 
-- `DlpackFlags::IS_COPIED` asserts the export owns an unaliased copy. `cpu_data_slice_mut` requires it and needs no `unsafe`.
+- `DlpackFlags::IS_COPIED` asserts the export owns an unaliased copy. `cpu_slice_mut` requires it and needs no `unsafe`.
 - `DlpackFlags::READ_ONLY` forbids mutation; both mut accessors reject it.
 
 Without `IS_COPIED`, use the `unsafe ..._mut_unchecked` accessors and prove exclusivity yourself. **Legacy `DLManagedTensor` has no flags field**, so it can never satisfy `IS_COPIED` — mutation of a legacy tensor always goes through the `_unchecked` path. Interop adapters mirror this: `ArrayViewMutD::try_from(&mut dlpack)` is the safe, `IS_COPIED`-gated path; `array_view_from_dlpack_mut_unchecked` is the escape hatch.

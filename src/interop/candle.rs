@@ -390,7 +390,7 @@ pub fn candle_tensor_from_dlpack<M: ManagedTensorBase>(
 
     let shape = unsafe { tensor.shape()? };
     let strides = unsafe { tensor.strides()? };
-    let ptr = unsafe { tensor.cpu_data_ptr_bytes()? };
+    let ptr = unsafe { tensor.offset_bytes_ptr()? };
 
     let compact = match strides {
         None => true,
@@ -444,7 +444,10 @@ mod tests {
 
         assert_eq!(dlpack.shape().unwrap(), &[2, 3]);
         assert_eq!(dlpack.strides().unwrap().unwrap(), &[3, 1]);
-        assert_eq!(dlpack.cpu_data_slice::<i32>().unwrap(), &[1, 2, 3, 4, 5, 6]);
+        assert_eq!(
+            unsafe { dlpack.tensor().cpu_slice::<i32>() }.unwrap(),
+            &[1, 2, 3, 4, 5, 6]
+        );
     }
 
     #[test]
@@ -456,7 +459,10 @@ mod tests {
             .unwrap();
 
         assert_eq!(dlpack.flags(), DlpackFlags::empty());
-        assert_eq!(dlpack.cpu_data_slice::<f32>().unwrap(), &[1., 2., 3., 4.]);
+        assert_eq!(
+            unsafe { dlpack.tensor().cpu_slice::<f32>() }.unwrap(),
+            &[1., 2., 3., 4.]
+        );
     }
 
     #[test]
@@ -470,7 +476,10 @@ mod tests {
             .unwrap();
 
         assert_eq!(dlpack.flags(), DlpackFlags::READ_ONLY);
-        assert_eq!(dlpack.cpu_data_slice::<f32>().unwrap(), &[1., 2., 3., 4.]);
+        assert_eq!(
+            unsafe { dlpack.tensor().cpu_slice::<f32>() }.unwrap(),
+            &[1., 2., 3., 4.]
+        );
     }
 
     #[test]

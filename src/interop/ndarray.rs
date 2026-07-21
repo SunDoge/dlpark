@@ -94,7 +94,7 @@ where
     fn try_from(dlpack: &'a ManagedBox<M>) -> Result<Self, Self::Error> {
         let tensor = dlpack.tensor();
         let (shape, strides) = shape_and_strides(tensor)?;
-        let ptr = unsafe { tensor.cpu_data_ptr::<T>()? };
+        let ptr = unsafe { tensor.offset_data_ptr::<T>()? };
         validate_strided_span(&shape, &strides)?;
         Ok(unsafe { ArrayViewD::from_shape_ptr(IxDyn(&shape).strides(IxDyn(&strides)), ptr) })
     }
@@ -142,7 +142,7 @@ where
     let tensor = dlpack.tensor();
     let (shape, strides) = shape_and_strides(tensor)?;
     validate_non_overlapping(&shape, &strides)?;
-    let ptr = unsafe { tensor.cpu_data_ptr::<T>()? }.cast_mut();
+    let ptr = unsafe { tensor.offset_data_ptr::<T>()? }.cast_mut();
     validate_strided_span(&shape, &strides)?;
     Ok(unsafe { ArrayViewMutD::from_shape_ptr(IxDyn(&shape).strides(IxDyn(&strides)), ptr) })
 }
@@ -255,7 +255,10 @@ mod tests {
 
         assert_eq!(dlpack.shape().unwrap(), &[2, 3]);
         assert_eq!(dlpack.strides().unwrap().unwrap(), &[3, 1]);
-        assert_eq!(dlpack.cpu_data_slice::<i32>().unwrap(), &[1, 2, 3, 4, 5, 6]);
+        assert_eq!(
+            unsafe { dlpack.tensor().cpu_slice::<i32>() }.unwrap(),
+            &[1, 2, 3, 4, 5, 6]
+        );
     }
 
     #[test]
@@ -265,7 +268,10 @@ mod tests {
 
         assert_eq!(dlpack.shape().unwrap(), &[2, 2]);
         assert_eq!(dlpack.strides().unwrap().unwrap(), &[2, 1]);
-        assert_eq!(dlpack.cpu_data_slice::<f32>().unwrap(), &[1., 2., 3., 4.]);
+        assert_eq!(
+            unsafe { dlpack.tensor().cpu_slice::<f32>() }.unwrap(),
+            &[1., 2., 3., 4.]
+        );
     }
 
     #[test]
@@ -297,10 +303,13 @@ mod tests {
         let mut dlpack: versioned::Dlpack = Builder::from(Box::new(array)).try_build().unwrap();
 
         unsafe {
-            dlpack.cpu_data_slice_mut_unchecked::<f32>().unwrap()[1] = 42.;
+            dlpack.cpu_slice_mut_unchecked::<f32>().unwrap()[1] = 42.;
         }
 
-        assert_eq!(dlpack.cpu_data_slice::<f32>().unwrap(), &[1., 42., 3., 4.]);
+        assert_eq!(
+            unsafe { dlpack.tensor().cpu_slice::<f32>() }.unwrap(),
+            &[1., 42., 3., 4.]
+        );
     }
 
     #[test]
@@ -310,7 +319,10 @@ mod tests {
 
         assert_eq!(dlpack.shape().unwrap(), &[2, 2]);
         assert_eq!(dlpack.strides().unwrap().unwrap(), &[2, 1]);
-        assert_eq!(dlpack.cpu_data_slice::<i32>().unwrap(), &[1, 2, 3, 4]);
+        assert_eq!(
+            unsafe { dlpack.tensor().cpu_slice::<i32>() }.unwrap(),
+            &[1, 2, 3, 4]
+        );
     }
 
     #[test]
@@ -344,7 +356,7 @@ mod tests {
         view[[1, 2]] = 42;
 
         assert_eq!(
-            dlpack.cpu_data_slice::<i32>().unwrap(),
+            unsafe { dlpack.tensor().cpu_slice::<i32>() }.unwrap(),
             &[1, 2, 3, 4, 5, 42]
         );
     }
@@ -386,7 +398,7 @@ mod tests {
         view[[1, 2]] = 42;
 
         assert_eq!(
-            dlpack.cpu_data_slice::<i32>().unwrap(),
+            unsafe { dlpack.tensor().cpu_slice::<i32>() }.unwrap(),
             &[1, 2, 3, 4, 5, 42]
         );
     }
@@ -445,7 +457,7 @@ mod tests {
         view[[1, 2]] = 42;
 
         assert_eq!(
-            dlpack.cpu_data_slice::<i32>().unwrap(),
+            unsafe { dlpack.tensor().cpu_slice::<i32>() }.unwrap(),
             &[1, 2, 3, 4, 5, 42]
         );
     }

@@ -1,6 +1,6 @@
 [package]
 name = "dlpark"
-version = "0.8.0"
+version = "0.9.0-alpha.1"
 edition = "2024"
 description = "dlpack Rust binding for Python"
 documentation = "https://docs.rs/dlpark"

@@ -101,11 +101,6 @@ where
         unsafe { self.tensor().num_bytes() }
     }
 
-    /// Returns compact CPU data as an immutable typed slice.
-    pub fn cpu_data_slice<T: DlpackElement>(&self) -> Result<&[T], tensor::Error> {
-        unsafe { self.tensor().cpu_data_slice() }
-    }
-
     /// Returns the CPU tensor data as a mutable typed slice, without proving exclusivity.
     ///
     /// This rejects versioned tensors carrying [`DlpackFlags::READ_ONLY`].
@@ -116,7 +111,7 @@ where
     /// The caller must ensure that no other references access the underlying
     /// data for the lifetime of the returned slice. Exclusive access to this
     /// `ManagedBox` alone does not prove that the producer has no aliases.
-    pub unsafe fn cpu_data_slice_mut_unchecked<T: DlpackElement>(
+    pub unsafe fn cpu_slice_mut_unchecked<T: DlpackElement>(
         &mut self,
     ) -> Result<&mut [T], tensor::Error> {
         if self.flags().contains(DlpackFlags::READ_ONLY) {
@@ -128,7 +123,31 @@ where
             return Err(tensor::Error::NonCompactStrides);
         }
         let len = unsafe { tensor.num_elements()? };
-        let data = unsafe { tensor.cpu_data_ptr::<T>()? }.cast_mut();
+        let data = unsafe { tensor.offset_data_ptr::<T>()? }.cast_mut();
+        Ok(unsafe { std::slice::from_raw_parts_mut(data, len) })
+    }
+
+    /// Returns compact CPU tensor storage as mutable bytes, without proving exclusivity.
+    ///
+    /// This rejects versioned tensors carrying [`DlpackFlags::READ_ONLY`] and
+    /// supports any DLPack dtype, including packed sub-byte types.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that no other references access the underlying
+    /// data for the lifetime of the returned slice. Exclusive access to this
+    /// `ManagedBox` alone does not prove that the producer has no aliases.
+    pub unsafe fn cpu_bytes_mut_unchecked(&mut self) -> Result<&mut [u8], tensor::Error> {
+        if self.flags().contains(DlpackFlags::READ_ONLY) {
+            return Err(tensor::Error::ReadOnly);
+        }
+
+        let tensor = self.tensor();
+        if !unsafe { tensor.is_compact()? } {
+            return Err(tensor::Error::NonCompactStrides);
+        }
+        let len = unsafe { tensor.num_bytes()? };
+        let data = unsafe { tensor.offset_bytes_ptr()? }.cast_mut();
         Ok(unsafe { std::slice::from_raw_parts_mut(data, len) })
     }
 
@@ -137,14 +156,29 @@ where
     /// This rejects tensors carrying [`DlpackFlags::READ_ONLY`] and requires
     /// [`DlpackFlags::IS_COPIED`] to be set. Legacy tensors have no flags
     /// field and therefore cannot satisfy this requirement; use
-    /// [`Self::cpu_data_slice_mut_unchecked`] when the caller can prove
+    /// [`Self::cpu_slice_mut_unchecked`] when the caller can prove
     /// exclusivity independently.
-    pub fn cpu_data_slice_mut<T: DlpackElement>(&mut self) -> Result<&mut [T], tensor::Error> {
+    pub fn cpu_slice_mut<T: DlpackElement>(&mut self) -> Result<&mut [T], tensor::Error> {
         if !self.flags().contains(DlpackFlags::IS_COPIED) {
             return Err(tensor::Error::NotCopied);
         }
 
-        unsafe { self.cpu_data_slice_mut_unchecked() }
+        unsafe { self.cpu_slice_mut_unchecked() }
+    }
+
+    /// Returns compact CPU tensor storage as mutable bytes.
+    ///
+    /// This rejects tensors carrying [`DlpackFlags::READ_ONLY`] and requires
+    /// [`DlpackFlags::IS_COPIED`] to be set. Legacy tensors have no flags
+    /// field and therefore cannot satisfy this requirement; use
+    /// [`Self::cpu_bytes_mut_unchecked`] when the caller can prove
+    /// exclusivity independently.
+    pub fn cpu_bytes_mut(&mut self) -> Result<&mut [u8], tensor::Error> {
+        if !self.flags().contains(DlpackFlags::IS_COPIED) {
+            return Err(tensor::Error::NotCopied);
+        }
+
+        unsafe { self.cpu_bytes_mut_unchecked() }
     }
 }
 
@@ -238,17 +272,20 @@ mod tests {
         let mut dlpack = dlpack_with_flags::<DLManagedTensor>(DlpackFlags::empty());
 
         unsafe {
-            dlpack.cpu_data_slice_mut_unchecked::<i32>().unwrap()[1] = 7;
+            dlpack.cpu_slice_mut_unchecked::<i32>().unwrap()[1] = 7;
         }
 
-        assert_eq!(dlpack.cpu_data_slice::<i32>().unwrap(), &[1, 7, 3]);
+        assert_eq!(
+            unsafe { dlpack.tensor().cpu_slice::<i32>() }.unwrap(),
+            &[1, 7, 3]
+        );
     }
 
     #[test]
     fn mutable_cpu_slice_unchecked_rejects_read_only_tensor() {
         let mut dlpack = dlpack_with_flags::<DLManagedTensorVersioned>(DlpackFlags::READ_ONLY);
 
-        let error = unsafe { dlpack.cpu_data_slice_mut_unchecked::<i32>() }.unwrap_err();
+        let error = unsafe { dlpack.cpu_slice_mut_unchecked::<i32>() }.unwrap_err();
 
         assert!(matches!(error, tensor::Error::ReadOnly));
     }
@@ -263,7 +300,7 @@ mod tests {
         .dtype(crate::ffi::DLDataType::of::<i32>())
         .build::<DLManagedTensor>();
 
-        let error = unsafe { dlpack.cpu_data_slice_mut_unchecked::<i32>() }.unwrap_err();
+        let error = unsafe { dlpack.cpu_slice_mut_unchecked::<i32>() }.unwrap_err();
 
         assert!(matches!(error, tensor::Error::NonCompactStrides));
     }
@@ -272,16 +309,19 @@ mod tests {
     fn mutable_cpu_slice_updates_is_copied_tensor() {
         let mut dlpack = dlpack_with_flags::<DLManagedTensorVersioned>(DlpackFlags::IS_COPIED);
 
-        dlpack.cpu_data_slice_mut::<i32>().unwrap()[1] = 7;
+        dlpack.cpu_slice_mut::<i32>().unwrap()[1] = 7;
 
-        assert_eq!(dlpack.cpu_data_slice::<i32>().unwrap(), &[1, 7, 3]);
+        assert_eq!(
+            unsafe { dlpack.tensor().cpu_slice::<i32>() }.unwrap(),
+            &[1, 7, 3]
+        );
     }
 
     #[test]
     fn mutable_cpu_slice_rejects_tensor_without_is_copied() {
         let mut dlpack = dlpack_with_flags::<DLManagedTensorVersioned>(DlpackFlags::empty());
 
-        let error = dlpack.cpu_data_slice_mut::<i32>().unwrap_err();
+        let error = dlpack.cpu_slice_mut::<i32>().unwrap_err();
 
         assert!(matches!(error, tensor::Error::NotCopied));
     }
@@ -292,7 +332,7 @@ mod tests {
             DlpackFlags::READ_ONLY | DlpackFlags::IS_COPIED,
         );
 
-        let error = dlpack.cpu_data_slice_mut::<i32>().unwrap_err();
+        let error = dlpack.cpu_slice_mut::<i32>().unwrap_err();
 
         assert!(matches!(error, tensor::Error::ReadOnly));
     }
@@ -301,9 +341,41 @@ mod tests {
     fn mutable_cpu_slice_rejects_legacy_tensor_as_never_copied() {
         let mut dlpack = dlpack_with_flags::<DLManagedTensor>(DlpackFlags::empty());
 
-        let error = dlpack.cpu_data_slice_mut::<i32>().unwrap_err();
+        let error = dlpack.cpu_slice_mut::<i32>().unwrap_err();
 
         assert!(matches!(error, tensor::Error::NotCopied));
+    }
+
+    #[test]
+    fn mutable_cpu_bytes_updates_is_copied_tensor() {
+        let mut dlpack = dlpack_with_flags::<DLManagedTensorVersioned>(DlpackFlags::IS_COPIED);
+
+        dlpack.cpu_bytes_mut().unwrap()[..size_of::<i32>()].copy_from_slice(&7i32.to_ne_bytes());
+
+        assert_eq!(
+            unsafe { dlpack.tensor().cpu_slice::<i32>() }.unwrap(),
+            &[7, 2, 3]
+        );
+    }
+
+    #[test]
+    fn mutable_cpu_bytes_rejects_tensor_without_is_copied() {
+        let mut dlpack = dlpack_with_flags::<DLManagedTensorVersioned>(DlpackFlags::empty());
+
+        let error = dlpack.cpu_bytes_mut().unwrap_err();
+
+        assert!(matches!(error, tensor::Error::NotCopied));
+    }
+
+    #[test]
+    fn mutable_cpu_bytes_rejects_read_only_tensor() {
+        let mut dlpack = dlpack_with_flags::<DLManagedTensorVersioned>(
+            DlpackFlags::IS_COPIED | DlpackFlags::READ_ONLY,
+        );
+
+        let error = dlpack.cpu_bytes_mut().unwrap_err();
+
+        assert!(matches!(error, tensor::Error::ReadOnly));
     }
 
     #[test]

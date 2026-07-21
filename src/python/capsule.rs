@@ -353,7 +353,10 @@ mod tests {
             let capsule = legacy_tensor().into_pyobject(py)?;
 
             let dlpack = ManagedBox::<DLManagedTensor>::extract(capsule.as_borrowed())?;
-            assert_eq!(dlpack.cpu_data_slice::<i32>().unwrap(), &[1, 2, 3]);
+            assert_eq!(
+                unsafe { dlpack.tensor().cpu_slice::<i32>() }.unwrap(),
+                &[1, 2, 3]
+            );
 
             let err = match ManagedBox::<DLManagedTensor>::extract(capsule.as_borrowed()) {
                 Ok(_) => panic!("consuming the same DLPack capsule twice should fail"),
@@ -373,7 +376,10 @@ mod tests {
             let capsule = versioned_tensor().into_pyobject(py)?;
 
             let dlpack = ManagedBox::<DLManagedTensorVersioned>::extract(capsule.as_borrowed())?;
-            assert_eq!(dlpack.cpu_data_slice::<i32>().unwrap(), &[4, 5, 6]);
+            assert_eq!(
+                unsafe { dlpack.tensor().cpu_slice::<i32>() }.unwrap(),
+                &[4, 5, 6]
+            );
 
             let err = match ManagedBox::<DLManagedTensorVersioned>::extract(capsule.as_borrowed()) {
                 Ok(_) => panic!("consuming the same DLPack capsule twice should fail"),
@@ -406,7 +412,10 @@ mod tests {
             let producer = module.getattr("Producer")?.call1((capsule,))?;
 
             let dlpack = ManagedBox::<DLManagedTensor>::extract(producer.as_borrowed())?;
-            assert_eq!(dlpack.cpu_data_slice::<i32>().unwrap(), &[1, 2, 3]);
+            assert_eq!(
+                unsafe { dlpack.tensor().cpu_slice::<i32>() }.unwrap(),
+                &[1, 2, 3]
+            );
 
             Ok(())
         })
@@ -435,7 +444,10 @@ mod tests {
             let producer = module.getattr("Producer")?.call1((capsule,))?;
 
             let dlpack = ManagedBox::<DLManagedTensorVersioned>::extract(producer.as_borrowed())?;
-            assert_eq!(dlpack.cpu_data_slice::<i32>().unwrap(), &[4, 5, 6]);
+            assert_eq!(
+                unsafe { dlpack.tensor().cpu_slice::<i32>() }.unwrap(),
+                &[4, 5, 6]
+            );
             assert_eq!(
                 producer
                     .getattr("seen_max_version")?

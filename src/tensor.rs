@@ -297,7 +297,7 @@ impl DLTensor {
     /// In addition to valid shape and strides metadata, the byte-offset-adjusted
     /// data pointer must reference `num_elements` initialized values of `T`
     /// that remain readable for the returned slice's lifetime.
-    pub unsafe fn cpu_data_slice<T: DlpackElement>(&self) -> Result<&[T], Error> {
+    pub unsafe fn cpu_slice<T: DlpackElement>(&self) -> Result<&[T], Error> {
         ensure!(
             self.device.device_type == DLDeviceType::CPU,
             NotCpuSnafu {
@@ -322,22 +322,42 @@ impl DLTensor {
         Ok(unsafe { std::slice::from_raw_parts(data_ptr, num_elements) })
     }
 
-    /// Returns the byte-offset-adjusted CPU data pointer for typed consumers.
+    /// Returns compact CPU tensor data as its raw byte representation.
     ///
-    /// This validates device, dtype, nullness for non-empty tensors, offset, and
-    /// alignment without assuming that the tensor is compact in memory.
+    /// Unlike [`Self::cpu_slice`], this does not require a Rust element
+    /// type and therefore also supports packed sub-byte dtypes. The slice
+    /// length is [`Self::num_bytes`].
+    ///
+    /// # Errors
+    ///
+    /// - [`Error::NotCpu`] if the tensor is not on CPU.
+    /// - [`Error::NonCompactStrides`] if the tensor is not compact row-major.
+    /// - Shape, pointer, and offset errors if the DLPack metadata cannot
+    ///   satisfy Rust slice requirements.
+    ///
+    /// # Safety
+    ///
+    /// In addition to valid shape and strides metadata, the
+    /// byte-offset-adjusted data pointer must reference [`Self::num_bytes`]
+    /// initialized bytes that remain readable for the returned slice's
+    /// lifetime.
+    #[inline]
+    pub unsafe fn cpu_bytes(&self) -> Result<&[u8], Error> {
+        ensure!(unsafe { self.is_compact()? }, NonCompactStridesSnafu);
+        let len = unsafe { self.num_bytes()? };
+        let data = unsafe { self.offset_bytes_ptr()? };
+        Ok(unsafe { std::slice::from_raw_parts(data, len) })
+    }
+
+    /// Returns the byte-offset-adjusted data pointer for typed consumers.
+    ///
+    /// This validates dtype, nullness for non-empty tensors, offset, and
+    /// alignment without assuming a device or compact memory layout.
     /// # Safety
     ///
     /// The shape metadata must be readable, and for a non-empty tensor the
-    /// byte-offset-adjusted data pointer must point to an initialized `T`
-    /// element within the backing allocation.
-    pub unsafe fn cpu_data_ptr<T: DlpackElement>(&self) -> Result<*const T, Error> {
-        ensure!(
-            self.device.device_type == DLDeviceType::CPU,
-            NotCpuSnafu {
-                device_type: self.device.device_type
-            }
-        );
+    /// byte-offset-adjusted address must lie within the device allocation.
+    pub unsafe fn offset_data_ptr<T: DlpackElement>(&self) -> Result<*const T, Error> {
         ensure!(
             self.dtype.is::<T>(),
             DtypeMismatchSnafu {
@@ -350,13 +370,13 @@ impl DLTensor {
             return Ok(std::ptr::NonNull::<T>::dangling().as_ptr());
         }
 
-        unsafe { self.offset_data_ptr::<T>() }
+        unsafe { self.offset_ptr::<T>() }
     }
 
-    /// Returns the byte-offset-adjusted CPU data pointer without requiring a
+    /// Returns the byte-offset-adjusted data pointer without requiring a
     /// concrete Rust element type.
     ///
-    /// Unlike [`Self::cpu_data_ptr`], this does not check `dtype` against any
+    /// Unlike [`Self::offset_data_ptr`], this does not check `dtype` against any
     /// particular type (there is none to check) and never fails on
     /// alignment — a `u8` pointer is trivially aligned. Useful for callers
     /// that dispatch on `self.dtype` themselves (e.g. against another
@@ -364,30 +384,21 @@ impl DLTensor {
     ///
     /// # Errors
     ///
-    /// - [`Error::NotCpu`] if the tensor is not on CPU.
     /// - [`Error::NullData`] if the data pointer is null for a non-empty tensor.
     /// - Errors while applying the tensor's byte offset to its data pointer.
     /// # Safety
     ///
     /// The shape metadata must be readable, and for a non-empty tensor the
-    /// byte-offset-adjusted data pointer must lie within the backing
-    /// allocation.
-    pub unsafe fn cpu_data_ptr_bytes(&self) -> Result<*const u8, Error> {
-        ensure!(
-            self.device.device_type == DLDeviceType::CPU,
-            NotCpuSnafu {
-                device_type: self.device.device_type
-            }
-        );
-
+    /// byte-offset-adjusted address must lie within the device allocation.
+    pub unsafe fn offset_bytes_ptr(&self) -> Result<*const u8, Error> {
         if unsafe { self.num_bytes()? } == 0 {
             return Ok(std::ptr::NonNull::<u8>::dangling().as_ptr());
         }
 
-        unsafe { self.offset_data_ptr::<u8>() }
+        unsafe { self.offset_ptr::<u8>() }
     }
 
-    pub(crate) unsafe fn offset_data_ptr<T>(&self) -> Result<*const T, Error> {
+    unsafe fn offset_ptr<T>(&self) -> Result<*const T, Error> {
         ensure!(!self.data.is_null(), NullDataSnafu);
 
         let byte_offset =
@@ -429,6 +440,7 @@ impl DLTensor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ffi::DLDataTypeCode;
 
     #[test]
     fn strides_or_compact_borrows_explicit_strides() {
@@ -474,7 +486,7 @@ mod tests {
     }
 
     #[test]
-    fn cpu_data_slice_rejects_non_compact_strides_but_pointer_is_available() {
+    fn cpu_slice_rejects_non_compact_strides_but_pointer_is_available() {
         let data = [1i32, 2, 3, 4];
         let shape = [2i64, 2];
         let strides = [1i64, 2];
@@ -489,13 +501,70 @@ mod tests {
         };
 
         assert!(matches!(
-            unsafe { tensor.cpu_data_slice::<i32>() },
+            unsafe { tensor.cpu_slice::<i32>() },
+            Err(Error::NonCompactStrides)
+        ));
+        assert!(matches!(
+            unsafe { tensor.cpu_bytes() },
             Err(Error::NonCompactStrides)
         ));
         assert_eq!(
-            unsafe { tensor.cpu_data_ptr::<i32>() }.unwrap(),
+            unsafe { tensor.offset_data_ptr::<i32>() }.unwrap(),
             data.as_ptr()
         );
+    }
+
+    #[test]
+    fn cpu_bytes_supports_packed_sub_byte_dtype() {
+        let data = [0x21u8, 0x03];
+        let shape = [3i64];
+        let strides = [1i64];
+        let tensor = DLTensor {
+            data: data.as_ptr().cast_mut().cast(),
+            device: DLDevice::CPU,
+            ndim: 1,
+            dtype: DLDataType {
+                code: DLDataTypeCode::FLOAT4_E2M1FN,
+                bits: 4,
+                lanes: 1,
+            },
+            shape: shape.as_ptr().cast_mut(),
+            strides: strides.as_ptr().cast_mut(),
+            ..DLTensor::default()
+        };
+
+        assert_eq!(unsafe { tensor.cpu_bytes() }.unwrap(), &data);
+    }
+
+    #[test]
+    fn offset_pointers_are_device_agnostic_and_apply_byte_offset() {
+        let data = [10u8, 20, 30];
+        let shape = [2i64];
+        let strides = [1i64];
+        let tensor = DLTensor {
+            data: data.as_ptr().cast_mut().cast(),
+            device: DLDevice {
+                device_type: DLDeviceType::CUDA,
+                device_id: 0,
+            },
+            ndim: 1,
+            dtype: u8::DTYPE,
+            shape: shape.as_ptr().cast_mut(),
+            strides: strides.as_ptr().cast_mut(),
+            byte_offset: 1,
+        };
+
+        assert_eq!(tensor.data_ptr(), data.as_ptr().cast());
+        assert_eq!(unsafe { tensor.offset_data_ptr::<u8>() }.unwrap(), unsafe {
+            data.as_ptr().add(1)
+        });
+        assert_eq!(unsafe { tensor.offset_bytes_ptr() }.unwrap(), unsafe {
+            data.as_ptr().add(1)
+        });
+        assert!(matches!(
+            unsafe { tensor.cpu_slice::<u8>() },
+            Err(Error::NotCpu { .. })
+        ));
     }
 
     #[test]

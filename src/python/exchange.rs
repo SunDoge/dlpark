@@ -329,10 +329,7 @@ mod tests {
             let tensor = dlpack.tensor();
             assert_eq!(tensor.ndim, 1);
             assert_eq!(unsafe { tensor.shape() }.unwrap(), &[3]);
-            assert_eq!(
-                unsafe { tensor.cpu_data_slice::<i32>() }.unwrap(),
-                &[7, 8, 9]
-            );
+            assert_eq!(unsafe { tensor.cpu_slice::<i32>() }.unwrap(), &[7, 8, 9]);
 
             Ok(())
         })

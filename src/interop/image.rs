@@ -258,7 +258,7 @@ where
         );
     }
 
-    let data = unsafe { tensor.cpu_data_slice::<P::Subpixel>()? };
+    let data = unsafe { tensor.cpu_slice::<P::Subpixel>()? };
 
     Ok(HwcLayout {
         height,
@@ -314,10 +314,10 @@ mod tests {
         let mut dlpack: versioned::Dlpack = Builder::from(Box::new(img)).build();
 
         unsafe {
-            dlpack.cpu_data_slice_mut_unchecked::<u8>().unwrap()[0] = 42;
+            dlpack.cpu_slice_mut_unchecked::<u8>().unwrap()[0] = 42;
         }
 
-        assert_eq!(dlpack.cpu_data_slice::<u8>().unwrap()[0], 42);
+        assert_eq!(unsafe { dlpack.tensor().cpu_slice::<u8>() }.unwrap()[0], 42);
     }
 
     #[test]
