@@ -19,6 +19,106 @@ use std::ptr::NonNull;
 /// full release.
 pub struct ManagedBox<M: ManagedTensorBase>(NonNull<M>);
 
+/// A managed tensor descriptor produced and initialized locally.
+///
+/// This newtype preserves the invariant that the descriptor was validated
+/// before construction and has not been exposed through a raw pointer since.
+#[repr(transparent)]
+pub struct Local<M: ManagedTensorBase>(ManagedBox<M>);
+
+impl<M: ManagedTensorBase> Local<M> {
+    pub(crate) unsafe fn from_managed(managed: ManagedBox<M>) -> Self {
+        Self(managed)
+    }
+
+    /// Consumes the local tensor and transfers it through a raw pointer.
+    ///
+    /// A tensor reconstructed from this pointer must be treated as
+    /// [`Foreign`], because external code may have changed its descriptor.
+    pub fn into_raw(self) -> *mut M {
+        self.0.into_raw()
+    }
+
+    /// Returns the managed tensor pointer without transferring ownership.
+    pub fn as_ptr(&self) -> *mut M {
+        self.0.as_ptr()
+    }
+}
+
+impl<M: ManagedTensorBase> std::ops::Deref for Local<M> {
+    type Target = ManagedBox<M>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<M: ManagedTensorBase> std::ops::DerefMut for Local<M> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+/// An owning handle to a managed tensor received from external code.
+///
+/// Only ownership and destruction are trusted. Descriptor fields and pointers
+/// remain untrusted and therefore require unsafe access.
+#[repr(transparent)]
+pub struct Foreign<M: ManagedTensorBase>(ManagedBox<M>);
+
+impl<M: ManagedTensorBase> Foreign<M> {
+    /// Takes ownership of a foreign managed tensor pointer.
+    ///
+    /// # Safety
+    ///
+    /// `ptr` must be non-null and point to an initialized `M` owned by the
+    /// caller. Its deleter, if present, must be valid to call exactly once and
+    /// must not unwind. No validity is assumed for the embedded `DLTensor`.
+    pub unsafe fn from_raw(ptr: *mut M) -> Option<Self> {
+        NonNull::new(ptr).map(|ptr| Self(ManagedBox(ptr)))
+    }
+
+    /// Returns the foreign pointer without transferring ownership.
+    pub fn as_ptr(&self) -> *mut M {
+        self.0.as_ptr()
+    }
+
+    /// Transfers ownership of the foreign tensor through its raw pointer.
+    pub fn into_raw(self) -> *mut M {
+        self.0.into_raw()
+    }
+
+    /// Returns the untrusted embedded descriptor.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that `M` and its embedded descriptor are readable
+    /// and are not concurrently mutated for the returned reference's lifetime.
+    pub unsafe fn tensor(&self) -> &crate::ffi::DLTensor {
+        unsafe { (&*self.0.as_ptr()).tensor() }
+    }
+
+    /// Returns the foreign shape.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that `ndim` and `shape` describe readable memory
+    /// which remains immutable for the returned slice's lifetime.
+    pub unsafe fn shape(&self) -> Result<&[i64], tensor::Error> {
+        unsafe { self.tensor().shape() }
+    }
+
+    /// Returns the foreign explicit strides, or `None` for implicit strides.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that `ndim` and `strides` describe readable
+    /// memory which remains immutable for the returned slice's lifetime.
+    pub unsafe fn strides(&self) -> Result<Option<&[i64]>, tensor::Error> {
+        unsafe { self.tensor().strides() }
+    }
+}
+
 impl<M> ManagedBox<M>
 where
     M: ManagedTensorBase,
@@ -251,6 +351,21 @@ mod tests {
         .dtype(crate::ffi::DLDataType::of::<i32>());
         // Safety: the fixture data above has no other live references.
         unsafe { builder.flags_unchecked(flags) }.build::<M>()
+    }
+
+    #[test]
+    fn local_raw_roundtrip_becomes_foreign() {
+        let allocation = crate::allocation::dynamic::Allocation::<DLManagedTensor>::allocate(0)
+            .expect("allocation must succeed");
+        let initialized = allocation
+            .initialize(Box::new(()), 0)
+            .expect("scalar rank must fit");
+        let local = unsafe { initialized.finish() };
+
+        let raw = local.into_raw();
+        unsafe { (*raw).dl_tensor.ndim = i32::MAX };
+        let foreign = unsafe { Foreign::from_raw(raw) }.expect("raw pointer is non-null");
+        drop(foreign);
     }
 
     #[test]

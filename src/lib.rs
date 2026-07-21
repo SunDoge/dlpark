@@ -32,6 +32,7 @@
 )]
 pub mod ffi;
 
+pub mod allocation;
 mod borrowed;
 /// Deferred construction of legacy and versioned managed tensors.
 pub mod builder;
@@ -62,5 +63,5 @@ pub use borrowed::Borrowed;
 pub use builder::Builder;
 pub use context::OpaqueContext;
 pub use data_type::DlpackElement;
-pub use dlpack::ManagedBox;
+pub use dlpack::{Foreign, Local, ManagedBox};
 pub use managed_tensor::{DlpackFlags, ManagedTensorBase};
