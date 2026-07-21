@@ -1,6 +1,6 @@
 [package]
 name = "dlpark"
-version = "0.8.0-alpha.4"
+version = "0.8.0"
 edition = "2024"
 description = "dlpack Rust binding for Python"
 documentation = "https://docs.rs/dlpark"
@@ -18,6 +18,10 @@ include = [
   "examples/profile_builder.rs",
   "src/**",
 ]
+
+[package.metadata.docs.rs]
+no-default-features = true
+features = ["candle", "half", "image", "ndarray"]
 
 [workspace]
 resolver = "2"

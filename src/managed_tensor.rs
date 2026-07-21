@@ -70,6 +70,7 @@ pub unsafe trait ManagedTensorBase {
     /// Returns the managed tensor deleter.
     fn deleter(&self) -> Option<unsafe extern "C" fn(self_: *mut Self)>;
     /// Returns versioned flags, or empty flags for the legacy ABI.
+    #[inline]
     fn flags(&self) -> DlpackFlags {
         DlpackFlags::empty()
     }
@@ -94,6 +95,7 @@ pub unsafe trait ManagedTensorBase {
     /// # Safety
     ///
     /// The caller must ensure that `ptr` is a valid pointer to `Self` and has not been dropped/freed yet.
+    #[inline]
     unsafe fn drop_raw(ptr: *mut Self) {
         if let Some(deleter) = unsafe { (*ptr).deleter() } {
             unsafe { deleter(ptr) };
@@ -102,6 +104,7 @@ pub unsafe trait ManagedTensorBase {
 }
 
 unsafe impl ManagedTensorBase for DLManagedTensor {
+    #[inline]
     fn from_parts(
         tensor: DLTensor,
         manager_ctx: *mut c_void,
@@ -114,22 +117,27 @@ unsafe impl ManagedTensorBase for DLManagedTensor {
         }
     }
 
+    #[inline]
     fn tensor(&self) -> &DLTensor {
         &self.dl_tensor
     }
+    #[inline]
     fn tensor_mut(&mut self) -> &mut DLTensor {
         &mut self.dl_tensor
     }
+    #[inline]
     fn manager_ctx(&self) -> *mut c_void {
         self.manager_ctx
     }
 
+    #[inline]
     fn deleter(&self) -> Option<unsafe extern "C" fn(self_: *mut Self)> {
         self.deleter
     }
 }
 
 unsafe impl ManagedTensorBase for DLManagedTensorVersioned {
+    #[inline]
     fn from_parts(
         tensor: DLTensor,
         manager_ctx: *mut c_void,
@@ -144,24 +152,30 @@ unsafe impl ManagedTensorBase for DLManagedTensorVersioned {
         }
     }
 
+    #[inline]
     fn tensor(&self) -> &DLTensor {
         &self.dl_tensor
     }
+    #[inline]
     fn tensor_mut(&mut self) -> &mut DLTensor {
         &mut self.dl_tensor
     }
+    #[inline]
     fn manager_ctx(&self) -> *mut c_void {
         self.manager_ctx
     }
 
+    #[inline]
     fn deleter(&self) -> Option<unsafe extern "C" fn(self_: *mut Self)> {
         self.deleter
     }
 
+    #[inline]
     unsafe fn set_flags_unchecked(&mut self, flags: crate::DlpackFlags) {
         self.flags = flags;
     }
 
+    #[inline]
     fn flags(&self) -> DlpackFlags {
         self.flags
     }

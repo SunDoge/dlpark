@@ -28,12 +28,13 @@ impl StreamArg {
 
     /// Wraps a backend-specific Python stream or queue object.
     ///
-    /// # Safety
-    ///
-    /// The caller must ensure that the producer understands this object for
-    /// the relevant DLPack device and that any resources referenced by it
-    /// remain alive for the duration of the `__dlpack__` call.
-    pub unsafe fn from_python_object(value: Py<PyAny>) -> Self {
+    /// The wrapped `Py<PyAny>` is reference-counted, so it stays alive for
+    /// the duration of the `__dlpack__` call regardless of what the caller
+    /// does with the original reference. Passing an object the producer
+    /// does not understand for the relevant DLPack device is a logic error
+    /// surfaced on the Python side, not a Rust soundness issue, so this
+    /// constructor needs no `unsafe`.
+    pub fn from_python_object(value: Py<PyAny>) -> Self {
         Self(StreamArgInner::Python(value))
     }
 }

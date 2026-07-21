@@ -2,3 +2,4 @@
 /Cargo.lock
 __pycache__/
 .vscode/
+.claude/
