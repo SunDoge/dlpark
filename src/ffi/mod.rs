@@ -9,6 +9,5 @@ mod raw;
 pub mod data_type;
 pub mod device;
 pub mod managed_tensor;
-pub mod tensor;
 
 pub use raw::*;
