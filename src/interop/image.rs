@@ -283,12 +283,13 @@ mod tests {
     use super::*;
     use crate::{
         Local,
+        allocation::fixed::make_test_tensor,
         ffi::{DLManagedTensor, DLManagedTensorVersioned},
-        legacy,
-        test_support::fixed_tensor,
-        versioned,
     };
     use image::Rgb;
+
+    type LegacyDlpack = Local<DLManagedTensor>;
+    type VersionedDlpack = Local<DLManagedTensorVersioned>;
 
     fn image_tensor<M: ManagedTensorBase>(
         img: ImageBuffer<Rgb<u8>, Vec<u8>>,
@@ -302,7 +303,7 @@ mod tests {
     #[test]
     fn test_image_to_dlpack() {
         let img = ImageBuffer::<Rgb<u8>, _>::from_vec(4, 4, vec![0u8; 48]).unwrap();
-        let dlpack: legacy::Dlpack = image_tensor::<DLManagedTensor>(img, DlpackFlags::IS_COPIED);
+        let dlpack: LegacyDlpack = image_tensor::<DLManagedTensor>(img, DlpackFlags::IS_COPIED);
 
         assert_eq!(dlpack.shape().unwrap(), &[4, 4, 3]);
     }
@@ -310,7 +311,7 @@ mod tests {
     #[test]
     fn versioned_image_to_dlpack_sets_is_copied() {
         let img = ImageBuffer::<Rgb<u8>, _>::from_vec(4, 4, vec![0u8; 48]).unwrap();
-        let dlpack: versioned::Dlpack =
+        let dlpack: VersionedDlpack =
             image_tensor::<DLManagedTensorVersioned>(img, DlpackFlags::IS_COPIED);
 
         assert_eq!(dlpack.flags(), DlpackFlags::IS_COPIED);
@@ -319,7 +320,7 @@ mod tests {
     #[test]
     fn image_builder_allows_setting_read_only_safely() {
         let img = ImageBuffer::<Rgb<u8>, _>::from_vec(4, 4, vec![0u8; 48]).unwrap();
-        let dlpack: versioned::Dlpack = image_tensor::<DLManagedTensorVersioned>(
+        let dlpack: VersionedDlpack = image_tensor::<DLManagedTensorVersioned>(
             img,
             DlpackFlags::IS_COPIED | DlpackFlags::READ_ONLY,
         );
@@ -333,7 +334,7 @@ mod tests {
     #[test]
     fn versioned_image_to_dlpack_allows_unsafe_mutation() {
         let img = ImageBuffer::<Rgb<u8>, _>::from_vec(4, 4, vec![0u8; 48]).unwrap();
-        let mut dlpack: versioned::Dlpack =
+        let mut dlpack: VersionedDlpack =
             image_tensor::<DLManagedTensorVersioned>(img, DlpackFlags::IS_COPIED);
 
         unsafe {
@@ -393,7 +394,7 @@ mod tests {
         let data = Box::new(vec![0u8; 3]);
         let shape = [1, 1, 3];
         let strides = [3, 3, 1];
-        let dlpack = fixed_tensor::<_, DLManagedTensor, 3>(
+        let dlpack = make_test_tensor::<_, DLManagedTensor, 3>(
             data,
             std::ptr::null_mut(),
             u8::DTYPE,
@@ -419,7 +420,7 @@ mod tests {
         let data_ptr = data.as_ptr() as *mut c_void;
         let shape = [1, 1, 3];
         let strides = [6, 3, 1];
-        let dlpack = fixed_tensor::<_, DLManagedTensor, 3>(
+        let dlpack = make_test_tensor::<_, DLManagedTensor, 3>(
             data,
             data_ptr,
             u8::DTYPE,

@@ -3,7 +3,7 @@
 //! Provides conversions between [`candle_core::Tensor`] and DLPack managed
 //! tensors.
 //!
-//! # Forward direction (`Tensor` → `legacy::Dlpack`/`versioned::Dlpack`)
+//! # Forward direction (`Tensor` → `LegacyDlpack`/`VersionedDlpack`)
 //!
 //! Zero-copy: the whole `candle_core::Tensor` is boxed as the DLPack `manager_ctx`,
 //! keeping its `Arc`-refcounted storage alive for the DLPack tensor's
@@ -83,7 +83,7 @@ pub enum Error {
 }
 
 // ---------------------------------------------------------------------------
-// Forward: candle_core::Tensor → legacy::Dlpack / versioned::Dlpack
+// Forward: candle_core::Tensor → LegacyDlpack / VersionedDlpack
 // ---------------------------------------------------------------------------
 
 /// Maps a candle [`DType`] to the equivalent DLPack dtype, or `None` if
@@ -441,7 +441,10 @@ where
 mod tests {
     use super::*;
     use crate::ffi::{DLDataTypeCode, DLManagedTensor, DLManagedTensorVersioned};
-    use crate::{DlpackElement, DlpackFlags, Local, legacy, test_support, versioned};
+    use crate::{DlpackElement, DlpackFlags, Local, allocation::fixed::make_test_tensor};
+
+    type LegacyDlpack = Local<DLManagedTensor>;
+    type VersionedDlpack = Local<DLManagedTensorVersioned>;
 
     fn managed_candle<M: ManagedTensorBase>(tensor: Tensor) -> Local<M> {
         let initialized: dynamic::Initialized<M> = Box::new(tensor).try_into().unwrap();
@@ -468,7 +471,7 @@ mod tests {
     {
         let data = Box::new(data);
         let data_ptr = data.as_ptr().cast_mut().cast();
-        test_support::fixed_tensor::<_, DLManagedTensor, N>(
+        make_test_tensor::<_, DLManagedTensor, N>(
             data,
             data_ptr,
             dtype,
@@ -483,7 +486,7 @@ mod tests {
     #[test]
     fn candle_tensor_to_legacy_dlpack_keeps_layout_and_data() {
         let tensor = Tensor::from_vec(vec![1i32, 2, 3, 4, 5, 6], (2, 3), &Device::Cpu).unwrap();
-        let dlpack: legacy::Dlpack = managed_candle(tensor);
+        let dlpack: LegacyDlpack = managed_candle(tensor);
 
         assert_eq!(dlpack.shape().unwrap(), &[2, 3]);
         assert_eq!(dlpack.strides().unwrap().unwrap(), &[3, 1]);
@@ -496,7 +499,7 @@ mod tests {
     #[test]
     fn candle_builder_defaults_to_empty_flags() {
         let tensor = Tensor::from_vec(vec![1f32, 2., 3., 4.], (2, 2), &Device::Cpu).unwrap();
-        let dlpack: versioned::Dlpack = managed_candle(tensor);
+        let dlpack: VersionedDlpack = managed_candle(tensor);
 
         assert_eq!(dlpack.flags(), DlpackFlags::empty());
         assert_eq!(
@@ -524,7 +527,7 @@ mod tests {
         // Rust-side value comparisons without the separate `float8` crate —
         // so this only checks shape/dtype/byte-count, not element values.
         let tensor = Tensor::zeros((2, 3), DType::F8E4M3, &Device::Cpu).unwrap();
-        let dlpack: legacy::Dlpack = managed_candle(tensor);
+        let dlpack: LegacyDlpack = managed_candle(tensor);
 
         assert_eq!(dlpack.shape().unwrap(), &[2, 3]);
         let dtype = dlpack.tensor().dtype;
@@ -541,7 +544,7 @@ mod tests {
         // 6 elements * 4 bits = 24 bits = 3 bytes exactly, no padding.
         let tensor =
             Tensor::from_raw_buffer(&[0xAB, 0xCD, 0xEF], DType::F4, &[6], &Device::Cpu).unwrap();
-        let dlpack: legacy::Dlpack = managed_candle(tensor);
+        let dlpack: LegacyDlpack = managed_candle(tensor);
 
         assert_eq!(dlpack.shape().unwrap(), &[6]);
         let dtype = dlpack.tensor().dtype;

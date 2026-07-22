@@ -229,8 +229,8 @@ mod tests {
     use super::*;
     use crate::{
         Local,
+        allocation::fixed::make_test_tensor,
         ffi::{DLDevice, DLManagedTensor},
-        test_support::fixed_tensor,
     };
     use std::ffi::c_void;
 
@@ -240,7 +240,7 @@ mod tests {
     fn dlpack_with_flags<M: ManagedTensorBase>(flags: DlpackFlags) -> Local<M> {
         let data = Box::new(vec![1i32, 2, 3]);
         let data_ptr = data.as_ptr() as *mut c_void;
-        fixed_tensor(
+        make_test_tensor(
             data,
             data_ptr,
             crate::ffi::DLDataType::of::<i32>(),
@@ -292,7 +292,7 @@ mod tests {
     fn mutable_cpu_slice_unchecked_rejects_non_compact_strides() {
         let data = Box::new(vec![1i32, 2, 3, 4]);
         let data_ptr = data.as_ptr() as *mut c_void;
-        let mut dlpack = fixed_tensor::<_, DLManagedTensor, 2>(
+        let mut dlpack = make_test_tensor::<_, DLManagedTensor, 2>(
             data,
             data_ptr,
             crate::ffi::DLDataType::of::<i32>(),

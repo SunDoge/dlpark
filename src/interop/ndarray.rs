@@ -220,8 +220,11 @@ fn validate_non_overlapping(shape: &[usize], strides: &[usize]) -> Result<(), Er
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Local, ManagedTensorBase, legacy, test_support, versioned};
+    use crate::{Local, ManagedTensorBase, allocation::fixed::make_test_tensor};
     use ndarray::{Array, arr2};
+
+    type LegacyDlpack = Local<crate::ffi::DLManagedTensor>;
+    type VersionedDlpack = Local<crate::ffi::DLManagedTensorVersioned>;
 
     fn managed_array<T, D, M>(array: ArrayBase<OwnedRepr<T>, D>) -> Local<M>
     where
@@ -250,18 +253,18 @@ mod tests {
     /// A `[[1, 2, 3], [4, 5, 6]]` legacy tensor. Legacy tensors have no flags
     /// field, so this is always writable via the `_unchecked` accessors and
     /// never satisfies `IS_COPIED`.
-    fn legacy_2x3_dlpack() -> legacy::Dlpack {
+    fn legacy_2x3_dlpack() -> LegacyDlpack {
         managed_array(arr2(&[[1i32, 2, 3], [4, 5, 6]]))
     }
 
     /// The transpose of [`legacy_2x3_dlpack`]'s array, i.e. non-compact strides.
-    fn legacy_3x2_transposed_dlpack() -> legacy::Dlpack {
+    fn legacy_3x2_transposed_dlpack() -> LegacyDlpack {
         let array = arr2(&[[1i32, 2, 3], [4, 5, 6]]);
         managed_array(array.reversed_axes().to_owned())
     }
 
     /// A `[[1, 2, 3], [4, 5, 6]]` versioned tensor carrying the given flags.
-    fn versioned_2x3_dlpack(flags: DlpackFlags) -> versioned::Dlpack {
+    fn versioned_2x3_dlpack(flags: DlpackFlags) -> VersionedDlpack {
         managed_array_with_flags(arr2(&[[1i32, 2, 3], [4, 5, 6]]), flags)
     }
 
@@ -280,7 +283,7 @@ mod tests {
     #[test]
     fn owned_ndarray_to_versioned_dlpack_keeps_layout_and_data() {
         let array = Array::from_shape_vec((2, 2), vec![1f32, 2., 3., 4.]).unwrap();
-        let dlpack: versioned::Dlpack = managed_array(array);
+        let dlpack: VersionedDlpack = managed_array(array);
 
         assert_eq!(dlpack.shape().unwrap(), &[2, 2]);
         assert_eq!(dlpack.strides().unwrap().unwrap(), &[2, 1]);
@@ -293,7 +296,7 @@ mod tests {
     #[test]
     fn owned_ndarray_to_versioned_dlpack_sets_is_copied() {
         let array = Array::from_shape_vec((2, 2), vec![1f32, 2., 3., 4.]).unwrap();
-        let dlpack: versioned::Dlpack = managed_array(array);
+        let dlpack: VersionedDlpack = managed_array(array);
 
         assert_eq!(dlpack.flags(), DlpackFlags::IS_COPIED);
     }
@@ -301,7 +304,7 @@ mod tests {
     #[test]
     fn ndarray_builder_allows_setting_read_only_safely() {
         let array = Array::from_shape_vec((2, 2), vec![1f32, 2., 3., 4.]).unwrap();
-        let dlpack: versioned::Dlpack =
+        let dlpack: VersionedDlpack =
             managed_array_with_flags(array, DlpackFlags::IS_COPIED | DlpackFlags::READ_ONLY);
 
         assert_eq!(
@@ -313,7 +316,7 @@ mod tests {
     #[test]
     fn owned_ndarray_to_versioned_dlpack_allows_unsafe_mutation() {
         let array = Array::from_shape_vec((2, 2), vec![1f32, 2., 3., 4.]).unwrap();
-        let mut dlpack: versioned::Dlpack = managed_array(array);
+        let mut dlpack: VersionedDlpack = managed_array(array);
 
         unsafe {
             dlpack.cpu_slice_mut_unchecked::<f32>().unwrap()[1] = 42.;
@@ -328,7 +331,7 @@ mod tests {
     #[test]
     fn owned_arrayd_to_dlpack_keeps_dynamic_shape() {
         let array = arr2(&[[1i32, 2], [3, 4]]).into_dyn();
-        let dlpack: legacy::Dlpack = managed_array(array);
+        let dlpack: LegacyDlpack = managed_array(array);
 
         assert_eq!(dlpack.shape().unwrap(), &[2, 2]);
         assert_eq!(dlpack.strides().unwrap().unwrap(), &[2, 1]);
@@ -428,7 +431,7 @@ mod tests {
     fn mut_ndarray_view_rejects_overlapping_strides() {
         let data = Box::new(vec![1i32, 2]);
         let data_ptr = data.as_ptr().cast_mut().cast();
-        let mut dlpack = test_support::fixed_tensor::<_, crate::ffi::DLManagedTensorVersioned, 2>(
+        let mut dlpack = make_test_tensor::<_, crate::ffi::DLManagedTensorVersioned, 2>(
             data,
             data_ptr,
             <i32 as DlpackElement>::DTYPE,
@@ -469,7 +472,7 @@ mod tests {
     #[test]
     fn sliced_owned_ndarray_to_dlpack_exports_non_standard_strides() {
         let array = Array::from_shape_vec((2, 2).strides((4, 2)), (0i32..7).collect()).unwrap();
-        let dlpack: legacy::Dlpack = managed_array(array);
+        let dlpack: LegacyDlpack = managed_array(array);
         let dlpack = dlpack.into_foreign();
         let view = unsafe { ArrayViewD::<i32>::try_from_dlpack(&dlpack) }.unwrap();
 

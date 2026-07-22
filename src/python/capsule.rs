@@ -352,8 +352,8 @@ mod tests {
     use super::*;
     use crate::DlpackFlags;
     use crate::{
+        allocation::fixed::make_test_tensor,
         ffi::{DLDataType, DLDevice, DLDeviceType},
-        test_support::fixed_tensor,
     };
     use pyo3::conversion::IntoPyObject;
     use pyo3::types::PyModule;
@@ -378,7 +378,7 @@ mod tests {
     fn legacy_tensor() -> Local<DLManagedTensor> {
         let data = Box::new(vec![1i32, 2, 3]);
         let data_ptr = data.as_ptr() as *mut c_void;
-        fixed_tensor(
+        make_test_tensor(
             data,
             data_ptr,
             DLDataType::of::<i32>(),
@@ -392,7 +392,7 @@ mod tests {
     fn versioned_tensor() -> Local<DLManagedTensorVersioned> {
         let data = Box::new(vec![4i32, 5, 6]);
         let data_ptr = data.as_ptr() as *mut c_void;
-        fixed_tensor(
+        make_test_tensor(
             data,
             data_ptr,
             DLDataType::of::<i32>(),
@@ -409,7 +409,7 @@ mod tests {
         pyo3::Python::attach(|py| -> pyo3::PyResult<()> {
             let data = Box::new(vec![4i32, 5, 6]);
             let data_ptr = data.as_ptr() as *mut c_void;
-            let tensor: Local<DLManagedTensorVersioned> = fixed_tensor(
+            let tensor: Local<DLManagedTensorVersioned> = make_test_tensor(
                 data,
                 data_ptr,
                 DLDataType::of::<i32>(),

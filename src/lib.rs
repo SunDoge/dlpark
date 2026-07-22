@@ -17,17 +17,12 @@
 //! # }
 //! ```
 //!
-//! [`legacy::Dlpack`] uses `DLManagedTensor`; [`versioned::Dlpack`] uses
-//! `DLManagedTensorVersioned` and exposes version and flags.
+//! [`Local<DLManagedTensor>`](Local) uses the legacy ABI;
+//! [`Local<DLManagedTensorVersioned>`](Local) uses the versioned ABI and
+//! exposes version and flags.
 //!
 //! [DLPack]: https://dmlc.github.io/dlpack/latest/
 
-/// Raw C ABI declarations generated from the bundled DLPack headers.
-#[allow(
-    missing_docs,
-    rustdoc::broken_intra_doc_links,
-    rustdoc::invalid_html_tags
-)]
 pub mod ffi;
 
 pub mod allocation;
@@ -46,10 +41,9 @@ mod managed_tensor;
 #[cfg(feature = "pyo3")]
 /// Python DLPack capsule, stream, and exchange API support.
 pub mod python;
+
 /// Validation and data access methods for raw `DLTensor` values.
 pub mod tensor;
-#[cfg(test)]
-mod test_support;
 
 /// Legacy `DLManagedTensor` ownership type.
 pub mod legacy;

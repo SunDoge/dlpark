@@ -215,6 +215,34 @@ where
 }
 
 #[cfg(test)]
+pub(crate) fn make_test_tensor<C, M, const N: usize>(
+    ctx: C,
+    data: *mut std::ffi::c_void,
+    dtype: crate::ffi::DLDataType,
+    device: crate::ffi::DLDevice,
+    shape: [i64; N],
+    strides: [i64; N],
+    flags: crate::DlpackFlags,
+) -> Local<M>
+where
+    C: OpaqueContext,
+    M: ManagedTensorBase,
+{
+    let prepared = crate::metadata::Fixed::new(
+        crate::metadata::Copied(shape),
+        crate::metadata::Copied(strides),
+    )
+    .prepare::<M>()
+    .unwrap();
+    let mut initialized = prepared.initialize(ctx);
+    initialized.set_data(data);
+    initialized.set_dtype(dtype);
+    initialized.set_device(device);
+    initialized.set_flags_unchecked(flags);
+    unsafe { initialized.finish() }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::{ManagedTensorBase, ffi::DLManagedTensor};
