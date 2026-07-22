@@ -94,7 +94,8 @@ impl DlpackExchangeApiRef {
         tensor: Foreign<DLManagedTensorVersioned>,
         py: Python<'py>,
     ) -> pyo3::PyResult<Bound<'py, PyAny>> {
-        self.raw_tensor_to_py_object_no_sync(tensor.into_raw(), py)
+        let to_py_object = self.tensor_to_py_object_callback()?;
+        self.raw_tensor_to_py_object_no_sync(tensor.into_raw(), to_py_object, py)
     }
 
     /// Transfers a locally produced tensor directly into a Python object.
@@ -107,21 +108,33 @@ impl DlpackExchangeApiRef {
         tensor: Local<DLManagedTensorVersioned>,
         py: Python<'py>,
     ) -> pyo3::PyResult<Bound<'py, PyAny>> {
-        self.raw_tensor_to_py_object_no_sync(tensor.into_raw(), py)
+        let to_py_object = self.tensor_to_py_object_callback()?;
+        self.raw_tensor_to_py_object_no_sync(tensor.into_raw(), to_py_object, py)
+    }
+
+    fn tensor_to_py_object_callback(
+        &self,
+    ) -> pyo3::PyResult<
+        unsafe extern "C" fn(
+            *mut DLManagedTensorVersioned,
+            *mut *mut std::ffi::c_void,
+        ) -> std::ffi::c_int,
+    > {
+        let api = unsafe { self.api.as_ref() };
+        api.managed_tensor_to_py_object_no_sync.ok_or_else(|| {
+            PyRuntimeError::new_err("DLPackExchangeAPI managed_tensor_to_py_object_no_sync is null")
+        })
     }
 
     fn raw_tensor_to_py_object_no_sync<'py>(
         &self,
         raw: *mut DLManagedTensorVersioned,
+        to_py_object: unsafe extern "C" fn(
+            *mut DLManagedTensorVersioned,
+            *mut *mut std::ffi::c_void,
+        ) -> std::ffi::c_int,
         py: Python<'py>,
     ) -> pyo3::PyResult<Bound<'py, PyAny>> {
-        let api = unsafe { self.api.as_ref() };
-        let Some(to_py_object) = api.managed_tensor_to_py_object_no_sync else {
-            return Err(PyRuntimeError::new_err(
-                "DLPackExchangeAPI managed_tensor_to_py_object_no_sync is null",
-            ));
-        };
-
         let mut out = std::ptr::null_mut();
         let rc = unsafe { to_py_object(raw, &mut out) };
         if rc != 0 {
@@ -226,6 +239,21 @@ mod tests {
     use pyo3::types::{PyAnyMethods, PyModule};
     use std::ffi::c_void;
     use std::os::raw::{c_char, c_int};
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+
+    struct DropTrackedData {
+        values: Vec<i32>,
+        drops: Arc<AtomicUsize>,
+    }
+
+    impl Drop for DropTrackedData {
+        fn drop(&mut self) {
+            self.drops.fetch_add(1, Ordering::Relaxed);
+        }
+    }
 
     unsafe extern "C" fn mock_allocator(
         _prototype: *mut DLTensor,
@@ -307,8 +335,8 @@ mod tests {
         0
     }
 
-    fn leak_mock_api() -> *mut DLPackExchangeAPI {
-        Box::leak(Box::new(DLPackExchangeAPI {
+    fn mock_api() -> DLPackExchangeAPI {
+        DLPackExchangeAPI {
             header: DLPackExchangeAPIHeader {
                 version: DLPackVersion {
                     major: DLPACK_MAJOR_VERSION,
@@ -321,7 +349,28 @@ mod tests {
             managed_tensor_to_py_object_no_sync: Some(mock_tensor_to_py_object),
             dltensor_from_py_object_no_sync: Some(mock_dltensor_from_py_object),
             current_work_stream: Some(mock_current_work_stream),
-        }))
+        }
+    }
+
+    fn leak_mock_api() -> *mut DLPackExchangeAPI {
+        Box::leak(Box::new(mock_api()))
+    }
+
+    fn tracked_tensor(drops: Arc<AtomicUsize>) -> Local<DLManagedTensorVersioned> {
+        let data = Box::new(DropTrackedData {
+            values: vec![7, 8, 9],
+            drops,
+        });
+        let data_ptr = data.values.as_ptr() as *mut c_void;
+        fixed_tensor(
+            data,
+            data_ptr,
+            DLDataType::of::<i32>(),
+            DLDevice::CPU,
+            [3],
+            [1],
+            DlpackFlags::empty(),
+        )
     }
 
     #[test]
@@ -443,5 +492,46 @@ class MockTensor:
             Ok(())
         })
         .unwrap();
+    }
+
+    #[test]
+    fn missing_export_callback_drops_local_tensor() {
+        pyo3::Python::initialize();
+        pyo3::Python::attach(|py| {
+            let mut raw_api = mock_api();
+            raw_api.managed_tensor_to_py_object_no_sync = None;
+            let api = DlpackExchangeApiRef {
+                api: NonNull::from(&mut raw_api),
+            };
+            let drops = Arc::new(AtomicUsize::new(0));
+
+            let error = api
+                .local_tensor_to_py_object_no_sync(tracked_tensor(drops.clone()), py)
+                .unwrap_err();
+
+            assert!(error.is_instance_of::<PyRuntimeError>(py));
+            assert_eq!(drops.load(Ordering::Relaxed), 1);
+        });
+    }
+
+    #[test]
+    fn missing_export_callback_drops_foreign_tensor() {
+        pyo3::Python::initialize();
+        pyo3::Python::attach(|py| {
+            let mut raw_api = mock_api();
+            raw_api.managed_tensor_to_py_object_no_sync = None;
+            let api = DlpackExchangeApiRef {
+                api: NonNull::from(&mut raw_api),
+            };
+            let drops = Arc::new(AtomicUsize::new(0));
+            let tensor = tracked_tensor(drops.clone()).into_foreign();
+
+            let error = api
+                .foreign_tensor_to_py_object_no_sync(tensor, py)
+                .unwrap_err();
+
+            assert!(error.is_instance_of::<PyRuntimeError>(py));
+            assert_eq!(drops.load(Ordering::Relaxed), 1);
+        });
     }
 }
