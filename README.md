@@ -24,12 +24,12 @@ The `cpu-all` feature group enables every CPU-testable backend (`candle`, `half`
 
 ## Mental model
 
-A **producer** wraps its data into a [`Builder`], which holds the owning context plus scalar tensor fields. Building the builder produces a [`Local<M>`] — an RAII handle over a raw DLPack managed tensor pointer that calls the DLPack deleter on drop. `M` selects the ABI:
+A **producer** wraps its data into a [`Builder`], which holds the owning context plus scalar tensor fields. Building the builder produces a [`Managed<M>`] — an RAII handle over a raw DLPack managed tensor pointer that calls the DLPack deleter on drop. `M` selects the ABI:
 
-- [`legacy::Dlpack`] = `Local<DLManagedTensor>` — the pre-v0.8 `"dltensor"` capsule.
-- [`versioned::Dlpack`] = `Local<DLManagedTensorVersioned>` — the current `"dltensor_versioned"` capsule, carrying version and flags.
+- `legacy::Dlpack = Managed<DLManagedTensor>` — the pre-v0.8 `"dltensor"` capsule.
+- `versioned::Dlpack = Managed<DLManagedTensorVersioned>` — the current `"dltensor_versioned"` capsule, carrying version and flags.
 
-A **consumer** receives a `Local` (from Python, another Rust library, or a raw pointer) and reads its metadata and data through the accessors below. The flow is always: owning value → `Builder` → `Local` → borrowed views/slices, never the reverse.
+A **consumer** receives a `Managed` and calls `validate()` to validate its descriptor metadata. The resulting `TensorRef` exposes shape, strides, dtype, device, and size through safe accessors. Dereferencing the data pointer remains unsafe because DLPack does not report allocation bounds.
 
 ## What is `DLPack`?
 
@@ -56,11 +56,12 @@ The library implements both legacy and versioned `DLPack` structures:
 
 ### Safe Abstractions
 
-The library provides a Rust ownership wrapper over the C-style `DLPack` structures, `Local<M>`:
+The library provides a Rust ownership wrapper over the C-style `DLPack` structures, `Managed<M>`:
 
 - RAII wrapper around a raw managed `DLPack` tensor pointer
 - Automatic cleanup through the DLPack deleter function on drop
-- `legacy::Dlpack` and `versioned::Dlpack` are convenience aliases for `Local<DLManagedTensor>` and `Local<DLManagedTensorVersioned>` — the two concrete forms you'll actually use
+- A single ownership model for locally produced and externally received tensors, with `legacy::Dlpack` and `versioned::Dlpack` aliases selecting the ABI
+- `TensorRef` as the validated, borrowed descriptor view
 
 Other key features:
 
@@ -128,28 +129,29 @@ The C Exchange API is intended for extension/library use where the consumer can 
 
 ### Reading tensor data
 
-Once you hold a `Local`, its consumer-side accessors read metadata and CPU data without `unsafe`:
+Once you hold a `Managed`, validate its descriptor into a `TensorRef` before reading metadata:
 
 ```rust
-use dlpark::DlpackElement;
-
-let shape = dlpack.shape()?;                  // &[i64]
-let strides = dlpack.strides()?;             // Option<&[i64]> (None = compact)
-let n = dlpack.num_elements()?;
-let bytes = dlpack.num_bytes()?;              // sub-byte-packing aware
-let data = unsafe { dlpack.tensor().cpu_slice::<f32>()? }; // compact CPU data, dtype-checked
+let tensor = dlpack.validate()?;
+let shape = tensor.shape();                   // &[i64]
+let strides = tensor.strides();               // Option<&[i64]> (None = compact)
+let n = tensor.num_elements();
+let bytes = tensor.num_bytes();               // sub-byte-packing aware
+let data = unsafe { tensor.cpu_slice::<f32>()? }; // compact CPU data, dtype-checked
 ```
 
-`cpu_slice` validates device (CPU only), dtype match, and compact row-major layout before forming the slice. Read-only data access lives on raw `DLTensor` and is `unsafe`, because DLPack metadata cannot prove that its public pointers are readable or within an allocation. Low-level consumers may use `DLTensor::offset_data_ptr` / `offset_bytes_ptr` to obtain a device-agnostic pointer with `byte_offset` applied; `data_ptr` returns the original unadjusted pointer. Mutable access lives on `Local`, where versioned flags can enforce `READ_ONLY` and `IS_COPIED`.
+`TensorRef::cpu_slice` validates device, dtype, alignment, and compact layout, but remains unsafe because a descriptor cannot prove the data allocation's bounds. Low-level consumers may use `TensorRef::offset_data_ptr` / `offset_bytes_ptr` to obtain a device-agnostic pointer with `byte_offset` applied.
 
-**Mutable access and the `IS_COPIED` flag.** Writing into a DLPack tensor is gated by two versioned flags, because exclusive ownership cannot be proven from a `&mut Local` alone — the producer may hold aliases:
+**Mutable access.** Call `validate_mut()` to validate metadata and reject `READ_ONLY`, then use the unsafe mutable data accessor:
 
-- `DlpackFlags::IS_COPIED` asserts the export owns an unaliased copy. `cpu_slice_mut` requires it and needs no `unsafe`.
-- `DlpackFlags::READ_ONLY` forbids mutation; both mut accessors reject it.
+```rust
+let mut tensor = dlpack.validate_mut()?;
+let data = unsafe { tensor.cpu_slice_mut::<f32>()? };
+```
 
-Without `IS_COPIED`, use the `unsafe ..._mut_unchecked` accessors and prove exclusivity yourself. **Legacy `DLManagedTensor` has no flags field**, so it can never satisfy `IS_COPIED` — mutation of a legacy local tensor always goes through the `_unchecked` path. Foreign interop uses the unsafe `TryFromDlpack` trait because descriptor pointers and aliasing cannot be proven by validation; mutable conversions require the caller to establish exclusivity rather than trusting foreign flags.
+Mutable data access is always unsafe because Rust cannot prove the bounds, aliasing, or concurrent use of an external allocation. `IS_COPIED` does not affect validation; it only reports that a producer made a copy for an exchange operation. Rust zero-copy adapters leave it unset.
 
-`Local::flags()` / `version()` read the versioned fields; `flags_mut` is `unsafe` because setting `IS_COPIED` or clearing `READ_ONLY` asserts the corresponding ownership/mutability guarantee.
+`Managed::flags()` / `version()` read the versioned fields; `flags_mut` is `unsafe` because setting `IS_COPIED` or clearing `READ_ONLY` asserts the corresponding ownership/mutability guarantee.
 
 ## Features
 
@@ -202,7 +204,7 @@ use image::{ImageBuffer, Rgb};
 
 let img = ImageBuffer::<Rgb<u8>, _>::from_vec(100, 100, vec![0; 100 * 100 * 3])?;
 let tensor: versioned::Dlpack = Builder::from(Box::new(img)).build();
-let tensor = tensor.into_foreign();
+let tensor = tensor;
 let img2 = unsafe { ImageBuffer::<Rgb<u8>, _>::try_from_dlpack(&tensor)? };
 ```
 
@@ -214,7 +216,7 @@ use ndarray::{ArrayD, ArrayViewD, arr2};
 
 let array = arr2(&[[1i32, 2, 3], [4, 5, 6]]);
 let tensor: versioned::Dlpack = Builder::from(Box::new(array)).try_build()?;
-let tensor = tensor.into_foreign();
+let tensor = tensor;
 let view = unsafe { ArrayViewD::<i32>::try_from_dlpack(&tensor)? };
 
 assert_eq!(view[[1, 2]], 6);
@@ -233,7 +235,7 @@ use dlpark::{Builder, DlpackFlags, TryFromDlpack, ffi::DLManagedTensorVersioned,
 
 let tensor = Tensor::new(&[1f32, 2., 3., 4.], &candle_core::Device::Cpu)?;
 let dlpack: versioned::Dlpack = Builder::try_from(Box::new(tensor))?.try_build()?;
-let dlpack = dlpack.into_foreign();
+let dlpack = dlpack;
 
 let tensor2 = unsafe { Tensor::try_from_dlpack(&dlpack)? };
 assert_eq!(tensor2.to_vec1::<f32>()?, vec![1., 2., 3., 4.]);
@@ -247,7 +249,7 @@ let dlpack = builder
 
 ### cudarc
 
-Zero-copy in both directions between a [cudarc] `CudaSlice<T>` and a DLPack tensor. `Builder::try_from` returns a builder with `IS_COPIED` and a contiguous 1-D default layout (`shape = [len]`, `strides = [1]`); replace its metadata for higher-rank tensors. The reverse direction consumes the managed tensor through `TryFrom<Local<M>> for BorrowedCudaSlice<M, T>`, keeping it alive for as long as the CUDA view exists.
+Zero-copy in both directions between a [cudarc] `CudaSlice<T>` and a DLPack tensor. The producer returns a contiguous 1-D default layout (`shape = [len]`, `strides = [1]`) and leaves `IS_COPIED` unset; replace its metadata for higher-rank tensors. The reverse direction consumes the managed tensor through `TryFrom<Managed<M>> for BorrowedCudaSlice<M, T>`, keeping it alive for as long as the CUDA view exists.
 
 ```rust
 use dlpark::{
@@ -260,7 +262,7 @@ use dlpark::{
 let dlpack: versioned::Dlpack = Builder::try_from(Box::new(cuda_slice))?
     .metadata(CopiedSlice::new([2, 3], [3, 1]))
     .try_build()?;
-let borrowed = unsafe { BorrowedCudaSlice::<_, f32>::try_from_dlpack(dlpack.into_foreign())? };
+let borrowed = unsafe { BorrowedCudaSlice::<_, f32>::try_from_dlpack(dlpack)? };
 ```
 
 [pyo3]: https://github.com/PyO3/pyo3

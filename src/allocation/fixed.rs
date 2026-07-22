@@ -1,7 +1,7 @@
 //! Fixed-rank metadata allocation without generic const expressions.
 
 use super::{Error, allocate, empty_tensor};
-use crate::{Local, ManagedTensorBase, OpaqueContext};
+use crate::{Managed, ManagedTensorBase, OpaqueContext};
 use std::{alloc::Layout, mem::ManuallyDrop, ptr::NonNull};
 
 /// Storage selected by fixed-rank shape or strides metadata.
@@ -98,7 +98,7 @@ where
                 Some(drop_allocation::<C, M, N, Shape, Strides>),
             ));
             super::Initialized {
-                managed: Local::from_raw_unchecked(this.managed.as_ptr()),
+                managed: Managed::from_raw_unchecked(this.managed.as_ptr()),
                 storage: Metadata {
                     shape: this.shape,
                     strides: this.strides,
@@ -223,7 +223,7 @@ pub(crate) fn make_test_tensor<C, M, const N: usize>(
     shape: [i64; N],
     strides: [i64; N],
     flags: crate::DlpackFlags,
-) -> Local<M>
+) -> Managed<M>
 where
     C: OpaqueContext,
     M: ManagedTensorBase,
@@ -256,8 +256,8 @@ mod tests {
         initialized.tensor_mut().shape = initialized.shape_mut().as_mut_ptr();
         initialized.tensor_mut().strides = initialized.strides_mut().as_mut_ptr();
         let tensor = unsafe { initialized.finish() };
-        assert_eq!(tensor.shape().unwrap(), &[2, 3]);
-        assert_eq!(tensor.strides().unwrap().unwrap(), &[3, 1]);
+        assert_eq!(tensor.validate().unwrap().shape(), &[2, 3]);
+        assert_eq!(tensor.validate().unwrap().strides().unwrap(), &[3, 1]);
     }
 
     #[test]
@@ -270,7 +270,7 @@ mod tests {
         initialized.tensor_mut().shape = shape.as_ptr().cast_mut();
         initialized.tensor_mut().strides = initialized.strides_mut().as_mut_ptr();
         let tensor = unsafe { initialized.finish() };
-        assert_eq!(tensor.shape().unwrap(), &shape);
+        assert_eq!(tensor.validate().unwrap().shape(), &shape);
     }
 
     #[test]

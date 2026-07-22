@@ -1,25 +1,25 @@
 use super::{DtypeMismatchSnafu, Error, NotCudaSnafu, NullDataSnafu};
 use crate::{
-    Borrowed, DlpackElement, Foreign, ManagedTensorBase, TryFromDlpack, ffi::DLDeviceType,
+    Borrowed, DlpackElement, Managed, ManagedTensorBase, TryFromDlpack, ffi::DLDeviceType,
 };
 use cudarc::driver::{CudaContext, CudaSlice, CudaStream};
 use snafu::ensure;
 use std::{mem::ManuallyDrop, ops::Deref, sync::Arc};
 
-/// A `CudaSlice<T>` view that also owns the backing [`Foreign`] tensor.
+/// A `CudaSlice<T>` view that also owns the backing [`Managed`] tensor.
 ///
 /// Implements [`Deref<Target = CudaSlice<T>>`] so it can be passed directly
 /// to any cudarc API that takes `&CudaSlice<T>`.
 ///
 /// # Memory safety
 ///
-/// This type owns the [`Foreign`] rather than borrowing it. On drop, the
+/// This type owns the [`Managed`] rather than borrowing it. On drop, the
 /// inner `CudaSlice<T>` view calls [`CudaSlice::leak`] instead of running its
-/// normal destructor, and is then dropped before the `Foreign`. This avoids
+/// normal destructor, and is then dropped before the `Managed`. This avoids
 /// calling `cudaFree` directly while allowing the DLPack deleter to release the
 /// allocation through its original owner.
 pub struct BorrowedCudaSlice<M: ManagedTensorBase, T> {
-    inner: Borrowed<Foreign<M>, CudaSliceView<T>>,
+    inner: Borrowed<Managed<M>, CudaSliceView<T>>,
 }
 
 struct CudaSliceView<T>(ManuallyDrop<CudaSlice<T>>);
@@ -41,7 +41,7 @@ impl<T> Deref for CudaSliceView<T> {
 
 impl<M: ManagedTensorBase, T> BorrowedCudaSlice<M, T> {
     /// Returns the managed tensor that owns the CUDA allocation.
-    pub fn dlpack(&self) -> &Foreign<M> {
+    pub fn dlpack(&self) -> &Managed<M> {
         self.inner.owner()
     }
 }
@@ -54,7 +54,7 @@ impl<M: ManagedTensorBase, T> Deref for BorrowedCudaSlice<M, T> {
     }
 }
 
-/// Converts a [`Foreign`] tensor into an owning CUDA slice view.
+/// Converts a [`Managed`] tensor into an owning CUDA slice view.
 ///
 /// Creates a new [`CudaContext`] and default stream for the tensor's device,
 /// then uses `CudaDevice::upgrade_device_ptr` to construct a `CudaSlice<T>` over the
@@ -62,7 +62,7 @@ impl<M: ManagedTensorBase, T> Deref for BorrowedCudaSlice<M, T> {
 ///
 /// The returned [`BorrowedCudaSlice`] implements `Deref<Target = CudaSlice<T>>`,
 /// so it can be passed to any cudarc API. It retains ownership of the input
-/// [`Foreign`] and releases it only after disabling the `CudaSlice`
+/// [`Managed`] and releases it only after disabling the `CudaSlice`
 /// destructor with [`CudaSlice::leak`].
 ///
 /// # Errors
@@ -80,16 +80,16 @@ impl<M: ManagedTensorBase, T> Deref for BorrowedCudaSlice<M, T> {
 /// A fresh `CudaContext`/stream is created for the device. If the DLPack
 /// producer used a different stream, the caller must synchronize explicitly
 /// (e.g. via `cudaDeviceSynchronize`) before submitting GPU work.
-impl<T, M> TryFromDlpack<Foreign<M>> for BorrowedCudaSlice<M, T>
+impl<T, M> TryFromDlpack<Managed<M>> for BorrowedCudaSlice<M, T>
 where
     T: DlpackElement,
     M: ManagedTensorBase,
 {
     type Error = Error;
 
-    unsafe fn try_from_dlpack(dlpack: Foreign<M>) -> Result<Self, Self::Error> {
-        let tensor = unsafe { dlpack.tensor() };
-        let (cu_device_ptr, len, device_id) = validated_cuda_parts::<T>(tensor)?;
+    unsafe fn try_from_dlpack(dlpack: Managed<M>) -> Result<Self, Self::Error> {
+        let tensor = dlpack.validate()?;
+        let (cu_device_ptr, len, device_id) = validated_cuda_parts::<T>(&tensor)?;
 
         let ctx = CudaContext::new(device_id).map_err(|source| Error::Driver { source })?;
         let stream: Arc<CudaStream> = ctx.default_stream();
@@ -113,29 +113,29 @@ where
 // ---------------------------------------------------------------------------
 
 pub(super) fn validated_cuda_parts<T: DlpackElement>(
-    tensor: &crate::ffi::DLTensor,
+    tensor: &crate::tensor::TensorRef<'_>,
 ) -> Result<(u64, usize, usize), Error> {
     ensure!(
-        tensor.device.device_type == DLDeviceType::CUDA,
+        tensor.device().device_type == DLDeviceType::CUDA,
         NotCudaSnafu {
-            device_type: tensor.device.device_type
+            device_type: tensor.device().device_type
         }
     );
     ensure!(
-        tensor.dtype.is::<T>(),
+        tensor.dtype().is::<T>(),
         DtypeMismatchSnafu {
             expected: T::DTYPE,
-            actual: tensor.dtype,
+            actual: tensor.dtype(),
         }
     );
-    ensure!(!tensor.data.is_null(), NullDataSnafu);
+    ensure!(!tensor.data_ptr().is_null(), NullDataSnafu);
     let device_id =
-        usize::try_from(tensor.device.device_id).map_err(|_| Error::InvalidDeviceId {
-            device_id: tensor.device.device_id,
+        usize::try_from(tensor.device().device_id).map_err(|_| Error::InvalidDeviceId {
+            device_id: tensor.device().device_id,
         })?;
 
-    let len = unsafe { tensor.num_elements()? };
-    if !unsafe { tensor.is_compact()? } {
+    let len = tensor.num_elements();
+    if !tensor.is_compact()? {
         return Err(Error::Tensor {
             source: crate::tensor::Error::NonCompactStrides,
         });

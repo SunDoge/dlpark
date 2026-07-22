@@ -1,17 +1,17 @@
 //! Zero-copy HWC image interop for owned and borrowed `image` buffers.
 //!
 //! Boxed owned image buffers convert into [`crate::allocation::fixed::Initialized`] values with
-//! [`crate::DlpackFlags::IS_COPIED`] set. Reverse conversions validate an HWC
+//! `IS_COPIED` unset. Reverse conversions validate an HWC
 //! compact layout before exposing the DLPack data as image storage.
 //!
 //! ```
-//! use dlpark::{Foreign, TryFromDlpack, allocation::fixed, ffi::DLManagedTensorVersioned};
+//! use dlpark::{Managed, TryFromDlpack, allocation::fixed, ffi::DLManagedTensorVersioned};
 //! use image::{ImageBuffer, Rgb};
 //!
 //! let image = ImageBuffer::<Rgb<u8>, _>::from_raw(1, 1, vec![10, 20, 30]).unwrap();
 //! let initialized: fixed::Initialized<DLManagedTensorVersioned, 3> = Box::new(image).try_into()?;
-//! let dlpack: Foreign<DLManagedTensorVersioned> =
-//!     unsafe { initialized.finish() }.into_foreign();
+//! let dlpack: Managed<DLManagedTensorVersioned> =
+//!     unsafe { initialized.finish() };
 //! let image = unsafe { ImageBuffer::<Rgb<u8>, &[u8]>::try_from_dlpack(&dlpack)? };
 //! assert_eq!(image.get_pixel(0, 0).0, [10, 20, 30]);
 //! # Ok::<(), Box<dyn std::error::Error>>(())
@@ -86,19 +86,19 @@ use std::ffi::c_void;
 mod tests {
     use super::*;
     use crate::{
-        Local,
+        Managed,
         allocation::fixed::make_test_tensor,
         ffi::{DLManagedTensor, DLManagedTensorVersioned},
     };
     use image::Rgb;
 
-    type LegacyDlpack = Local<DLManagedTensor>;
-    type VersionedDlpack = Local<DLManagedTensorVersioned>;
+    type LegacyDlpack = Managed<DLManagedTensor>;
+    type VersionedDlpack = Managed<DLManagedTensorVersioned>;
 
     fn image_tensor<M: ManagedTensorBase>(
         img: ImageBuffer<Rgb<u8>, Vec<u8>>,
         flags: DlpackFlags,
-    ) -> Local<M> {
+    ) -> Managed<M> {
         let mut initialized: fixed::Initialized<M, 3> = Box::new(img).try_into().unwrap();
         initialized.set_flags_unchecked(flags);
         unsafe { initialized.finish() }
@@ -107,42 +107,41 @@ mod tests {
     #[test]
     fn test_image_to_dlpack() {
         let img = ImageBuffer::<Rgb<u8>, _>::from_vec(4, 4, vec![0u8; 48]).unwrap();
-        let dlpack: LegacyDlpack = image_tensor::<DLManagedTensor>(img, DlpackFlags::IS_COPIED);
+        let dlpack: LegacyDlpack = image_tensor::<DLManagedTensor>(img, DlpackFlags::empty());
 
-        assert_eq!(dlpack.shape().unwrap(), &[4, 4, 3]);
+        assert_eq!(dlpack.validate().unwrap().shape(), &[4, 4, 3]);
     }
 
     #[test]
-    fn versioned_image_to_dlpack_sets_is_copied() {
+    fn versioned_image_to_dlpack_is_zero_copy() {
         let img = ImageBuffer::<Rgb<u8>, _>::from_vec(4, 4, vec![0u8; 48]).unwrap();
         let dlpack: VersionedDlpack =
-            image_tensor::<DLManagedTensorVersioned>(img, DlpackFlags::IS_COPIED);
+            image_tensor::<DLManagedTensorVersioned>(img, DlpackFlags::empty());
 
-        assert_eq!(dlpack.flags(), DlpackFlags::IS_COPIED);
+        assert_eq!(dlpack.flags(), DlpackFlags::empty());
     }
 
     #[test]
     fn image_builder_allows_setting_read_only_safely() {
         let img = ImageBuffer::<Rgb<u8>, _>::from_vec(4, 4, vec![0u8; 48]).unwrap();
-        let dlpack: VersionedDlpack = image_tensor::<DLManagedTensorVersioned>(
-            img,
-            DlpackFlags::IS_COPIED | DlpackFlags::READ_ONLY,
-        );
+        let dlpack: VersionedDlpack =
+            image_tensor::<DLManagedTensorVersioned>(img, DlpackFlags::READ_ONLY);
 
-        assert_eq!(
-            dlpack.flags(),
-            DlpackFlags::IS_COPIED | DlpackFlags::READ_ONLY
-        );
+        assert_eq!(dlpack.flags(), DlpackFlags::READ_ONLY);
     }
 
     #[test]
     fn versioned_image_to_dlpack_allows_unsafe_mutation() {
         let img = ImageBuffer::<Rgb<u8>, _>::from_vec(4, 4, vec![0u8; 48]).unwrap();
         let mut dlpack: VersionedDlpack =
-            image_tensor::<DLManagedTensorVersioned>(img, DlpackFlags::IS_COPIED);
+            image_tensor::<DLManagedTensorVersioned>(img, DlpackFlags::empty());
 
         unsafe {
-            dlpack.cpu_slice_mut_unchecked::<u8>().unwrap()[0] = 42;
+            dlpack
+                .validate_mut()
+                .unwrap()
+                .cpu_slice_mut::<u8>()
+                .unwrap()[0] = 42;
         }
 
         assert_eq!(unsafe { dlpack.tensor().cpu_slice::<u8>() }.unwrap()[0], 42);
@@ -151,7 +150,7 @@ mod tests {
     #[test]
     fn test_borrowed_roundtrip() {
         let img = ImageBuffer::<Rgb<u8>, _>::from_vec(4, 4, vec![42u8; 48]).unwrap();
-        let dlpack = image_tensor::<DLManagedTensor>(img, DlpackFlags::IS_COPIED).into_foreign();
+        let dlpack = image_tensor::<DLManagedTensor>(img, DlpackFlags::empty());
 
         let img2 = unsafe { ImageBuffer::<Rgb<u8>, _>::try_from_dlpack(&dlpack) }.unwrap();
         assert_eq!(img2.width(), 4);
@@ -162,7 +161,7 @@ mod tests {
     #[test]
     fn test_owned_roundtrip() {
         let img = ImageBuffer::<Rgb<u8>, _>::from_vec(4, 4, vec![99u8; 48]).unwrap();
-        let dlpack = image_tensor::<DLManagedTensor>(img, DlpackFlags::IS_COPIED).into_foreign();
+        let dlpack = image_tensor::<DLManagedTensor>(img, DlpackFlags::empty());
 
         let img2 =
             unsafe { ImageBuffer::<Rgb<u8>, DlpackContainer<_, u8>>::try_from_dlpack(dlpack) }
@@ -187,7 +186,7 @@ mod tests {
             .set_dtype(u8::DTYPE)
             .set_device(DLDevice::CPU)
             .set_byte_offset(1);
-        let dlpack = unsafe { initialized.finish() }.into_foreign();
+        let dlpack = unsafe { initialized.finish() };
 
         let img = unsafe { ImageBuffer::<Rgb<u8>, _>::try_from_dlpack(&dlpack) }.unwrap();
         assert_eq!(img.as_raw(), &[10, 20, 30]);
@@ -206,8 +205,7 @@ mod tests {
             shape,
             strides,
             DlpackFlags::empty(),
-        )
-        .into_foreign();
+        );
 
         let err = unsafe { ImageBuffer::<Rgb<u8>, _>::try_from_dlpack(&dlpack) }.unwrap_err();
         assert!(matches!(
@@ -232,8 +230,7 @@ mod tests {
             shape,
             strides,
             DlpackFlags::empty(),
-        )
-        .into_foreign();
+        );
 
         let err = unsafe { ImageBuffer::<Rgb<u8>, _>::try_from_dlpack(&dlpack) }.unwrap_err();
         assert!(matches!(err, Error::UnsupportedStrides { .. }));

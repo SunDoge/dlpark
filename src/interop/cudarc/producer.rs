@@ -1,6 +1,6 @@
 use super::Error;
 use crate::{
-    DlpackElement, DlpackFlags, ManagedTensorBase,
+    DlpackElement, ManagedTensorBase,
     allocation::{dynamic, fixed},
     ffi::DLDevice,
     metadata::{Copied, Dynamic, Fixed},
@@ -30,10 +30,6 @@ impl<T: DlpackElement, M: ManagedTensorBase> TryFrom<Box<CudaSlice<T>>>
         initialized.set_device(DLDevice::cuda(device_id));
         initialized.set_data(data_ptr);
         initialized.set_dtype(T::DTYPE);
-
-        // SAFETY: the owned CudaSlice was moved into the context and Rust
-        // permits no outstanding views while that move occurs.
-        initialized.set_flags_unchecked(DlpackFlags::IS_COPIED);
         Ok(initialized)
     }
 }
@@ -67,12 +63,11 @@ pub fn from_cuda_slice<T: DlpackElement, M: ManagedTensorBase>(
     initialized.set_device(DLDevice::cuda(device_id));
     initialized.set_dtype(T::DTYPE);
     initialized.set_data(data_ptr);
-    initialized.set_flags_unchecked(DlpackFlags::IS_COPIED);
     Ok(initialized)
 }
 
 // ---------------------------------------------------------------------------
-// Reverse: Foreign<M> → BorrowedCudaSlice<M, T>
+// Reverse: Managed<M> → BorrowedCudaSlice<M, T>
 // ---------------------------------------------------------------------------
 
 /// Returns the CUDA device pointer of `slice` as a `*mut c_void` and records

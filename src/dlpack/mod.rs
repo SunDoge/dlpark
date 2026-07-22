@@ -1,7 +1,5 @@
-//! Ownership wrappers for local and foreign DLPack managed tensors.
+//! Ownership wrapper for DLPack managed tensors.
 
-mod foreign;
-mod local;
+mod managed;
 
-pub use foreign::{Foreign, FromRawError};
-pub use local::Local;
+pub use managed::{FromRawError, Managed};

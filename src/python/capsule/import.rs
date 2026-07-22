@@ -1,6 +1,6 @@
 use super::{DLTENSOR, DLTENSOR_VERSIONED, USED_DLTENSOR, USED_DLTENSOR_VERSIONED};
 use crate::{
-    Foreign,
+    Managed,
     ffi::{DLManagedTensor, DLManagedTensorVersioned},
     python::{DlpackStream, device::dlpack_device, exchange::DlpackExchangeApiRef},
 };
@@ -85,7 +85,7 @@ fn call_dlpack<'py>(
     ob.call_method(PyString::intern(py, "__dlpack__"), (), Some(&kwargs))
 }
 
-impl<'py> FromPyObject<'_, 'py> for Foreign<DLManagedTensor> {
+impl<'py> FromPyObject<'_, 'py> for Managed<DLManagedTensor> {
     type Error = PyErr;
     fn extract(ob: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
         let owned_capsule;
@@ -106,7 +106,7 @@ impl<'py> FromPyObject<'_, 'py> for Foreign<DLManagedTensor> {
     }
 }
 
-impl<'py> FromPyObject<'_, 'py> for Foreign<DLManagedTensorVersioned> {
+impl<'py> FromPyObject<'_, 'py> for Managed<DLManagedTensorVersioned> {
     type Error = PyErr;
     fn extract(ob: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
         if let Some(api) = DlpackExchangeApiRef::from_object(ob)? {
@@ -139,7 +139,7 @@ impl<'py> FromPyObject<'_, 'py> for Foreign<DLManagedTensorVersioned> {
     }
 }
 
-impl Foreign<DLManagedTensorVersioned> {
+impl Managed<DLManagedTensorVersioned> {
     /// Extracts a versioned DLPack tensor with optional stream and copy
     /// requests.
     pub fn extract_with_options(

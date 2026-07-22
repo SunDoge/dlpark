@@ -1,5 +1,5 @@
 use crate::{
-    DlpackElement, DlpackFlags, ManagedTensorBase,
+    DlpackElement, ManagedTensorBase,
     allocation::dynamic,
     ffi::DLDevice,
     metadata::{Copied, Dynamic},
@@ -11,8 +11,7 @@ use std::os::raw::c_void;
 ///
 /// The array is not copied. Its shape and strides are converted to DLPack's
 /// `i64` representation before the boxed array becomes the manager context.
-/// The resulting allocation starts with [`DlpackFlags::IS_COPIED`] because ownership has been
-/// transferred and no ndarray aliases remain.
+/// Moving the array transfers ownership without copying its data allocation.
 impl<T, D, M> TryFrom<Box<ArrayBase<OwnedRepr<T>, D>>> for dynamic::Initialized<M>
 where
     T: DlpackElement + Send,
@@ -33,9 +32,6 @@ where
         initialized.set_data(data_ptr);
         initialized.set_dtype(T::DTYPE);
         initialized.set_device(DLDevice::CPU);
-
-        // SAFETY: ownership of the ndarray is transferred into the builder.
-        initialized.set_flags_unchecked(DlpackFlags::IS_COPIED);
         Ok(initialized)
     }
 }

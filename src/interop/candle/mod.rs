@@ -16,7 +16,7 @@
 //! default; set [`crate::DlpackFlags::READ_ONLY`] on the returned initialized
 //! allocation before finishing it when required.
 //!
-//! # Reverse direction (`&Foreign<M>` → `Tensor`)
+//! # Reverse direction (`&Managed<M>` → `Tensor`)
 //!
 //! Always a copy: candle has no borrowed/strided CPU tensor view type, so a
 //! fresh contiguous `Vec<T>` is always built. Compact-stride sources take a
@@ -79,7 +79,7 @@ pub enum Error {
 }
 
 #[cfg(test)]
-use crate::{Foreign, ManagedTensorBase, TryFromDlpack, allocation::dynamic, ffi::DLDevice};
+use crate::{ManagedTensorBase, TryFromDlpack, allocation::dynamic, ffi::DLDevice};
 #[cfg(test)]
 use candle_core::{Device, Tensor};
 
@@ -87,12 +87,12 @@ use candle_core::{Device, Tensor};
 mod tests {
     use super::*;
     use crate::ffi::{DLDataTypeCode, DLManagedTensor, DLManagedTensorVersioned};
-    use crate::{DlpackElement, DlpackFlags, Local, allocation::fixed::make_test_tensor};
+    use crate::{DlpackElement, DlpackFlags, Managed, allocation::fixed::make_test_tensor};
 
-    type LegacyDlpack = Local<DLManagedTensor>;
-    type VersionedDlpack = Local<DLManagedTensorVersioned>;
+    type LegacyDlpack = Managed<DLManagedTensor>;
+    type VersionedDlpack = Managed<DLManagedTensorVersioned>;
 
-    fn managed_candle<M: ManagedTensorBase>(tensor: Tensor) -> Local<M> {
+    fn managed_candle<M: ManagedTensorBase>(tensor: Tensor) -> Managed<M> {
         let initialized: dynamic::Initialized<M> = Box::new(tensor).try_into().unwrap();
         unsafe { initialized.finish() }
     }
@@ -100,7 +100,7 @@ mod tests {
     fn managed_candle_with_flags<M: ManagedTensorBase>(
         tensor: Tensor,
         flags: DlpackFlags,
-    ) -> Local<M> {
+    ) -> Managed<M> {
         let mut initialized: dynamic::Initialized<M> = Box::new(tensor).try_into().unwrap();
         initialized.set_flags(flags).unwrap();
         unsafe { initialized.finish() }
@@ -111,7 +111,7 @@ mod tests {
         dtype: DLDataType,
         shape: [i64; N],
         strides: [i64; N],
-    ) -> Foreign<DLManagedTensor>
+    ) -> Managed<DLManagedTensor>
     where
         T: Send + 'static,
     {
@@ -126,7 +126,6 @@ mod tests {
             strides,
             DlpackFlags::empty(),
         )
-        .into_foreign()
     }
 
     #[test]
@@ -134,8 +133,8 @@ mod tests {
         let tensor = Tensor::from_vec(vec![1i32, 2, 3, 4, 5, 6], (2, 3), &Device::Cpu).unwrap();
         let dlpack: LegacyDlpack = managed_candle(tensor);
 
-        assert_eq!(dlpack.shape().unwrap(), &[2, 3]);
-        assert_eq!(dlpack.strides().unwrap().unwrap(), &[3, 1]);
+        assert_eq!(dlpack.validate().unwrap().shape(), &[2, 3]);
+        assert_eq!(dlpack.validate().unwrap().strides().unwrap(), &[3, 1]);
         assert_eq!(
             unsafe { dlpack.tensor().cpu_slice::<i32>() }.unwrap(),
             &[1, 2, 3, 4, 5, 6]
@@ -157,7 +156,7 @@ mod tests {
     #[test]
     fn candle_tensor_to_versioned_builder_allows_flags_before_build() {
         let tensor = Tensor::from_vec(vec![1f32, 2., 3., 4.], (2, 2), &Device::Cpu).unwrap();
-        let dlpack: Local<DLManagedTensorVersioned> =
+        let dlpack: Managed<DLManagedTensorVersioned> =
             managed_candle_with_flags(tensor, DlpackFlags::READ_ONLY);
 
         assert_eq!(dlpack.flags(), DlpackFlags::READ_ONLY);
@@ -175,11 +174,11 @@ mod tests {
         let tensor = Tensor::zeros((2, 3), DType::F8E4M3, &Device::Cpu).unwrap();
         let dlpack: LegacyDlpack = managed_candle(tensor);
 
-        assert_eq!(dlpack.shape().unwrap(), &[2, 3]);
-        let dtype = dlpack.tensor().dtype;
+        assert_eq!(dlpack.validate().unwrap().shape(), &[2, 3]);
+        let dtype = dlpack.validate().unwrap().dtype();
         assert_eq!(dtype.code, DLDataTypeCode::FLOAT8_E4M3);
         assert_eq!(dtype.bits, 8);
-        assert_eq!(dlpack.num_bytes().unwrap(), 6);
+        assert_eq!(dlpack.validate().unwrap().num_bytes(), 6);
     }
 
     #[test]
@@ -192,13 +191,13 @@ mod tests {
             Tensor::from_raw_buffer(&[0xAB, 0xCD, 0xEF], DType::F4, &[6], &Device::Cpu).unwrap();
         let dlpack: LegacyDlpack = managed_candle(tensor);
 
-        assert_eq!(dlpack.shape().unwrap(), &[6]);
-        let dtype = dlpack.tensor().dtype;
+        assert_eq!(dlpack.validate().unwrap().shape(), &[6]);
+        let dtype = dlpack.validate().unwrap().dtype();
         assert_eq!(dtype.code, DLDataTypeCode::FLOAT4_E2M1FN);
         assert_eq!(dtype.bits, 4);
         // This is the whole point of the num_bytes() fix: 6 * 4 bits = 3
         // bytes, not 6 (which is what per-element rounding would have given).
-        assert_eq!(dlpack.num_bytes().unwrap(), 3);
+        assert_eq!(dlpack.validate().unwrap().num_bytes(), 3);
     }
 
     #[test]

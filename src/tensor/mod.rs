@@ -5,8 +5,10 @@ use snafu::Snafu;
 
 mod data;
 mod layout;
+mod reference;
 
 pub use layout::{compact_strides, compact_strides_array, is_compact_strides};
+pub use reference::{TensorMut, TensorRef};
 
 #[derive(Debug, Snafu)]
 pub enum Error {
@@ -46,11 +48,8 @@ pub enum Error {
     #[snafu(display("tensor is read-only"))]
     ReadOnly,
 
-    #[snafu(display("tensor is not marked IS_COPIED, so exclusive ownership cannot be proven"))]
-    NotCopied,
-
     #[snafu(display(
-        "cannot safely assert IS_COPIED; use the unchecked flag setter if exclusivity is verified"
+        "cannot safely assert IS_COPIED; use the unchecked flag setter after producing a copy"
     ))]
     CannotAssertIsCopied,
 

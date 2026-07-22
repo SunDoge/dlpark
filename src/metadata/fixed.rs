@@ -170,8 +170,8 @@ mod tests {
         let initialized = prepared.initialize(Box::new(()));
         let tensor = unsafe { initialized.finish() };
 
-        assert_eq!(tensor.shape().unwrap(), &[2, 3]);
-        assert_eq!(tensor.strides().unwrap().unwrap(), &[3, 1]);
+        assert_eq!(tensor.validate().unwrap().shape(), &[2, 3]);
+        assert_eq!(tensor.validate().unwrap().strides().unwrap(), &[3, 1]);
     }
 
     #[test]
@@ -185,7 +185,7 @@ mod tests {
         let initialized = prepared.initialize(Box::new(()));
         let tensor = unsafe { initialized.finish() };
 
-        assert_eq!(tensor.shape().unwrap(), &shape);
-        assert_eq!(tensor.strides().unwrap().unwrap(), &[3, 1]);
+        assert_eq!(tensor.validate().unwrap().shape(), &shape);
+        assert_eq!(tensor.validate().unwrap().strides().unwrap(), &[3, 1]);
     }
 }

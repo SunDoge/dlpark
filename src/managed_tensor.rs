@@ -22,10 +22,8 @@ impl DlpackFlags {
     /// flags, would newly assert [`DlpackFlags::IS_COPIED`] — turn it on
     /// when it wasn't already set.
     ///
-    /// Turning it on is the risky direction: `Local::cpu_slice_mut`
-    /// and safe mutable ndarray conversion trust it unconditionally to skip
-    /// aliasing checks. Leaving an already-set `IS_COPIED` on asserts nothing
-    /// new, so that case is not flagged.
+    /// Turning it on asserts that the producer created a copy solely owned by
+    /// the consumer. Leaving an already-set `IS_COPIED` on asserts nothing new.
     pub(crate) fn newly_asserts_is_copied(self, current: DlpackFlags) -> bool {
         self.contains(DlpackFlags::IS_COPIED) && !current.contains(DlpackFlags::IS_COPIED)
     }
@@ -80,10 +78,9 @@ pub unsafe trait ManagedTensorBase {
     ///
     /// # Safety
     ///
-    /// If `flags` includes `IS_COPIED`, the caller must ensure that no other
-    /// reference to the tensor's data exists: `Local::cpu_slice_mut`
-    /// and safe mutable ndarray conversion trust that bit unconditionally and
-    /// skip aliasing checks accordingly.
+    /// If `flags` includes `IS_COPIED`, the caller must ensure that this export
+    /// is a copy made by the producer and is solely owned by the consumer until
+    /// the deleter is called.
     unsafe fn set_flags_unchecked(&mut self, _flags: crate::DlpackFlags) {}
 
     /// Drops a raw managed tensor pointer through its DLPack deleter.

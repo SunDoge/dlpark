@@ -4,13 +4,13 @@
 //! values. Shape and strides are copied into the managed allocation.
 //!
 //! ```
-//! use dlpark::{Foreign, TryFromDlpack, allocation::dynamic, ffi::DLManagedTensorVersioned};
+//! use dlpark::{Managed, TryFromDlpack, allocation::dynamic, ffi::DLManagedTensorVersioned};
 //! use ndarray::{ArrayViewD, arr2};
 //!
 //! let initialized: dynamic::Initialized<DLManagedTensorVersioned> =
 //!     Box::new(arr2(&[[1_i32, 2], [3, 4]])).try_into()?;
-//! let dlpack: Foreign<DLManagedTensorVersioned> =
-//!     unsafe { initialized.finish() }.into_foreign();
+//! let dlpack: Managed<DLManagedTensorVersioned> =
+//!     unsafe { initialized.finish() };
 //! let view = unsafe { ArrayViewD::<i32>::try_from_dlpack(&dlpack)? };
 //! assert_eq!(view[[1, 0]], 3);
 //! # Ok::<(), Box<dyn std::error::Error>>(())
@@ -55,13 +55,13 @@ use ndarray::{ArrayBase, ArrayViewD, ArrayViewMutD, Dimension, OwnedRepr, ShapeB
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Local, ManagedTensorBase, allocation::fixed::make_test_tensor};
+    use crate::{Managed, ManagedTensorBase, allocation::fixed::make_test_tensor};
     use ndarray::{Array, arr2};
 
-    type LegacyDlpack = Local<crate::ffi::DLManagedTensor>;
-    type VersionedDlpack = Local<crate::ffi::DLManagedTensorVersioned>;
+    type LegacyDlpack = Managed<crate::ffi::DLManagedTensor>;
+    type VersionedDlpack = Managed<crate::ffi::DLManagedTensorVersioned>;
 
-    fn managed_array<T, D, M>(array: ArrayBase<OwnedRepr<T>, D>) -> Local<M>
+    fn managed_array<T, D, M>(array: ArrayBase<OwnedRepr<T>, D>) -> Managed<M>
     where
         T: DlpackElement + Send,
         D: Dimension,
@@ -74,7 +74,7 @@ mod tests {
     fn managed_array_with_flags<T, D, M>(
         array: ArrayBase<OwnedRepr<T>, D>,
         flags: DlpackFlags,
-    ) -> Local<M>
+    ) -> Managed<M>
     where
         T: DlpackElement + Send,
         D: Dimension,
@@ -85,9 +85,7 @@ mod tests {
         unsafe { initialized.finish() }
     }
 
-    /// A `[[1, 2, 3], [4, 5, 6]]` legacy tensor. Legacy tensors have no flags
-    /// field, so this is always writable via the `_unchecked` accessors and
-    /// never satisfies `IS_COPIED`.
+    /// A `[[1, 2, 3], [4, 5, 6]]` writable legacy tensor.
     fn legacy_2x3_dlpack() -> LegacyDlpack {
         managed_array(arr2(&[[1i32, 2, 3], [4, 5, 6]]))
     }
@@ -107,8 +105,8 @@ mod tests {
     fn owned_ndarray_to_legacy_dlpack_keeps_layout_and_data() {
         let dlpack = legacy_2x3_dlpack();
 
-        assert_eq!(dlpack.shape().unwrap(), &[2, 3]);
-        assert_eq!(dlpack.strides().unwrap().unwrap(), &[3, 1]);
+        assert_eq!(dlpack.validate().unwrap().shape(), &[2, 3]);
+        assert_eq!(dlpack.validate().unwrap().strides().unwrap(), &[3, 1]);
         assert_eq!(
             unsafe { dlpack.tensor().cpu_slice::<i32>() }.unwrap(),
             &[1, 2, 3, 4, 5, 6]
@@ -120,8 +118,8 @@ mod tests {
         let array = Array::from_shape_vec((2, 2), vec![1f32, 2., 3., 4.]).unwrap();
         let dlpack: VersionedDlpack = managed_array(array);
 
-        assert_eq!(dlpack.shape().unwrap(), &[2, 2]);
-        assert_eq!(dlpack.strides().unwrap().unwrap(), &[2, 1]);
+        assert_eq!(dlpack.validate().unwrap().shape(), &[2, 2]);
+        assert_eq!(dlpack.validate().unwrap().strides().unwrap(), &[2, 1]);
         assert_eq!(
             unsafe { dlpack.tensor().cpu_slice::<f32>() }.unwrap(),
             &[1., 2., 3., 4.]
@@ -129,23 +127,19 @@ mod tests {
     }
 
     #[test]
-    fn owned_ndarray_to_versioned_dlpack_sets_is_copied() {
+    fn owned_ndarray_to_versioned_dlpack_is_zero_copy() {
         let array = Array::from_shape_vec((2, 2), vec![1f32, 2., 3., 4.]).unwrap();
         let dlpack: VersionedDlpack = managed_array(array);
 
-        assert_eq!(dlpack.flags(), DlpackFlags::IS_COPIED);
+        assert_eq!(dlpack.flags(), DlpackFlags::empty());
     }
 
     #[test]
     fn ndarray_builder_allows_setting_read_only_safely() {
         let array = Array::from_shape_vec((2, 2), vec![1f32, 2., 3., 4.]).unwrap();
-        let dlpack: VersionedDlpack =
-            managed_array_with_flags(array, DlpackFlags::IS_COPIED | DlpackFlags::READ_ONLY);
+        let dlpack: VersionedDlpack = managed_array_with_flags(array, DlpackFlags::READ_ONLY);
 
-        assert_eq!(
-            dlpack.flags(),
-            DlpackFlags::IS_COPIED | DlpackFlags::READ_ONLY
-        );
+        assert_eq!(dlpack.flags(), DlpackFlags::READ_ONLY);
     }
 
     #[test]
@@ -154,7 +148,11 @@ mod tests {
         let mut dlpack: VersionedDlpack = managed_array(array);
 
         unsafe {
-            dlpack.cpu_slice_mut_unchecked::<f32>().unwrap()[1] = 42.;
+            dlpack
+                .validate_mut()
+                .unwrap()
+                .cpu_slice_mut::<f32>()
+                .unwrap()[1] = 42.;
         }
 
         assert_eq!(
@@ -168,8 +166,8 @@ mod tests {
         let array = arr2(&[[1i32, 2], [3, 4]]).into_dyn();
         let dlpack: LegacyDlpack = managed_array(array);
 
-        assert_eq!(dlpack.shape().unwrap(), &[2, 2]);
-        assert_eq!(dlpack.strides().unwrap().unwrap(), &[2, 1]);
+        assert_eq!(dlpack.validate().unwrap().shape(), &[2, 2]);
+        assert_eq!(dlpack.validate().unwrap().strides().unwrap(), &[2, 1]);
         assert_eq!(
             unsafe { dlpack.tensor().cpu_slice::<i32>() }.unwrap(),
             &[1, 2, 3, 4]
@@ -178,7 +176,7 @@ mod tests {
 
     #[test]
     fn borrowed_dlpack_to_ndarray_view_is_zero_copy() {
-        let dlpack = legacy_2x3_dlpack().into_foreign();
+        let dlpack = legacy_2x3_dlpack();
         let view = unsafe { ArrayViewD::<i32>::try_from_dlpack(&dlpack) }.unwrap();
 
         assert_eq!(view.shape(), &[2, 3]);
@@ -188,7 +186,7 @@ mod tests {
 
     #[test]
     fn borrowed_dlpack_to_ndarray_view_preserves_strides() {
-        let dlpack = legacy_3x2_transposed_dlpack().into_foreign();
+        let dlpack = legacy_3x2_transposed_dlpack();
         let view = unsafe { ArrayViewD::<i32>::try_from_dlpack(&dlpack) }.unwrap();
 
         assert_eq!(view.shape(), &[3, 2]);
@@ -198,7 +196,7 @@ mod tests {
 
     #[test]
     fn borrowed_dlpack_to_mut_ndarray_view_unchecked_writes_through() {
-        let mut dlpack = legacy_2x3_dlpack().into_foreign();
+        let mut dlpack = legacy_2x3_dlpack();
         let mut view =
             unsafe { array_view_from_dlpack_mut_unchecked::<i32, _>(&mut dlpack).unwrap() };
 
@@ -214,7 +212,7 @@ mod tests {
 
     #[test]
     fn borrowed_dlpack_to_mut_ndarray_view_unchecked_preserves_strides() {
-        let mut dlpack = legacy_3x2_transposed_dlpack().into_foreign();
+        let mut dlpack = legacy_3x2_transposed_dlpack();
         let mut view =
             unsafe { array_view_from_dlpack_mut_unchecked::<i32, _>(&mut dlpack).unwrap() };
 
@@ -228,7 +226,7 @@ mod tests {
 
     #[test]
     fn mut_ndarray_view_unchecked_rejects_read_only_tensor() {
-        let mut dlpack = versioned_2x3_dlpack(DlpackFlags::READ_ONLY).into_foreign();
+        let mut dlpack = versioned_2x3_dlpack(DlpackFlags::READ_ONLY);
 
         let error =
             unsafe { array_view_from_dlpack_mut_unchecked::<i32, _>(&mut dlpack) }.unwrap_err();
@@ -242,8 +240,8 @@ mod tests {
     }
 
     #[test]
-    fn mut_ndarray_view_updates_is_copied_tensor() {
-        let mut dlpack = versioned_2x3_dlpack(DlpackFlags::IS_COPIED).into_foreign();
+    fn mut_ndarray_view_updates_writable_tensor() {
+        let mut dlpack = versioned_2x3_dlpack(DlpackFlags::empty());
 
         let mut view = unsafe { ArrayViewMutD::<i32>::try_from_dlpack(&mut dlpack) }.unwrap();
         view[[1, 2]] = 42;
@@ -256,7 +254,7 @@ mod tests {
 
     #[test]
     fn mut_ndarray_view_accepts_caller_proven_exclusivity_without_is_copied() {
-        let mut dlpack = versioned_2x3_dlpack(DlpackFlags::empty()).into_foreign();
+        let mut dlpack = versioned_2x3_dlpack(DlpackFlags::empty());
 
         let mut view = unsafe { ArrayViewMutD::<i32>::try_from_dlpack(&mut dlpack) }.unwrap();
         view[[1, 2]] = 42;
@@ -273,9 +271,8 @@ mod tests {
             DLDevice::CPU,
             [2, 2],
             [0, 1],
-            DlpackFlags::IS_COPIED,
-        )
-        .into_foreign();
+            DlpackFlags::empty(),
+        );
 
         assert!(matches!(
             unsafe { ArrayViewMutD::<i32>::try_from_dlpack(&mut dlpack) },
@@ -285,7 +282,7 @@ mod tests {
 
     #[test]
     fn mut_ndarray_view_accepts_caller_proven_legacy_exclusivity() {
-        let mut dlpack = legacy_2x3_dlpack().into_foreign();
+        let mut dlpack = legacy_2x3_dlpack();
 
         let mut view = unsafe { ArrayViewMutD::<i32>::try_from_dlpack(&mut dlpack) }.unwrap();
         view[[1, 2]] = 42;
@@ -293,7 +290,7 @@ mod tests {
 
     #[test]
     fn try_from_dlpack_mutates_with_caller_proven_exclusivity() {
-        let mut dlpack = versioned_2x3_dlpack(DlpackFlags::IS_COPIED).into_foreign();
+        let mut dlpack = versioned_2x3_dlpack(DlpackFlags::empty());
 
         let mut view = unsafe { ArrayViewMutD::<i32>::try_from_dlpack(&mut dlpack) }.unwrap();
         view[[1, 2]] = 42;
@@ -308,7 +305,7 @@ mod tests {
     fn sliced_owned_ndarray_to_dlpack_exports_non_standard_strides() {
         let array = Array::from_shape_vec((2, 2).strides((4, 2)), (0i32..7).collect()).unwrap();
         let dlpack: LegacyDlpack = managed_array(array);
-        let dlpack = dlpack.into_foreign();
+        let dlpack = dlpack;
         let view = unsafe { ArrayViewD::<i32>::try_from_dlpack(&dlpack) }.unwrap();
 
         assert_eq!(view.shape(), &[2, 2]);

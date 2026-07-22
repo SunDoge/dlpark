@@ -17,7 +17,7 @@ pub enum Error {
 
 /// An initialized managed tensor paired with allocation-specific metadata.
 pub struct Initialized<M: crate::ManagedTensorBase, Storage> {
-    pub(super) managed: crate::Local<M>,
+    pub(super) managed: crate::Managed<M>,
     pub(super) storage: Storage,
 }
 
@@ -69,8 +69,8 @@ impl<M: crate::ManagedTensorBase, Storage> Initialized<M, Storage> {
 
     /// Sets flags verbatim, including `IS_COPIED`.
     ///
-    /// If `flags` includes `IS_COPIED`, the caller must establish the claimed
-    /// ownership before calling [`Self::finish`].
+    /// If `flags` includes `IS_COPIED`, the caller must ensure the producer
+    /// actually created a copy for this export.
     pub fn set_flags_unchecked(&mut self, flags: crate::DlpackFlags) -> &mut Self {
         unsafe { (&mut *self.managed.as_ptr()).set_flags_unchecked(flags) };
         self
@@ -83,7 +83,7 @@ impl<M: crate::ManagedTensorBase, Storage> Initialized<M, Storage> {
     /// The completed descriptor must satisfy the DLPack contract. Its data and
     /// metadata pointers must remain valid until the tensor is dropped, and
     /// its flags must accurately describe aliasing and mutability.
-    pub unsafe fn finish(self) -> crate::Local<M> {
+    pub unsafe fn finish(self) -> crate::Managed<M> {
         self.managed
     }
 }

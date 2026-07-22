@@ -9,10 +9,10 @@
 //! 1-D tensor with shape `[slice.len()]` and strides `[1]`. Use
 //! [`crate::interop::cudarc::from_cuda_slice`] for a higher-rank layout. The slice is stored as the
 //! `manager_ctx`; the underlying CUDA allocation is freed when the DLPack
-//! deleter fires. Because ownership is transferred without any remaining Rust
-//! views, the initialized allocation starts with [`crate::DlpackFlags::IS_COPIED`].
+//! deleter fires. Moving the slice transfers ownership without copying the CUDA
+//! allocation, so `IS_COPIED` remains unset.
 //!
-//! # `to_cuda_slice` direction (`Foreign` → [`crate::interop::cudarc::BorrowedCudaSlice`])
+//! # `to_cuda_slice` direction (`Managed` → [`crate::interop::cudarc::BorrowedCudaSlice`])
 //!
 //! `upgrade_device_ptr` wraps the DLPack tensor's raw device pointer into a
 //! proper `CudaSlice<T>`. Because the DLPack tensor owns that allocation, we
@@ -23,7 +23,7 @@
 //! is dropped.
 //!
 //! Unlike the forward direction, this conversion takes a single owned
-//! `Foreign<M>` and can fail, so it is exposed as
+//! `Managed<M>` and can fail, so it is exposed as
 //! [`crate::TryFromDlpack`] for `BorrowedCudaSlice<M, T>`.
 //!
 //! ## Why not return `CudaView<T>`?
@@ -133,6 +133,7 @@ mod tests {
             strides: strides.as_ptr().cast_mut(),
             byte_offset: std::mem::size_of::<i32>() as u64,
         };
+        let tensor = unsafe { crate::tensor::TensorRef::from_raw(&tensor) }.unwrap();
 
         let (ptr, len, device_id) = validated_cuda_parts::<i32>(&tensor).unwrap();
         assert_eq!(ptr, unsafe { data.as_ptr().add(1) } as usize as u64);
@@ -154,6 +155,7 @@ mod tests {
             strides: strides.as_ptr().cast_mut(),
             byte_offset: 0,
         };
+        let tensor = unsafe { crate::tensor::TensorRef::from_raw(&tensor) }.unwrap();
 
         assert!(matches!(
             validated_cuda_parts::<i32>(&tensor),
@@ -177,6 +179,7 @@ mod tests {
             strides: strides.as_ptr().cast_mut(),
             byte_offset: 0,
         };
+        let tensor = unsafe { crate::tensor::TensorRef::from_raw(&tensor) }.unwrap();
 
         assert!(matches!(
             validated_cuda_parts::<i32>(&tensor),
