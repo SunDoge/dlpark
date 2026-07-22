@@ -110,6 +110,7 @@ where
         }
 
         let tensor = self.tensor();
+        tensor.ensure_cpu()?;
         if !unsafe { tensor.is_compact()? } {
             return Err(tensor::Error::NonCompactStrides);
         }
@@ -134,6 +135,7 @@ where
         }
 
         let tensor = self.tensor();
+        tensor.ensure_cpu()?;
         if !unsafe { tensor.is_compact()? } {
             return Err(tensor::Error::NonCompactStrides);
         }
@@ -238,13 +240,20 @@ mod tests {
     ///
     /// `flags` is a no-op for `M = DLManagedTensor`, which has no flags field.
     fn dlpack_with_flags<M: ManagedTensorBase>(flags: DlpackFlags) -> Local<M> {
+        dlpack_with_flags_on_device(flags, DLDevice::CPU)
+    }
+
+    fn dlpack_with_flags_on_device<M: ManagedTensorBase>(
+        flags: DlpackFlags,
+        device: DLDevice,
+    ) -> Local<M> {
         let data = Box::new(vec![1i32, 2, 3]);
         let data_ptr = data.as_ptr() as *mut c_void;
         make_test_tensor(
             data,
             data_ptr,
             crate::ffi::DLDataType::of::<i32>(),
-            DLDevice::CPU,
+            device,
             [3],
             [1],
             flags,
@@ -329,6 +338,18 @@ mod tests {
     }
 
     #[test]
+    fn mutable_cpu_slice_rejects_non_cpu_tensor_even_if_copied() {
+        let mut dlpack = dlpack_with_flags_on_device::<DLManagedTensorVersioned>(
+            DlpackFlags::IS_COPIED,
+            DLDevice::cuda(0),
+        );
+
+        let error = dlpack.cpu_slice_mut::<i32>().unwrap_err();
+
+        assert!(matches!(error, tensor::Error::NotCpu { .. }));
+    }
+
+    #[test]
     fn mutable_cpu_slice_rejects_read_only_tensor_even_if_copied() {
         let mut dlpack = dlpack_with_flags::<DLManagedTensorVersioned>(
             DlpackFlags::READ_ONLY | DlpackFlags::IS_COPIED,
@@ -378,6 +399,18 @@ mod tests {
         let error = dlpack.cpu_bytes_mut().unwrap_err();
 
         assert!(matches!(error, tensor::Error::ReadOnly));
+    }
+
+    #[test]
+    fn mutable_cpu_bytes_rejects_non_cpu_tensor_even_if_copied() {
+        let mut dlpack = dlpack_with_flags_on_device::<DLManagedTensorVersioned>(
+            DlpackFlags::IS_COPIED,
+            DLDevice::cuda(0),
+        );
+
+        let error = dlpack.cpu_bytes_mut().unwrap_err();
+
+        assert!(matches!(error, tensor::Error::NotCpu { .. }));
     }
 
     #[test]

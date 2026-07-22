@@ -22,12 +22,7 @@ impl DLTensor {
     /// data pointer must reference `num_elements` initialized values of `T`
     /// that remain readable for the returned slice's lifetime.
     pub unsafe fn cpu_slice<T: DlpackElement>(&self) -> Result<&[T], Error> {
-        ensure!(
-            self.device.device_type == DLDeviceType::CPU,
-            NotCpuSnafu {
-                device_type: self.device.device_type
-            }
-        );
+        self.ensure_cpu()?;
         ensure!(
             self.dtype.is::<T>(),
             DtypeMismatchSnafu {
@@ -67,6 +62,7 @@ impl DLTensor {
     /// lifetime.
     #[inline]
     pub unsafe fn cpu_bytes(&self) -> Result<&[u8], Error> {
+        self.ensure_cpu()?;
         ensure!(unsafe { self.is_compact()? }, NonCompactStridesSnafu);
         let len = unsafe { self.num_bytes()? };
         let data = unsafe { self.offset_bytes_ptr()? };
@@ -149,5 +145,15 @@ impl DLTensor {
     #[inline]
     pub fn data_ptr(&self) -> *const c_void {
         self.data as *const c_void
+    }
+
+    pub(crate) fn ensure_cpu(&self) -> Result<(), Error> {
+        ensure!(
+            self.device.device_type == DLDeviceType::CPU,
+            NotCpuSnafu {
+                device_type: self.device.device_type
+            }
+        );
+        Ok(())
     }
 }

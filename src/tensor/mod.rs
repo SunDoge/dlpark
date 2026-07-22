@@ -180,6 +180,27 @@ mod tests {
     }
 
     #[test]
+    fn cpu_bytes_rejects_non_cpu_tensor() {
+        let data = [1u8];
+        let shape = [1i64];
+        let strides = [1i64];
+        let tensor = DLTensor {
+            data: data.as_ptr().cast_mut().cast(),
+            device: DLDevice::cuda(0),
+            ndim: 1,
+            dtype: u8::DTYPE,
+            shape: shape.as_ptr().cast_mut(),
+            strides: strides.as_ptr().cast_mut(),
+            ..DLTensor::default()
+        };
+
+        assert!(matches!(
+            unsafe { tensor.cpu_bytes() },
+            Err(Error::NotCpu { .. })
+        ));
+    }
+
+    #[test]
     fn offset_pointers_are_device_agnostic_and_apply_byte_offset() {
         let data = [10u8, 20, 30];
         let shape = [2i64];
