@@ -1,4 +1,16 @@
 //! Shape and stride metadata composed with managed tensor allocations.
+//!
+//! [`Fixed`] composes compile-time-rank shape and strides; [`Dynamic`] composes
+//! runtime-rank shape and strides. Each part is wrapped in either [`Copied`]
+//! (values copied into the managed allocation; safe `prepare`) or
+//! [`Borrowed`] (caller-owned `i64` storage borrowed zero-copy; unsafe
+//! `prepare_unchecked`, because the arrays must outlive the managed tensor).
+//!
+//! `prepare::<M>()` returns a `PreparedFixed` / `PreparedDynamic`; calling
+//! `initialize(ctx)` on it installs the context and deleter and returns an
+//! [`crate::allocation::Initialized`]. `Copied` accepts any integer element
+//! implementing `TryInto<i64>` (not just `i64`); an `i64` source takes a
+//! `TypeId` fast path through `ptr::copy_nonoverlapping`.
 
 use snafu::Snafu;
 mod dynamic;

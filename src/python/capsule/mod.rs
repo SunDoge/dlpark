@@ -60,6 +60,10 @@ mod tests {
     }
 
     fn versioned_tensor() -> Managed<DLManagedTensorVersioned> {
+        versioned_tensor_with_flags(DlpackFlags::empty())
+    }
+
+    fn versioned_tensor_with_flags(flags: DlpackFlags) -> Managed<DLManagedTensorVersioned> {
         let data = Box::new(vec![4i32, 5, 6]);
         let data_ptr = data.as_ptr() as *mut c_void;
         make_test_tensor(
@@ -69,7 +73,7 @@ mod tests {
             DLDevice::CPU,
             [3],
             [1],
-            DlpackFlags::empty(),
+            flags,
         )
     }
 
@@ -139,6 +143,45 @@ mod tests {
                 Err(err) => err,
             };
             assert!(err.is_instance_of::<PyValueError>(py));
+
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn versioned_extract_rejects_copy_result_mismatch() {
+        pyo3::Python::initialize();
+        pyo3::Python::attach(|py| -> pyo3::PyResult<()> {
+            let module = PyModule::from_code(
+                py,
+                cr#"class Producer:
+    def __init__(self, capsule):
+        self.capsule = capsule
+
+    def __dlpack__(self, *, max_version=None, copy=None):
+        return self.capsule
+"#,
+                c"copy_mismatch_producer.py",
+                c"copy_mismatch_producer",
+            )?;
+
+            for (flags, requested) in [
+                (DlpackFlags::empty(), true),
+                (DlpackFlags::IS_COPIED, false),
+            ] {
+                let capsule = versioned_tensor_with_flags(flags).into_pyobject(py)?;
+                let producer = module.getattr("Producer")?.call1((capsule,))?;
+                let error = match Managed::<DLManagedTensorVersioned>::extract_with_options(
+                    producer.as_borrowed(),
+                    None,
+                    Some(requested),
+                ) {
+                    Ok(_) => panic!("copy result mismatch must be rejected"),
+                    Err(error) => error,
+                };
+                assert!(error.is_instance_of::<pyo3::exceptions::PyBufferError>(py));
+            }
 
             Ok(())
         })
@@ -270,7 +313,7 @@ mod tests {
     fn versioned_extract_with_options_passes_copy_without_stream() {
         pyo3::Python::initialize();
         pyo3::Python::attach(|py| -> pyo3::PyResult<()> {
-            let capsule = versioned_tensor().into_pyobject(py)?;
+            let capsule = versioned_tensor_with_flags(DlpackFlags::IS_COPIED).into_pyobject(py)?;
             let module = PyModule::from_code(
                 py,
                 cr#"class Producer:

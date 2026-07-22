@@ -1,4 +1,23 @@
 //! Low-level allocation of managed tensors with writable metadata storage.
+//!
+//! A producer allocates a managed tensor together with its shape and strides
+//! storage, installs an owning context and deleter, writes the scalar tensor
+//! fields, then finishes. The flow is:
+//!
+//! 1. [`fixed::Allocation`] (compile-time rank) or [`dynamic::Allocation`]
+//!    (runtime rank) allocates the managed tensor header plus metadata
+//!    storage. [`fixed::Storage`] selects between inline `[i64; N]` storage
+//!    ([`fixed::Copied`]) and no inline storage ([`fixed::Borrowed`]); the
+//!    dynamic allocation stores shape and strides in a trailing `i64` buffer.
+//! 2. `initialize(ctx)` installs the owning context and deleter and returns
+//!    an [`Initialized`] handle.
+//! 3. [`Initialized`] setters write the data pointer, device, dtype, byte
+//!    offset, and flags; [`Initialized::finish`] returns the owning
+//!    [`Managed<M>`](crate::Managed), consuming the allocation.
+//!
+//! The [`crate::metadata`] helpers drive steps 1–2 from shape and strides
+//! values; interop producers drive them from a boxed container, which also
+//! serves as the owning context.
 
 use snafu::Snafu;
 use std::{alloc::Layout, ptr::NonNull};
