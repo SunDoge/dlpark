@@ -1,4 +1,6 @@
-//! Owning handles for DLPack managed tensors.
+//! Locally produced DLPack managed tensors.
+
+use super::foreign::Foreign;
 
 use crate::DlpackElement;
 use crate::DlpackFlags;
@@ -45,7 +47,7 @@ impl<M: ManagedTensorBase> Local<M> {
     /// Ownership and destruction remain valid; only the descriptor's
     /// trustworthiness is relinquished. Use this when feeding a locally
     /// produced tensor into a consumer-side conversion that revalidates its
-    /// fields. The reverse direction is [`Foreign::assume_valid`], which is
+    /// fields. The reverse direction is [`Foreign::into_local`], which is
     /// `unsafe` because it asserts the descriptor satisfies the DLPack contract.
     pub fn into_foreign(self) -> Foreign<M> {
         let ptr = self.0.as_ptr();
@@ -54,109 +56,10 @@ impl<M: ManagedTensorBase> Local<M> {
     }
 }
 
-/// An owning handle to a managed tensor received from external code.
-///
-/// Only ownership and destruction are trusted. Descriptor fields and pointers
-/// remain untrusted and therefore require unsafe access.
-#[repr(transparent)]
-pub struct Foreign<M: ManagedTensorBase>(NonNull<M>);
-
-impl<M: ManagedTensorBase> Foreign<M> {
-    pub(crate) unsafe fn from_raw_unchecked(ptr: *mut M) -> Self {
-        Self(unsafe { NonNull::new_unchecked(ptr) })
-    }
-
-    /// Takes ownership of a foreign managed tensor pointer.
-    ///
-    /// # Safety
-    ///
-    /// `ptr` must be non-null and point to an initialized `M` owned by the
-    /// caller. Its deleter, if present, must be valid to call exactly once and
-    /// must not unwind. No validity is assumed for the embedded `DLTensor`.
-    pub unsafe fn from_raw(ptr: *mut M) -> Option<Self> {
-        NonNull::new(ptr).map(Self)
-    }
-
-    /// Returns the foreign pointer without transferring ownership.
-    pub fn as_ptr(&self) -> *mut M {
-        self.0.as_ptr()
-    }
-
-    /// Transfers ownership of the foreign tensor through its raw pointer.
-    pub fn into_raw(self) -> *mut M {
-        let ptr = self.0.as_ptr();
-        std::mem::forget(self);
-        ptr
-    }
-
-    /// Treats this externally supplied tensor as a validated local tensor.
-    ///
-    /// # Safety
-    ///
-    /// The managed tensor and every pointer in its embedded descriptor must
-    /// satisfy the DLPack contract for the remainder of its lifetime. The
-    /// descriptor must not be concurrently mutated through another alias.
-    pub unsafe fn into_local(self) -> Local<M> {
-        unsafe { Local::from_raw_unchecked(self.into_raw()) }
-    }
-
-    /// Returns the untrusted embedded descriptor.
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure that `M` and its embedded descriptor are readable
-    /// and are not concurrently mutated for the returned reference's lifetime.
-    pub unsafe fn tensor(&self) -> &crate::ffi::DLTensor {
-        unsafe { (&*self.0.as_ptr()).tensor() }
-    }
-
-    /// Returns the DLPack bitmask flags.
-    ///
-    /// Reading the inline `u64` field is safe — it involves no external pointer
-    /// dereference, unlike [`Self::shape`] or [`Self::strides`]. The *value* is
-    /// untrusted (a producer may misreport `IS_COPIED`), but that is a logical
-    /// concern, not a memory-safety one. Only the versioned ABI carries flags;
-    /// the legacy ABI returns empty flags.
-    pub fn flags(&self) -> crate::DlpackFlags {
-        unsafe { (&*self.0.as_ptr()).flags() }
-    }
-
-    /// Returns the foreign shape.
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure that `ndim` and `shape` describe readable memory
-    /// which remains immutable for the returned slice's lifetime.
-    pub unsafe fn shape(&self) -> Result<&[i64], tensor::Error> {
-        unsafe { self.tensor().shape() }
-    }
-
-    /// Returns the foreign explicit strides, or `None` for implicit strides.
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure that `ndim` and `strides` describe readable
-    /// memory which remains immutable for the returned slice's lifetime.
-    pub unsafe fn strides(&self) -> Result<Option<&[i64]>, tensor::Error> {
-        unsafe { self.tensor().strides() }
-    }
-}
-
 impl<M> Local<M>
 where
     M: ManagedTensorBase,
 {
-    /// Creates an owning managed tensor handle from a raw pointer.
-    ///
-    /// # Safety
-    ///
-    /// If `ptr` is non-null, it must point to a valid `M` whose ownership is
-    /// transferred to the returned `Local`. The managed tensor must not
-    /// have been freed or wrapped by another owner, and its deleter, if
-    /// present, must be valid to call exactly once and must not unwind.
-    /// The embedded `DLTensor` pointers must satisfy the DLPack contract for
-    /// the descriptor's shape, strides, dtype, device, and byte offset for the
-    /// entire lifetime of the managed tensor.
     /// Returns the embedded raw tensor descriptor.
     #[inline]
     pub fn tensor(&self) -> &crate::ffi::DLTensor {
@@ -321,12 +224,6 @@ where
     }
 }
 
-impl<M: ManagedTensorBase> Drop for Foreign<M> {
-    fn drop(&mut self) {
-        unsafe { M::drop_raw(self.0.as_ptr()) }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -352,21 +249,6 @@ mod tests {
             [1],
             flags,
         )
-    }
-
-    #[test]
-    fn local_raw_roundtrip_becomes_foreign() {
-        let allocation = crate::allocation::dynamic::Allocation::<DLManagedTensor>::allocate(0)
-            .expect("allocation must succeed");
-        let initialized = allocation
-            .initialize(Box::new(()), 0)
-            .expect("scalar rank must fit");
-        let local = unsafe { initialized.finish() };
-
-        let raw = local.into_raw();
-        unsafe { (*raw).dl_tensor.ndim = i32::MAX };
-        let foreign = unsafe { Foreign::from_raw(raw) }.expect("raw pointer is non-null");
-        drop(foreign);
     }
 
     #[test]
