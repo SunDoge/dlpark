@@ -10,7 +10,9 @@ pub enum FromRawError {
     Null,
 
     #[snafu(transparent)]
-    Version { source: crate::VersionError },
+    Version {
+        source: crate::version::VersionError,
+    },
 }
 
 /// An owning handle to a managed tensor received from external code.
@@ -38,7 +40,7 @@ impl<M: ManagedTensorBase> Foreign<M> {
         let ptr = NonNull::new(ptr).ok_or(FromRawError::Null)?;
         let foreign = Self(ptr);
         if let Some(version) = unsafe { ptr.as_ref() }.version() {
-            crate::managed_tensor::validate_version(version)?;
+            crate::version::validate_version(version)?;
         }
         Ok(foreign)
     }
