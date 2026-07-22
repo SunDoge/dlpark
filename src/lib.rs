@@ -22,7 +22,11 @@
 //! exposes version and flags.
 //!
 //! [DLPack]: https://dmlc.github.io/dlpack/latest/
-
+#![allow(
+    missing_docs,
+    rustdoc::broken_intra_doc_links,
+    rustdoc::invalid_html_tags
+)]
 pub mod ffi;
 
 pub mod allocation;
@@ -31,6 +35,8 @@ mod context;
 mod convert;
 mod data_type;
 mod device;
+mod version;
+
 /// Owning managed-tensor handles and data accessors.
 pub mod dlpack;
 /// Adapters for supported Rust tensor and image libraries.
@@ -44,16 +50,13 @@ pub mod python;
 /// Validation and data access methods for raw `DLTensor` values.
 pub mod tensor;
 
-/// Legacy `DLManagedTensor` ownership type.
-pub mod legacy;
 /// Shape and stride metadata composed with managed tensor allocations.
 pub mod metadata;
-/// Versioned `DLManagedTensorVersioned` ownership type.
-pub mod versioned;
 
 pub use borrowed::Borrowed;
 pub use context::OpaqueContext;
 pub use convert::TryFromDlpack;
 pub use data_type::DlpackElement;
 pub use dlpack::{Foreign, Local};
-pub use managed_tensor::{DlpackFlags, ManagedTensorBase, VersionError};
+pub use managed_tensor::{DlpackFlags, ManagedTensorBase};
+pub use version::VersionError;
