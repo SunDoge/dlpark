@@ -12,9 +12,9 @@ pub struct VersionError {
 }
 
 pub(crate) fn validate_version(version: DLPackVersion) -> Result<(), VersionError> {
-    if version.major != crate::ffi::DLPACK_MAJOR_VERSION {
+    if !version.is_compatible_with(DLPackVersion::CURRENT) {
         return Err(VersionError {
-            expected: crate::ffi::DLPACK_MAJOR_VERSION,
+            expected: DLPackVersion::CURRENT.major,
             actual: version.major,
         });
     }
@@ -23,10 +23,40 @@ pub(crate) fn validate_version(version: DLPackVersion) -> Result<(), VersionErro
 
 impl Default for DLPackVersion {
     fn default() -> Self {
-        Self {
-            major: crate::ffi::DLPACK_MAJOR_VERSION,
-            minor: crate::ffi::DLPACK_MINOR_VERSION,
-        }
+        Self::CURRENT
+    }
+}
+
+impl DLPackVersion {
+    /// The DLPack version provided by the bundled headers.
+    pub const CURRENT: Self = Self {
+        major: crate::ffi::DLPACK_MAJOR_VERSION,
+        minor: crate::ffi::DLPACK_MINOR_VERSION,
+    };
+
+    /// Returns whether two versions use a compatible ABI.
+    pub const fn is_compatible_with(self, other: Self) -> bool {
+        self.major == other.major
+    }
+
+    /// Returns whether this version includes the requested feature level.
+    pub const fn supports(self, required: Self) -> bool {
+        self.major == required.major && self.minor >= required.minor
+    }
+}
+
+impl PartialEq for DLPackVersion {
+    fn eq(&self, other: &Self) -> bool {
+        self.major == other.major && self.minor == other.minor
+    }
+}
+
+impl Eq for DLPackVersion {}
+
+impl std::hash::Hash for DLPackVersion {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        std::hash::Hash::hash(&self.major, state);
+        std::hash::Hash::hash(&self.minor, state);
     }
 }
 
@@ -206,5 +236,30 @@ unsafe impl ManagedTensorBase for DLManagedTensorVersioned {
     #[inline]
     fn flags(&self) -> DlpackFlags {
         self.flags
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn version_comparisons_are_semantic() {
+        let current = DLPackVersion::CURRENT;
+        let newer_minor = DLPackVersion {
+            major: current.major,
+            minor: current.minor + 1,
+        };
+        let other_major = DLPackVersion {
+            major: current.major + 1,
+            minor: 0,
+        };
+
+        assert!(current.is_compatible_with(newer_minor));
+        assert!(newer_minor.supports(current));
+        assert!(!current.supports(newer_minor));
+        assert!(!current.is_compatible_with(other_major));
+        assert!(!current.supports(other_major));
+        assert_eq!(DLPackVersion::default(), current);
     }
 }
