@@ -29,13 +29,12 @@ pub mod allocation;
 mod borrowed;
 mod context;
 mod convert;
+mod data_type;
+mod device;
 /// Owning managed-tensor handles and data accessors.
 pub mod dlpack;
 /// Adapters for supported Rust tensor and image libraries.
 pub mod interop;
-
-mod data_type;
-mod device;
 
 mod managed_tensor;
 #[cfg(feature = "pyo3")]
