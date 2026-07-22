@@ -1,6 +1,6 @@
 //! Runtime-sized extra metadata allocation.
 
-use super::{Error, allocate, empty_tensor, initialized_accessors};
+use super::{Error, allocate, empty_tensor};
 use crate::{ManagedBox, ManagedTensorBase, OpaqueContext};
 use std::{alloc::Layout, mem::ManuallyDrop, ptr::NonNull};
 
@@ -53,10 +53,12 @@ impl<M: ManagedTensorBase> Allocation<M> {
                 ctx.into_raw(),
                 Some(drop_allocation::<C, M>),
             ));
-            Ok(Initialized {
+            Ok(super::Initialized {
                 managed: ManagedBox::new_unchecked(this.managed.as_ptr()),
-                extra: this.extra,
-                extra_len: this.extra_len,
+                storage: Metadata {
+                    extra: this.extra,
+                    extra_len: this.extra_len,
+                },
             })
         }
     }
@@ -68,20 +70,22 @@ impl<M> Drop for Allocation<M> {
     }
 }
 
-/// An initialized dynamically sized allocation.
-pub struct Initialized<M: ManagedTensorBase> {
-    pub(super) managed: ManagedBox<M>,
+/// Metadata retained by an initialized dynamically sized allocation.
+pub struct Metadata {
     extra: NonNull<i64>,
     extra_len: usize,
 }
 
-impl<M: ManagedTensorBase> Initialized<M> {
+/// An initialized dynamically sized allocation.
+pub type Initialized<M> = super::Initialized<M, Metadata>;
+
+impl<M: ManagedTensorBase> super::Initialized<M, Metadata> {
     /// Returns the extra metadata buffer.
     pub fn extra_mut(&mut self) -> &mut [i64] {
-        unsafe { std::slice::from_raw_parts_mut(self.extra.as_ptr(), self.extra_len) }
+        unsafe {
+            std::slice::from_raw_parts_mut(self.storage.extra.as_ptr(), self.storage.extra_len)
+        }
     }
-
-    initialized_accessors!();
 }
 
 struct Parts {

@@ -1,6 +1,6 @@
 //! Fixed-rank metadata allocation without generic const expressions.
 
-use super::{Error, allocate, empty_tensor, initialized_accessors};
+use super::{Error, allocate, empty_tensor};
 use crate::{ManagedBox, ManagedTensorBase, OpaqueContext};
 use std::{alloc::Layout, mem::ManuallyDrop, ptr::NonNull};
 
@@ -97,10 +97,12 @@ where
                 ctx.into_raw(),
                 Some(drop_allocation::<C, M, N, Shape, Strides>),
             ));
-            Initialized {
+            super::Initialized {
                 managed: ManagedBox::new_unchecked(this.managed.as_ptr()),
-                shape: this.shape,
-                strides: this.strides,
+                storage: Metadata {
+                    shape: this.shape,
+                    strides: this.strides,
+                },
             }
         }
     }
@@ -114,19 +116,17 @@ impl<M, const N: usize, Shape: Storage<N>, Strides: Storage<N>> Drop
     }
 }
 
-/// An initialized fixed-rank allocation.
-pub struct Initialized<
-    M: ManagedTensorBase,
-    const N: usize,
-    Shape: Storage<N> = Copied,
-    Strides: Storage<N> = Copied,
-> {
-    pub(super) managed: ManagedBox<M>,
+/// Metadata retained by an initialized fixed-rank allocation.
+pub struct Metadata<const N: usize, Shape: Storage<N> = Copied, Strides: Storage<N> = Copied> {
     shape: NonNull<Shape::Value>,
     strides: NonNull<Strides::Value>,
 }
 
-impl<M, const N: usize, Shape, Strides> Initialized<M, N, Shape, Strides>
+/// An initialized fixed-rank allocation.
+pub type Initialized<M, const N: usize, Shape = Copied, Strides = Copied> =
+    super::Initialized<M, Metadata<N, Shape, Strides>>;
+
+impl<M, const N: usize, Shape, Strides> super::Initialized<M, Metadata<N, Shape, Strides>>
 where
     M: ManagedTensorBase,
     Shape: Storage<N>,
@@ -134,15 +134,13 @@ where
 {
     /// Returns the selected shape storage.
     pub fn shape_storage_mut(&mut self) -> &mut Shape::Value {
-        unsafe { self.shape.as_mut() }
+        unsafe { self.storage.shape.as_mut() }
     }
 
     /// Returns the selected strides storage.
     pub fn strides_storage_mut(&mut self) -> &mut Strides::Value {
-        unsafe { self.strides.as_mut() }
+        unsafe { self.storage.strides.as_mut() }
     }
-
-    initialized_accessors!();
 }
 
 impl<M: ManagedTensorBase, const N: usize, Strides: Storage<N>> Allocation<M, N, Copied, Strides> {
@@ -157,13 +155,17 @@ impl<M: ManagedTensorBase, const N: usize, Shape: Storage<N>> Allocation<M, N, S
     }
 }
 
-impl<M: ManagedTensorBase, const N: usize, Strides: Storage<N>> Initialized<M, N, Copied, Strides> {
+impl<M: ManagedTensorBase, const N: usize, Strides: Storage<N>>
+    super::Initialized<M, Metadata<N, Copied, Strides>>
+{
     pub fn shape_mut(&mut self) -> &mut [i64; N] {
         self.shape_storage_mut()
     }
 }
 
-impl<M: ManagedTensorBase, const N: usize, Shape: Storage<N>> Initialized<M, N, Shape, Copied> {
+impl<M: ManagedTensorBase, const N: usize, Shape: Storage<N>>
+    super::Initialized<M, Metadata<N, Shape, Copied>>
+{
     pub fn strides_mut(&mut self) -> &mut [i64; N] {
         self.strides_storage_mut()
     }
