@@ -1,8 +1,13 @@
 //! Shape and stride metadata composed with managed tensor allocations.
 
 use snafu::Snafu;
-mod composed;
-pub use composed::{Borrowed, Copied, Dynamic, Fixed, PreparedDynamic, PreparedFixed};
+mod dynamic;
+mod fixed;
+mod storage;
+
+pub use dynamic::{Dynamic, PreparedDynamic};
+pub use fixed::{Fixed, PreparedFixed};
+pub use storage::{Borrowed, Copied};
 
 #[derive(Debug, Snafu)]
 pub enum Error {
