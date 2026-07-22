@@ -39,6 +39,19 @@ impl<M: ManagedTensorBase> Local<M> {
     pub fn as_ptr(&self) -> *mut M {
         self.0.as_ptr()
     }
+
+    /// Drops the trusted-descriptor guarantee and treats this tensor as foreign.
+    ///
+    /// Ownership and destruction remain valid; only the descriptor's
+    /// trustworthiness is relinquished. Use this when feeding a locally
+    /// produced tensor into a consumer-side conversion that revalidates its
+    /// fields. The reverse direction is [`Foreign::assume_valid`], which is
+    /// `unsafe` because it asserts the descriptor satisfies the DLPack contract.
+    pub fn into_foreign(self) -> Foreign<M> {
+        let ptr = self.0.as_ptr();
+        std::mem::forget(self);
+        unsafe { Foreign::from_raw_unchecked(ptr) }
+    }
 }
 
 /// An owning handle to a managed tensor received from external code.
@@ -49,7 +62,6 @@ impl<M: ManagedTensorBase> Local<M> {
 pub struct Foreign<M: ManagedTensorBase>(NonNull<M>);
 
 impl<M: ManagedTensorBase> Foreign<M> {
-    #[cfg(feature = "pyo3")]
     pub(crate) unsafe fn from_raw_unchecked(ptr: *mut M) -> Self {
         Self(unsafe { NonNull::new_unchecked(ptr) })
     }
@@ -84,7 +96,7 @@ impl<M: ManagedTensorBase> Foreign<M> {
     /// The managed tensor and every pointer in its embedded descriptor must
     /// satisfy the DLPack contract for the remainder of its lifetime. The
     /// descriptor must not be concurrently mutated through another alias.
-    pub unsafe fn assume_valid(self) -> Local<M> {
+    pub unsafe fn into_local(self) -> Local<M> {
         unsafe { Local::from_raw_unchecked(self.into_raw()) }
     }
 
@@ -96,6 +108,17 @@ impl<M: ManagedTensorBase> Foreign<M> {
     /// and are not concurrently mutated for the returned reference's lifetime.
     pub unsafe fn tensor(&self) -> &crate::ffi::DLTensor {
         unsafe { (&*self.0.as_ptr()).tensor() }
+    }
+
+    /// Returns the DLPack bitmask flags.
+    ///
+    /// Reading the inline `u64` field is safe — it involves no external pointer
+    /// dereference, unlike [`Self::shape`] or [`Self::strides`]. The *value* is
+    /// untrusted (a producer may misreport `IS_COPIED`), but that is a logical
+    /// concern, not a memory-safety one. Only the versioned ABI carries flags;
+    /// the legacy ABI returns empty flags.
+    pub fn flags(&self) -> crate::DlpackFlags {
+        unsafe { (&*self.0.as_ptr()).flags() }
     }
 
     /// Returns the foreign shape.

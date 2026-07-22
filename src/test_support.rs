@@ -28,28 +28,3 @@ where
     initialized.set_flags_unchecked(flags);
     unsafe { initialized.finish() }
 }
-
-pub(crate) fn fixed_local<C, M, const N: usize>(
-    ctx: C,
-    data: *mut c_void,
-    dtype: DLDataType,
-    device: DLDevice,
-    shape: [i64; N],
-    strides: [i64; N],
-    flags: DlpackFlags,
-) -> crate::Local<M>
-where
-    C: OpaqueContext,
-    M: ManagedTensorBase,
-{
-    fixed_tensor(ctx, data, dtype, device, shape, strides, flags)
-}
-
-pub(crate) fn managed<M, Storage>(
-    initialized: crate::allocation::Initialized<M, Storage>,
-) -> crate::Local<M>
-where
-    M: ManagedTensorBase,
-{
-    unsafe { initialized.finish() }
-}

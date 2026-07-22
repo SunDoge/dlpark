@@ -17,7 +17,6 @@ fn read_image(filename: &str) -> PyResult<Local<DLManagedTensorVersioned>> {
 fn write_image(filename: &str, tensor: Foreign<DLManagedTensorVersioned>) -> PyResult<()> {
     // SAFETY: this extension accepts tensors through the Python DLPack
     // protocol and relies on the producer to provide a valid descriptor.
-    let tensor = unsafe { tensor.assume_valid() };
     let rgb_img: ImageBuffer<Rgb<u8>, _> = (&tensor)
         .try_into()
         .map_err(|err: dlpark::interop::image::Error| PyValueError::new_err(err.to_string()))?;

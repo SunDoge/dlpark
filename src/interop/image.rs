@@ -5,19 +5,20 @@
 //! compact layout before exposing the DLPack data as image storage.
 //!
 //! ```
-//! use dlpark::{Local, allocation::fixed, ffi::DLManagedTensorVersioned};
+//! use dlpark::{Foreign, allocation::fixed, ffi::DLManagedTensorVersioned};
 //! use image::{ImageBuffer, Rgb};
 //!
 //! let image = ImageBuffer::<Rgb<u8>, _>::from_raw(1, 1, vec![10, 20, 30]).unwrap();
-//! let initialized: fixed::Initialized<DLManagedTensorVersioned, 3> = Box::new(image).into();
-//! let dlpack: Local<DLManagedTensorVersioned> = unsafe { initialized.finish() };
+//! let initialized: fixed::Initialized<DLManagedTensorVersioned, 3> = Box::new(image).try_into()?;
+//! let dlpack: Foreign<DLManagedTensorVersioned> =
+//!     unsafe { initialized.finish() }.into_foreign();
 //! let image = ImageBuffer::<Rgb<u8>, &[u8]>::try_from(&dlpack)?;
 //! assert_eq!(image.get_pixel(0, 0).0, [10, 20, 30]);
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
 use crate::{
-    DlpackElement, DlpackFlags, Local, ManagedTensorBase,
+    DlpackElement, DlpackFlags, Foreign, ManagedTensorBase,
     allocation::fixed,
     ffi::DLDevice,
     metadata::{Copied, Fixed},
@@ -107,12 +108,13 @@ where
 
         let prepared = Fixed::new(Copied(shape), Copied(strides)).prepare::<M>()?;
         let mut initialized = prepared.initialize(img);
-        initialized.set_data(data_ptr);
-        initialized.set_dtype(P::Subpixel::DTYPE);
-        initialized.set_device(DLDevice::CPU);
-        // SAFETY: `img` was moved in above and its `Vec`-backed pixel buffer
-        // has no other live references.
-        initialized.set_flags_unchecked(DlpackFlags::IS_COPIED);
+        initialized
+            .set_data(data_ptr)
+            .set_dtype(P::Subpixel::DTYPE)
+            .set_device(DLDevice::CPU)
+            // SAFETY: `img` was moved in above and its `Vec`-backed pixel buffer
+            // has no other live references.
+            .set_flags_unchecked(DlpackFlags::IS_COPIED);
         Ok(initialized)
     }
 }
@@ -124,7 +126,7 @@ where
 // and cannot outlive it.
 // ---------------------------------------------------------------------------
 
-impl<'a, P, M> TryFrom<&'a Local<M>> for ImageBuffer<P, &'a [P::Subpixel]>
+impl<'a, P, M> TryFrom<&'a Foreign<M>> for ImageBuffer<P, &'a [P::Subpixel]>
 where
     P: Pixel,
     P::Subpixel: DlpackElement,
@@ -132,8 +134,8 @@ where
 {
     type Error = Error;
 
-    fn try_from(dlpack: &'a Local<M>) -> Result<Self, Self::Error> {
-        let tensor = dlpack.tensor();
+    fn try_from(dlpack: &'a Foreign<M>) -> Result<Self, Self::Error> {
+        let tensor = unsafe { dlpack.tensor() };
         let layout = validated_hwc::<P>(tensor)?;
 
         let data_slice = unsafe {
@@ -151,10 +153,10 @@ where
 // exposes its pixel data as a slice through Deref. No data is copied.
 // ---------------------------------------------------------------------------
 
-/// An owned container that wraps a [`Local`] and exposes its raw data as a
+/// An owned container that wraps a [`Foreign`] and exposes its raw data as a
 /// `&[T]` slice, suitable for use as the backing store of an [`ImageBuffer`].
 pub struct DlpackContainer<M: ManagedTensorBase, T> {
-    dlpack: Local<M>,
+    dlpack: Foreign<M>,
     data_ptr: *const T,
     num_elements: usize,
     _marker: PhantomData<T>,
@@ -169,7 +171,7 @@ impl<M: ManagedTensorBase, T> Deref for DlpackContainer<M, T> {
     }
 }
 
-impl<P, M> TryFrom<Local<M>> for ImageBuffer<P, DlpackContainer<M, P::Subpixel>>
+impl<P, M> TryFrom<Foreign<M>> for ImageBuffer<P, DlpackContainer<M, P::Subpixel>>
 where
     P: Pixel,
     P::Subpixel: DlpackElement,
@@ -177,9 +179,9 @@ where
 {
     type Error = Error;
 
-    fn try_from(dlpack: Local<M>) -> Result<Self, Self::Error> {
+    fn try_from(dlpack: Foreign<M>) -> Result<Self, Self::Error> {
         let layout = {
-            let tensor = dlpack.tensor();
+            let tensor = unsafe { dlpack.tensor() };
             validated_hwc::<P>(tensor)?
         };
 
@@ -280,9 +282,10 @@ where
 mod tests {
     use super::*;
     use crate::{
+        Local,
         ffi::{DLManagedTensor, DLManagedTensorVersioned},
         legacy,
-        test_support::fixed_local,
+        test_support::fixed_tensor,
         versioned,
     };
     use image::Rgb;
@@ -343,7 +346,7 @@ mod tests {
     #[test]
     fn test_borrowed_roundtrip() {
         let img = ImageBuffer::<Rgb<u8>, _>::from_vec(4, 4, vec![42u8; 48]).unwrap();
-        let dlpack: legacy::Dlpack = image_tensor::<DLManagedTensor>(img, DlpackFlags::IS_COPIED);
+        let dlpack = image_tensor::<DLManagedTensor>(img, DlpackFlags::IS_COPIED).into_foreign();
 
         let img2 = ImageBuffer::<Rgb<u8>, _>::try_from(&dlpack).unwrap();
         assert_eq!(img2.width(), 4);
@@ -354,7 +357,7 @@ mod tests {
     #[test]
     fn test_owned_roundtrip() {
         let img = ImageBuffer::<Rgb<u8>, _>::from_vec(4, 4, vec![99u8; 48]).unwrap();
-        let dlpack: legacy::Dlpack = image_tensor::<DLManagedTensor>(img, DlpackFlags::IS_COPIED);
+        let dlpack = image_tensor::<DLManagedTensor>(img, DlpackFlags::IS_COPIED).into_foreign();
 
         let img2 = ImageBuffer::<Rgb<u8>, DlpackContainer<_, u8>>::try_from(dlpack).unwrap();
         assert_eq!(img2.width(), 4);
@@ -377,7 +380,7 @@ mod tests {
             .set_dtype(u8::DTYPE)
             .set_device(DLDevice::CPU)
             .set_byte_offset(1);
-        let dlpack = unsafe { initialized.finish() };
+        let dlpack = unsafe { initialized.finish() }.into_foreign();
 
         let img = ImageBuffer::<Rgb<u8>, _>::try_from(&dlpack).unwrap();
         assert_eq!(img.as_raw(), &[10, 20, 30]);
@@ -388,7 +391,7 @@ mod tests {
         let data = Box::new(vec![0u8; 3]);
         let shape = [1, 1, 3];
         let strides = [3, 3, 1];
-        let dlpack = fixed_local::<_, DLManagedTensor, 3>(
+        let dlpack = fixed_tensor::<_, DLManagedTensor, 3>(
             data,
             std::ptr::null_mut(),
             u8::DTYPE,
@@ -396,7 +399,8 @@ mod tests {
             shape,
             strides,
             DlpackFlags::empty(),
-        );
+        )
+        .into_foreign();
 
         let err = ImageBuffer::<Rgb<u8>, _>::try_from(&dlpack).unwrap_err();
         assert!(matches!(
@@ -413,7 +417,7 @@ mod tests {
         let data_ptr = data.as_ptr() as *mut c_void;
         let shape = [1, 1, 3];
         let strides = [6, 3, 1];
-        let dlpack = fixed_local::<_, DLManagedTensor, 3>(
+        let dlpack = fixed_tensor::<_, DLManagedTensor, 3>(
             data,
             data_ptr,
             u8::DTYPE,
@@ -421,7 +425,8 @@ mod tests {
             shape,
             strides,
             DlpackFlags::empty(),
-        );
+        )
+        .into_foreign();
 
         let err = ImageBuffer::<Rgb<u8>, _>::try_from(&dlpack).unwrap_err();
         assert!(matches!(err, Error::UnsupportedStrides { .. }));

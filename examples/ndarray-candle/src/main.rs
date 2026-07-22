@@ -1,5 +1,5 @@
 use candle_core::Tensor;
-use dlpark::{Local, allocation::dynamic, ffi::DLManagedTensorVersioned};
+use dlpark::{Foreign, allocation::dynamic, ffi::DLManagedTensorVersioned};
 use ndarray::{Array2, ArrayViewD};
 use snafu::{ResultExt, Whatever};
 
@@ -12,7 +12,7 @@ fn main() -> Result<(), Whatever> {
     let initialized: dynamic::Initialized<DLManagedTensorVersioned> = Box::new(array)
         .try_into()
         .whatever_context("ndarray -> DLPack failed")?;
-    let dlpack: Local<DLManagedTensorVersioned> = unsafe { initialized.finish() };
+    let dlpack: Foreign<DLManagedTensorVersioned> = unsafe { initialized.finish() }.into_foreign();
 
     // DLPack -> candle::Tensor: a copy, candle has no borrowed CPU tensor type.
     let tensor = Tensor::try_from(&dlpack).whatever_context("DLPack -> candle::Tensor failed")?;
@@ -31,7 +31,8 @@ fn main() -> Result<(), Whatever> {
         Box::new(tensor)
             .try_into()
             .whatever_context("candle::Tensor -> DLPack failed")?;
-    let dlpack_back: Local<DLManagedTensorVersioned> = unsafe { initialized.finish() };
+    let dlpack_back: Foreign<DLManagedTensorVersioned> =
+        unsafe { initialized.finish() }.into_foreign();
 
     // DLPack -> ndarray view: zero-copy.
     let view = ArrayViewD::<f32>::try_from(&dlpack_back)

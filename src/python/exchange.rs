@@ -220,7 +220,7 @@ mod tests {
     use crate::{
         ManagedTensorBase,
         ffi::{DLDataType, DLDevice, DLDeviceType, DLPACK_MINOR_VERSION, DLPackVersion},
-        test_support::{fixed_local, fixed_tensor},
+        test_support::fixed_tensor,
     };
     use pyo3::conversion::FromPyObject;
     use pyo3::types::{PyAnyMethods, PyModule};
@@ -242,7 +242,7 @@ mod tests {
     ) -> c_int {
         let data = Box::new(vec![7i32, 8, 9]);
         let data_ptr = data.as_ptr() as *mut c_void;
-        let raw = fixed_local::<_, DLManagedTensorVersioned, 1>(
+        let raw = fixed_tensor::<_, DLManagedTensorVersioned, 1>(
             data,
             data_ptr,
             DLDataType::of::<i32>(),
@@ -401,7 +401,7 @@ class MockTensor:
             let api = DlpackExchangeApiRef { api };
             let data = Box::new(vec![7i32, 8, 9]);
             let data_ptr = data.as_ptr() as *mut c_void;
-            let tensor = fixed_local::<_, DLManagedTensorVersioned, 1>(
+            let tensor = fixed_tensor::<_, DLManagedTensorVersioned, 1>(
                 data,
                 data_ptr,
                 DLDataType::of::<i32>(),

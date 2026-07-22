@@ -4,21 +4,21 @@
 //! values. Shape and strides are copied into the managed allocation.
 //!
 //! ```
-//! use dlpark::{Local, allocation::dynamic, ffi::DLManagedTensorVersioned};
+//! use dlpark::{Foreign, allocation::dynamic, ffi::DLManagedTensorVersioned};
 //! use ndarray::{ArrayViewD, arr2};
 //!
 //! let initialized: dynamic::Initialized<DLManagedTensorVersioned> =
 //!     Box::new(arr2(&[[1_i32, 2], [3, 4]])).try_into()?;
-//! let dlpack: Local<DLManagedTensorVersioned> = unsafe { initialized.finish() };
+//! let dlpack: Foreign<DLManagedTensorVersioned> =
+//!     unsafe { initialized.finish() }.into_foreign();
 //! let view = ArrayViewD::<i32>::try_from(&dlpack)?;
 //! assert_eq!(view[[1, 0]], 3);
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
 use crate::{
-    DlpackElement, DlpackFlags,
+    DlpackElement, DlpackFlags, Foreign,
     allocation::dynamic,
-    dlpack::Local,
     ffi::DLDevice,
     managed_tensor::ManagedTensorBase,
     metadata::{Copied, Dynamic},
@@ -84,15 +84,15 @@ where
     }
 }
 
-impl<'a, T, M> TryFrom<&'a Local<M>> for ArrayViewD<'a, T>
+impl<'a, T, M> TryFrom<&'a Foreign<M>> for ArrayViewD<'a, T>
 where
     T: DlpackElement,
     M: ManagedTensorBase,
 {
     type Error = Error;
 
-    fn try_from(dlpack: &'a Local<M>) -> Result<Self, Self::Error> {
-        let tensor = dlpack.tensor();
+    fn try_from(dlpack: &'a Foreign<M>) -> Result<Self, Self::Error> {
+        let tensor = unsafe { dlpack.tensor() };
         let (shape, strides) = shape_and_strides(tensor)?;
         let ptr = unsafe { tensor.offset_data_ptr::<T>()? };
         validate_strided_span(&shape, &strides)?;
@@ -100,14 +100,14 @@ where
     }
 }
 
-impl<'a, T, M> TryFrom<&'a mut Local<M>> for ArrayViewMutD<'a, T>
+impl<'a, T, M> TryFrom<&'a mut Foreign<M>> for ArrayViewMutD<'a, T>
 where
     T: DlpackElement,
     M: ManagedTensorBase,
 {
     type Error = Error;
 
-    fn try_from(dlpack: &'a mut Local<M>) -> Result<Self, Self::Error> {
+    fn try_from(dlpack: &'a mut Foreign<M>) -> Result<Self, Self::Error> {
         if !dlpack.flags().contains(DlpackFlags::IS_COPIED) {
             return Err(crate::tensor::Error::NotCopied.into());
         }
@@ -125,11 +125,11 @@ where
 ///
 /// The caller must ensure that no other references access the underlying
 /// data for the lifetime of the returned view. Exclusive access to this
-/// `Local` alone does not prove that the producer has no aliases.
+/// `Foreign` alone does not prove that the producer has no aliases.
 /// Prefer [`ArrayViewMutD::try_from`], which additionally requires
 /// [`DlpackFlags::IS_COPIED`] and needs no `unsafe` block.
 pub unsafe fn array_view_from_dlpack_mut_unchecked<'a, T, M>(
-    dlpack: &'a mut Local<M>,
+    dlpack: &'a mut Foreign<M>,
 ) -> Result<ArrayViewMutD<'a, T>, Error>
 where
     T: DlpackElement,
@@ -139,7 +139,7 @@ where
         return Err(crate::tensor::Error::ReadOnly.into());
     }
 
-    let tensor = dlpack.tensor();
+    let tensor = unsafe { dlpack.tensor() };
     let (shape, strides) = shape_and_strides(tensor)?;
     validate_non_overlapping(&shape, &strides)?;
     let ptr = unsafe { tensor.offset_data_ptr::<T>()? }.cast_mut();
@@ -230,7 +230,7 @@ mod tests {
         M: ManagedTensorBase,
     {
         let initialized: dynamic::Initialized<M> = Box::new(array).try_into().unwrap();
-        test_support::managed(initialized)
+        unsafe { initialized.finish() }
     }
 
     fn managed_array_with_flags<T, D, M>(
@@ -244,7 +244,7 @@ mod tests {
     {
         let mut initialized: dynamic::Initialized<M> = Box::new(array).try_into().unwrap();
         initialized.set_flags_unchecked(flags);
-        test_support::managed(initialized)
+        unsafe { initialized.finish() }
     }
 
     /// A `[[1, 2, 3], [4, 5, 6]]` legacy tensor. Legacy tensors have no flags
@@ -340,7 +340,7 @@ mod tests {
 
     #[test]
     fn borrowed_dlpack_to_ndarray_view_is_zero_copy() {
-        let dlpack = legacy_2x3_dlpack();
+        let dlpack = legacy_2x3_dlpack().into_foreign();
         let view = ArrayViewD::<i32>::try_from(&dlpack).unwrap();
 
         assert_eq!(view.shape(), &[2, 3]);
@@ -350,7 +350,7 @@ mod tests {
 
     #[test]
     fn borrowed_dlpack_to_ndarray_view_preserves_strides() {
-        let dlpack = legacy_3x2_transposed_dlpack();
+        let dlpack = legacy_3x2_transposed_dlpack().into_foreign();
         let view = ArrayViewD::<i32>::try_from(&dlpack).unwrap();
 
         assert_eq!(view.shape(), &[3, 2]);
@@ -360,7 +360,7 @@ mod tests {
 
     #[test]
     fn borrowed_dlpack_to_mut_ndarray_view_unchecked_writes_through() {
-        let mut dlpack = legacy_2x3_dlpack();
+        let mut dlpack = legacy_2x3_dlpack().into_foreign();
         let mut view =
             unsafe { array_view_from_dlpack_mut_unchecked::<i32, _>(&mut dlpack).unwrap() };
 
@@ -376,7 +376,7 @@ mod tests {
 
     #[test]
     fn borrowed_dlpack_to_mut_ndarray_view_unchecked_preserves_strides() {
-        let mut dlpack = legacy_3x2_transposed_dlpack();
+        let mut dlpack = legacy_3x2_transposed_dlpack().into_foreign();
         let mut view =
             unsafe { array_view_from_dlpack_mut_unchecked::<i32, _>(&mut dlpack).unwrap() };
 
@@ -390,7 +390,7 @@ mod tests {
 
     #[test]
     fn mut_ndarray_view_unchecked_rejects_read_only_tensor() {
-        let mut dlpack = versioned_2x3_dlpack(DlpackFlags::READ_ONLY);
+        let mut dlpack = versioned_2x3_dlpack(DlpackFlags::READ_ONLY).into_foreign();
 
         let error =
             unsafe { array_view_from_dlpack_mut_unchecked::<i32, _>(&mut dlpack) }.unwrap_err();
@@ -405,7 +405,7 @@ mod tests {
 
     #[test]
     fn mut_ndarray_view_updates_is_copied_tensor_without_unsafe() {
-        let mut dlpack = versioned_2x3_dlpack(DlpackFlags::IS_COPIED);
+        let mut dlpack = versioned_2x3_dlpack(DlpackFlags::IS_COPIED).into_foreign();
 
         let mut view = ArrayViewMutD::<i32>::try_from(&mut dlpack).unwrap();
         view[[1, 2]] = 42;
@@ -418,7 +418,7 @@ mod tests {
 
     #[test]
     fn mut_ndarray_view_rejects_tensor_without_is_copied() {
-        let mut dlpack = versioned_2x3_dlpack(DlpackFlags::empty());
+        let mut dlpack = versioned_2x3_dlpack(DlpackFlags::empty()).into_foreign();
 
         let error = ArrayViewMutD::<i32>::try_from(&mut dlpack).unwrap_err();
 
@@ -434,7 +434,7 @@ mod tests {
     fn mut_ndarray_view_rejects_overlapping_strides() {
         let data = Box::new(vec![1i32, 2]);
         let data_ptr = data.as_ptr().cast_mut().cast();
-        let mut dlpack = test_support::fixed_local::<_, crate::ffi::DLManagedTensorVersioned, 2>(
+        let mut dlpack = test_support::fixed_tensor::<_, crate::ffi::DLManagedTensorVersioned, 2>(
             data,
             data_ptr,
             <i32 as DlpackElement>::DTYPE,
@@ -442,7 +442,8 @@ mod tests {
             [2, 2],
             [0, 1],
             DlpackFlags::IS_COPIED,
-        );
+        )
+        .into_foreign();
 
         assert!(matches!(
             ArrayViewMutD::<i32>::try_from(&mut dlpack),
@@ -452,7 +453,7 @@ mod tests {
 
     #[test]
     fn mut_ndarray_view_rejects_legacy_tensor_as_never_copied() {
-        let mut dlpack = legacy_2x3_dlpack();
+        let mut dlpack = legacy_2x3_dlpack().into_foreign();
 
         let error = ArrayViewMutD::<i32>::try_from(&mut dlpack).unwrap_err();
 
@@ -466,7 +467,7 @@ mod tests {
 
     #[test]
     fn try_into_mut_ndarray_view_requires_is_copied() {
-        let mut dlpack = versioned_2x3_dlpack(DlpackFlags::IS_COPIED);
+        let mut dlpack = versioned_2x3_dlpack(DlpackFlags::IS_COPIED).into_foreign();
 
         let mut view = ArrayViewMutD::<i32>::try_from(&mut dlpack).unwrap();
         view[[1, 2]] = 42;
@@ -481,6 +482,7 @@ mod tests {
     fn sliced_owned_ndarray_to_dlpack_exports_non_standard_strides() {
         let array = Array::from_shape_vec((2, 2).strides((4, 2)), (0i32..7).collect()).unwrap();
         let dlpack: legacy::Dlpack = managed_array(array);
+        let dlpack = dlpack.into_foreign();
         let view = ArrayViewD::<i32>::try_from(&dlpack).unwrap();
 
         assert_eq!(view.shape(), &[2, 2]);

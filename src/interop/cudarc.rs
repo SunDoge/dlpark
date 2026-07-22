@@ -12,7 +12,7 @@
 //! deleter fires. Because ownership is transferred without any remaining Rust
 //! views, the initialized allocation starts with [`crate::DlpackFlags::IS_COPIED`].
 //!
-//! # `to_cuda_slice` direction (`Local` → [`crate::interop::cudarc::BorrowedCudaSlice`])
+//! # `to_cuda_slice` direction (`Foreign` → [`crate::interop::cudarc::BorrowedCudaSlice`])
 //!
 //! `upgrade_device_ptr` wraps the DLPack tensor's raw device pointer into a
 //! proper `CudaSlice<T>`. Because the DLPack tensor owns that allocation, we
@@ -23,8 +23,8 @@
 //! is dropped.
 //!
 //! Unlike the forward direction, this conversion takes a single owned
-//! `Local<M>` and can fail, so it is exposed as
-//! `TryFrom<Local<M>> for BorrowedCudaSlice<M, T>`.
+//! `Foreign<M>` and can fail, so it is exposed as
+//! `TryFrom<Foreign<M>> for BorrowedCudaSlice<M, T>`.
 //!
 //! ## Why not return `CudaView<T>`?
 //!
@@ -62,9 +62,8 @@
 //! is responsible for explicit synchronization.
 
 use crate::{
-    Borrowed, DlpackElement, DlpackFlags,
+    Borrowed, DlpackElement, DlpackFlags, Foreign,
     allocation::{dynamic, fixed},
-    dlpack::Local,
     ffi::{DLDevice, DLDeviceType},
     managed_tensor::ManagedTensorBase,
     metadata::{Copied, Dynamic, Fixed},
@@ -184,23 +183,23 @@ pub fn from_cuda_slice<T: DlpackElement, M: ManagedTensorBase>(
 }
 
 // ---------------------------------------------------------------------------
-// Reverse: Local<M> → BorrowedCudaSlice<M, T>
+// Reverse: Foreign<M> → BorrowedCudaSlice<M, T>
 // ---------------------------------------------------------------------------
 
-/// A `CudaSlice<T>` view that also owns the backing [`Local`] tensor.
+/// A `CudaSlice<T>` view that also owns the backing [`Foreign`] tensor.
 ///
 /// Implements [`Deref<Target = CudaSlice<T>>`] so it can be passed directly
 /// to any cudarc API that takes `&CudaSlice<T>`.
 ///
 /// # Memory safety
 ///
-/// This type owns the [`Local`] rather than borrowing it. On drop, the
+/// This type owns the [`Foreign`] rather than borrowing it. On drop, the
 /// inner `CudaSlice<T>` view calls [`CudaSlice::leak`] instead of running its
-/// normal destructor, and is then dropped before the `Local`. This avoids
+/// normal destructor, and is then dropped before the `Foreign`. This avoids
 /// calling `cudaFree` directly while allowing the DLPack deleter to release the
 /// allocation through its original owner.
 pub struct BorrowedCudaSlice<M: ManagedTensorBase, T> {
-    inner: Borrowed<Local<M>, CudaSliceView<T>>,
+    inner: Borrowed<Foreign<M>, CudaSliceView<T>>,
 }
 
 struct CudaSliceView<T>(ManuallyDrop<CudaSlice<T>>);
@@ -222,7 +221,7 @@ impl<T> Deref for CudaSliceView<T> {
 
 impl<M: ManagedTensorBase, T> BorrowedCudaSlice<M, T> {
     /// Returns the managed tensor that owns the CUDA allocation.
-    pub fn dlpack(&self) -> &Local<M> {
+    pub fn dlpack(&self) -> &Foreign<M> {
         self.inner.owner()
     }
 }
@@ -235,7 +234,7 @@ impl<M: ManagedTensorBase, T> Deref for BorrowedCudaSlice<M, T> {
     }
 }
 
-/// Converts a [`Local`] tensor into an owning CUDA slice view.
+/// Converts a [`Foreign`] tensor into an owning CUDA slice view.
 ///
 /// Creates a new [`CudaContext`] and default stream for the tensor's device,
 /// then uses `CudaDevice::upgrade_device_ptr` to construct a `CudaSlice<T>` over the
@@ -243,7 +242,7 @@ impl<M: ManagedTensorBase, T> Deref for BorrowedCudaSlice<M, T> {
 ///
 /// The returned [`BorrowedCudaSlice`] implements `Deref<Target = CudaSlice<T>>`,
 /// so it can be passed to any cudarc API. It retains ownership of the input
-/// [`Local`] and releases it only after disabling the `CudaSlice`
+/// [`Foreign`] and releases it only after disabling the `CudaSlice`
 /// destructor with [`CudaSlice::leak`].
 ///
 /// # Errors
@@ -261,15 +260,15 @@ impl<M: ManagedTensorBase, T> Deref for BorrowedCudaSlice<M, T> {
 /// A fresh `CudaContext`/stream is created for the device. If the DLPack
 /// producer used a different stream, the caller must synchronize explicitly
 /// (e.g. via `cudaDeviceSynchronize`) before submitting GPU work.
-impl<T, M> TryFrom<Local<M>> for BorrowedCudaSlice<M, T>
+impl<T, M> TryFrom<Foreign<M>> for BorrowedCudaSlice<M, T>
 where
     T: DlpackElement,
     M: ManagedTensorBase,
 {
     type Error = Error;
 
-    fn try_from(dlpack: Local<M>) -> Result<Self, Self::Error> {
-        let tensor = dlpack.tensor();
+    fn try_from(dlpack: Foreign<M>) -> Result<Self, Self::Error> {
+        let tensor = unsafe { dlpack.tensor() };
         let (cu_device_ptr, len, device_id) = validated_cuda_parts::<T>(tensor)?;
 
         let ctx = CudaContext::new(device_id).map_err(|source| Error::Driver { source })?;

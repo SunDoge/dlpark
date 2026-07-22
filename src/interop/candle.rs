@@ -16,7 +16,7 @@
 //! default; set [`crate::DlpackFlags::READ_ONLY`] on the returned initialized
 //! allocation before finishing it when required.
 //!
-//! # Reverse direction (`&Local<M>` → `Tensor`)
+//! # Reverse direction (`&Foreign<M>` → `Tensor`)
 //!
 //! Always a copy: candle has no borrowed/strided CPU tensor view type, so a
 //! fresh contiguous `Vec<T>` is always built. Compact-stride sources take a
@@ -33,7 +33,7 @@
 //! doc for why per-element addressing doesn't make sense for them.
 
 use crate::{
-    Local, ManagedTensorBase,
+    Foreign, ManagedTensorBase,
     allocation::dynamic,
     ffi::{DLDataType, DLDataTypeCode, DLDevice},
     metadata::{Copied, Dynamic},
@@ -385,8 +385,10 @@ fn gather_strided_bytes(
 ///   `candle_dtype_from_dl` mapping.
 /// - Propagates [`crate::tensor::Error`] for device/null/offset issues (e.g.
 ///   the source tensor is not on CPU).
-pub fn candle_tensor_from_dlpack<M: ManagedTensorBase>(dlpack: &Local<M>) -> Result<Tensor, Error> {
-    let tensor = dlpack.tensor();
+pub fn candle_tensor_from_dlpack<M: ManagedTensorBase>(
+    dlpack: &Foreign<M>,
+) -> Result<Tensor, Error> {
+    let tensor = unsafe { dlpack.tensor() };
     let dl_dtype = tensor.dtype;
     let dtype =
         candle_dtype_from_dl(dl_dtype).ok_or(Error::UnsupportedDlDataType { dtype: dl_dtype })?;
@@ -420,13 +422,13 @@ pub fn candle_tensor_from_dlpack<M: ManagedTensorBase>(dlpack: &Local<M>) -> Res
     Ok(Tensor::from_raw_buffer(&bytes, dtype, &dims, &Device::Cpu)?)
 }
 
-impl<'a, M> TryFrom<&'a Local<M>> for Tensor
+impl<'a, M> TryFrom<&'a Foreign<M>> for Tensor
 where
     M: ManagedTensorBase,
 {
     type Error = Error;
 
-    fn try_from(dlpack: &'a Local<M>) -> Result<Self, Self::Error> {
+    fn try_from(dlpack: &'a Foreign<M>) -> Result<Self, Self::Error> {
         candle_tensor_from_dlpack(dlpack)
     }
 }
@@ -439,7 +441,7 @@ mod tests {
 
     fn managed_candle<M: ManagedTensorBase>(tensor: Tensor) -> Local<M> {
         let initialized: dynamic::Initialized<M> = Box::new(tensor).try_into().unwrap();
-        test_support::managed(initialized)
+        unsafe { initialized.finish() }
     }
 
     fn managed_candle_with_flags<M: ManagedTensorBase>(
@@ -448,7 +450,7 @@ mod tests {
     ) -> Local<M> {
         let mut initialized: dynamic::Initialized<M> = Box::new(tensor).try_into().unwrap();
         initialized.set_flags(flags).unwrap();
-        test_support::managed(initialized)
+        unsafe { initialized.finish() }
     }
 
     fn raw_tensor<T, const N: usize>(
@@ -456,13 +458,13 @@ mod tests {
         dtype: DLDataType,
         shape: [i64; N],
         strides: [i64; N],
-    ) -> Local<DLManagedTensor>
+    ) -> Foreign<DLManagedTensor>
     where
         T: Send + 'static,
     {
         let data = Box::new(data);
         let data_ptr = data.as_ptr().cast_mut().cast();
-        test_support::fixed_local(
+        test_support::fixed_tensor::<_, DLManagedTensor, N>(
             data,
             data_ptr,
             dtype,
@@ -471,6 +473,7 @@ mod tests {
             strides,
             DlpackFlags::empty(),
         )
+        .into_foreign()
     }
 
     #[test]
