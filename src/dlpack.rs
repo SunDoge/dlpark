@@ -7,28 +7,22 @@ use crate::ffi::{DLManagedTensorVersioned, DLPackVersion};
 use crate::tensor;
 use std::ptr::NonNull;
 
-/// Owning RAII handle for a DLPack managed tensor pointer.
+/// A managed tensor descriptor produced and initialized locally.
 ///
 /// Drops by calling the DLPack managed tensor deleter. If the managed tensor
 /// carries a NULL deleter (per the DLPack spec: the producer retains
 /// ownership and the consumer must not free it), `Drop` is a no-op and the
 /// allocation plus `manager_ctx` are *not* released — the caller that
 /// constructed such a tensor is responsible for reclaiming them through their
-/// original owner. `ManagedBox` therefore never calls a NULL deleter, which
+/// original owner. `Local` therefore never calls a NULL deleter, which
 /// preserves the producer-ownership contract but means drop is not always a
 /// full release.
-pub struct ManagedBox<M: ManagedTensorBase>(NonNull<M>);
-
-/// A managed tensor descriptor produced and initialized locally.
-///
-/// This newtype preserves the invariant that the descriptor was validated
-/// before construction and has not been exposed through a raw pointer since.
 #[repr(transparent)]
-pub struct Local<M: ManagedTensorBase>(ManagedBox<M>);
+pub struct Local<M: ManagedTensorBase>(NonNull<M>);
 
 impl<M: ManagedTensorBase> Local<M> {
-    pub(crate) unsafe fn from_managed(managed: ManagedBox<M>) -> Self {
-        Self(managed)
+    pub(crate) unsafe fn from_raw_unchecked(ptr: *mut M) -> Self {
+        Self(unsafe { NonNull::new_unchecked(ptr) })
     }
 
     /// Consumes the local tensor and transfers it through a raw pointer.
@@ -36,7 +30,9 @@ impl<M: ManagedTensorBase> Local<M> {
     /// A tensor reconstructed from this pointer must be treated as
     /// [`Foreign`], because external code may have changed its descriptor.
     pub fn into_raw(self) -> *mut M {
-        self.0.into_raw()
+        let ptr = self.0.as_ptr();
+        std::mem::forget(self);
+        ptr
     }
 
     /// Returns the managed tensor pointer without transferring ownership.
@@ -45,28 +41,19 @@ impl<M: ManagedTensorBase> Local<M> {
     }
 }
 
-impl<M: ManagedTensorBase> std::ops::Deref for Local<M> {
-    type Target = ManagedBox<M>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl<M: ManagedTensorBase> std::ops::DerefMut for Local<M> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
 /// An owning handle to a managed tensor received from external code.
 ///
 /// Only ownership and destruction are trusted. Descriptor fields and pointers
 /// remain untrusted and therefore require unsafe access.
 #[repr(transparent)]
-pub struct Foreign<M: ManagedTensorBase>(ManagedBox<M>);
+pub struct Foreign<M: ManagedTensorBase>(NonNull<M>);
 
 impl<M: ManagedTensorBase> Foreign<M> {
+    #[cfg(feature = "pyo3")]
+    pub(crate) unsafe fn from_raw_unchecked(ptr: *mut M) -> Self {
+        Self(unsafe { NonNull::new_unchecked(ptr) })
+    }
+
     /// Takes ownership of a foreign managed tensor pointer.
     ///
     /// # Safety
@@ -75,7 +62,7 @@ impl<M: ManagedTensorBase> Foreign<M> {
     /// caller. Its deleter, if present, must be valid to call exactly once and
     /// must not unwind. No validity is assumed for the embedded `DLTensor`.
     pub unsafe fn from_raw(ptr: *mut M) -> Option<Self> {
-        NonNull::new(ptr).map(|ptr| Self(ManagedBox(ptr)))
+        NonNull::new(ptr).map(Self)
     }
 
     /// Returns the foreign pointer without transferring ownership.
@@ -85,7 +72,20 @@ impl<M: ManagedTensorBase> Foreign<M> {
 
     /// Transfers ownership of the foreign tensor through its raw pointer.
     pub fn into_raw(self) -> *mut M {
-        self.0.into_raw()
+        let ptr = self.0.as_ptr();
+        std::mem::forget(self);
+        ptr
+    }
+
+    /// Treats this externally supplied tensor as a validated local tensor.
+    ///
+    /// # Safety
+    ///
+    /// The managed tensor and every pointer in its embedded descriptor must
+    /// satisfy the DLPack contract for the remainder of its lifetime. The
+    /// descriptor must not be concurrently mutated through another alias.
+    pub unsafe fn assume_valid(self) -> Local<M> {
+        unsafe { Local::from_raw_unchecked(self.into_raw()) }
     }
 
     /// Returns the untrusted embedded descriptor.
@@ -119,7 +119,7 @@ impl<M: ManagedTensorBase> Foreign<M> {
     }
 }
 
-impl<M> ManagedBox<M>
+impl<M> Local<M>
 where
     M: ManagedTensorBase,
 {
@@ -128,47 +128,12 @@ where
     /// # Safety
     ///
     /// If `ptr` is non-null, it must point to a valid `M` whose ownership is
-    /// transferred to the returned `ManagedBox`. The managed tensor must not
+    /// transferred to the returned `Local`. The managed tensor must not
     /// have been freed or wrapped by another owner, and its deleter, if
     /// present, must be valid to call exactly once and must not unwind.
     /// The embedded `DLTensor` pointers must satisfy the DLPack contract for
     /// the descriptor's shape, strides, dtype, device, and byte offset for the
     /// entire lifetime of the managed tensor.
-    pub unsafe fn new(ptr: *mut M) -> Option<Self> {
-        NonNull::new(ptr).map(ManagedBox)
-    }
-
-    /// Create a new `ManagedBox` from a raw pointer without checking if it is null.
-    ///
-    /// # Safety
-    ///
-    /// `ptr` must be non-null and point to a valid `M` whose ownership is
-    /// transferred to the returned `ManagedBox`. The managed tensor must not
-    /// have been freed or wrapped by another owner, and its deleter, if
-    /// present, must be valid to call exactly once and must not unwind.
-    /// The embedded `DLTensor` pointers must satisfy the DLPack contract for
-    /// the descriptor's shape, strides, dtype, device, and byte offset for the
-    /// entire lifetime of the managed tensor.
-    pub unsafe fn new_unchecked(ptr: *mut M) -> Self {
-        Self(unsafe { NonNull::new_unchecked(ptr) })
-    }
-
-    /// Consumes the `ManagedBox`, returning the wrapped raw pointer.
-    ///
-    /// The caller takes ownership of the managed tensor and is responsible for calling the FFI deleter later.
-    pub fn into_raw(self) -> *mut M {
-        let ptr = self.0.as_ptr();
-        std::mem::forget(self);
-        ptr
-    }
-
-    /// Returns the wrapped raw pointer without consuming the `ManagedBox`.
-    ///
-    /// The `ManagedBox` still owns the managed tensor and will call its deleter on drop.
-    pub fn as_ptr(&self) -> *mut M {
-        self.0.as_ptr()
-    }
-
     /// Returns the embedded raw tensor descriptor.
     #[inline]
     pub fn tensor(&self) -> &crate::ffi::DLTensor {
@@ -210,7 +175,7 @@ where
     ///
     /// The caller must ensure that no other references access the underlying
     /// data for the lifetime of the returned slice. Exclusive access to this
-    /// `ManagedBox` alone does not prove that the producer has no aliases.
+    /// `Local` alone does not prove that the producer has no aliases.
     pub unsafe fn cpu_slice_mut_unchecked<T: DlpackElement>(
         &mut self,
     ) -> Result<&mut [T], tensor::Error> {
@@ -236,7 +201,7 @@ where
     ///
     /// The caller must ensure that no other references access the underlying
     /// data for the lifetime of the returned slice. Exclusive access to this
-    /// `ManagedBox` alone does not prove that the producer has no aliases.
+    /// `Local` alone does not prove that the producer has no aliases.
     pub unsafe fn cpu_bytes_mut_unchecked(&mut self) -> Result<&mut [u8], tensor::Error> {
         if self.flags().contains(DlpackFlags::READ_ONLY) {
             return Err(tensor::Error::ReadOnly);
@@ -282,7 +247,7 @@ where
     }
 }
 
-impl<M> std::ops::Deref for ManagedBox<M>
+impl<M> std::ops::Deref for Local<M>
 where
     M: ManagedTensorBase,
 {
@@ -293,7 +258,7 @@ where
     }
 }
 
-impl ManagedBox<DLManagedTensorVersioned> {
+impl Local<DLManagedTensorVersioned> {
     /// Returns the DLPack bitmask flags (e.g. `READ_ONLY`, `IS_COPIED`).
     ///
     /// Only present on the versioned tensor ABI; the legacy `DLManagedTensor`
@@ -322,7 +287,7 @@ impl ManagedBox<DLManagedTensorVersioned> {
     }
 }
 
-impl<M> Drop for ManagedBox<M>
+impl<M> Drop for Local<M>
 where
     M: ManagedTensorBase,
 {
@@ -333,24 +298,37 @@ where
     }
 }
 
+impl<M: ManagedTensorBase> Drop for Foreign<M> {
+    fn drop(&mut self) {
+        unsafe { M::drop_raw(self.0.as_ptr()) }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{builder::Builder, ffi::DLManagedTensor, metadata};
+    use crate::{
+        Local,
+        ffi::{DLDevice, DLManagedTensor},
+        test_support::fixed_tensor,
+    };
     use std::ffi::c_void;
 
     /// Builds a `[1, 2, 3]` i32 tensor of type `M` with the given flags.
     ///
     /// `flags` is a no-op for `M = DLManagedTensor`, which has no flags field.
-    fn dlpack_with_flags<M: ManagedTensorBase>(flags: DlpackFlags) -> ManagedBox<M> {
+    fn dlpack_with_flags<M: ManagedTensorBase>(flags: DlpackFlags) -> Local<M> {
         let data = Box::new(vec![1i32, 2, 3]);
         let data_ptr = data.as_ptr() as *mut c_void;
-        let builder = unsafe {
-            Builder::new(data, metadata::CopiedArray::new([3i64], [1i64])).data(data_ptr)
-        }
-        .dtype(crate::ffi::DLDataType::of::<i32>());
-        // Safety: the fixture data above has no other live references.
-        unsafe { builder.flags_unchecked(flags) }.build::<M>()
+        fixed_tensor(
+            data,
+            data_ptr,
+            crate::ffi::DLDataType::of::<i32>(),
+            DLDevice::CPU,
+            [3],
+            [1],
+            flags,
+        )
     }
 
     #[test]
@@ -409,11 +387,15 @@ mod tests {
     fn mutable_cpu_slice_unchecked_rejects_non_compact_strides() {
         let data = Box::new(vec![1i32, 2, 3, 4]);
         let data_ptr = data.as_ptr() as *mut c_void;
-        let mut dlpack = unsafe {
-            Builder::new(data, metadata::CopiedArray::new([2, 2], [1, 2])).data(data_ptr)
-        }
-        .dtype(crate::ffi::DLDataType::of::<i32>())
-        .build::<DLManagedTensor>();
+        let mut dlpack = fixed_tensor::<_, DLManagedTensor, 2>(
+            data,
+            data_ptr,
+            crate::ffi::DLDataType::of::<i32>(),
+            DLDevice::CPU,
+            [2, 2],
+            [1, 2],
+            DlpackFlags::empty(),
+        );
 
         let error = unsafe { dlpack.cpu_slice_mut_unchecked::<i32>() }.unwrap_err();
 

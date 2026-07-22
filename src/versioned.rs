@@ -1,6 +1,6 @@
 //! Versioned DLPack managed tensor ownership.
 
-use crate::{ManagedBox, ffi::DLManagedTensorVersioned};
+use crate::{Local, ffi::DLManagedTensorVersioned};
 
 /// Owning handle for `DLManagedTensorVersioned`.
-pub type Dlpack = ManagedBox<DLManagedTensorVersioned>;
+pub type Dlpack = Local<DLManagedTensorVersioned>;

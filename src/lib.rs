@@ -1,20 +1,18 @@
 //! Safe ownership and interoperability helpers for [DLPack].
 //!
-//! Producers convert into a [`Builder`], which keeps the producer alive until
-//! it builds a [`ManagedBox`]. `ManagedBox` calls the DLPack deleter on drop.
+//! Producers convert into an allocation-specific [`allocation::Initialized`],
+//! configure scalar fields, and finish it as a locally produced tensor.
 //!
 //! ```
 //! # #[cfg(feature = "ndarray")]
 //! # {
-//! use dlpark::{Builder, DlpackFlags, versioned};
+//! use dlpark::{DlpackFlags, Local, allocation::dynamic, ffi::DLManagedTensorVersioned};
 //! use ndarray::arr1;
 //!
-//! let array = Box::new(arr1(&[1_i32, 2, 3]));
-//! let tensor: versioned::Dlpack = Builder::from(array)
-//!     .insert_flags(DlpackFlags::READ_ONLY)
-//!     .unwrap()
-//!     .try_build()
-//!     .unwrap();
+//! let mut initialized: dynamic::Initialized<DLManagedTensorVersioned> =
+//!     Box::new(arr1(&[1_i32, 2, 3])).try_into().unwrap();
+//! initialized.set_flags(DlpackFlags::IS_COPIED | DlpackFlags::READ_ONLY).unwrap();
+//! let tensor: Local<DLManagedTensorVersioned> = unsafe { initialized.finish() };
 //! assert_eq!(tensor.shape().unwrap(), &[3]);
 //! # }
 //! ```
@@ -34,8 +32,6 @@ pub mod ffi;
 
 pub mod allocation;
 mod borrowed;
-/// Deferred construction of legacy and versioned managed tensors.
-pub mod builder;
 mod context;
 /// Owning managed-tensor handles and data accessors.
 pub mod dlpack;
@@ -51,17 +47,18 @@ mod managed_tensor;
 pub mod python;
 /// Validation and data access methods for raw `DLTensor` values.
 pub mod tensor;
+#[cfg(test)]
+mod test_support;
 
 /// Legacy `DLManagedTensor` ownership type.
 pub mod legacy;
-/// Shape and stride storage strategies used by [`Builder`].
+/// Shape and stride metadata composed with managed tensor allocations.
 pub mod metadata;
 /// Versioned `DLManagedTensorVersioned` ownership type.
 pub mod versioned;
 
 pub use borrowed::Borrowed;
-pub use builder::Builder;
 pub use context::OpaqueContext;
 pub use data_type::DlpackElement;
-pub use dlpack::{Foreign, Local, ManagedBox};
+pub use dlpack::{Foreign, Local};
 pub use managed_tensor::{DlpackFlags, ManagedTensorBase};

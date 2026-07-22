@@ -17,7 +17,7 @@ pub enum Error {
 
 /// An initialized managed tensor paired with allocation-specific metadata.
 pub struct Initialized<M: crate::ManagedTensorBase, Storage> {
-    pub(super) managed: crate::ManagedBox<M>,
+    pub(super) managed: crate::Local<M>,
     pub(super) storage: Storage,
 }
 
@@ -29,47 +29,51 @@ impl<M: crate::ManagedTensorBase, Storage> Initialized<M, Storage> {
 
     /// Sets the base data pointer stored in `DLTensor`.
     ///
-    /// # Safety
-    ///
-    /// The context must keep the allocation behind `data` alive until the
-    /// managed tensor deleter runs. Together with the other tensor fields, the
-    /// pointer must describe initialized data valid under DLPack.
-    pub unsafe fn set_data(&mut self, data: *mut std::ffi::c_void) {
+    /// The pointer is not dereferenced during initialization. The caller must
+    /// satisfy its validity and lifetime requirements before calling
+    /// [`Self::finish`].
+    pub fn set_data(&mut self, data: *mut std::ffi::c_void) -> &mut Self {
         self.tensor_mut().data = data;
+        self
     }
 
     /// Sets the DLPack device descriptor.
-    pub fn set_device(&mut self, device: crate::ffi::DLDevice) {
+    pub fn set_device(&mut self, device: crate::ffi::DLDevice) -> &mut Self {
         self.tensor_mut().device = device;
+        self
     }
 
     /// Sets the DLPack element type descriptor.
-    pub fn set_dtype(&mut self, dtype: crate::ffi::DLDataType) {
+    pub fn set_dtype(&mut self, dtype: crate::ffi::DLDataType) -> &mut Self {
         self.tensor_mut().dtype = dtype;
+        self
     }
 
     /// Sets the byte offset from the base data pointer.
-    pub fn set_byte_offset(&mut self, byte_offset: u64) {
+    pub fn set_byte_offset(&mut self, byte_offset: u64) -> &mut Self {
         self.tensor_mut().byte_offset = byte_offset;
+        self
     }
 
     /// Sets flags unless doing so would newly assert `IS_COPIED`.
-    pub fn set_flags(&mut self, flags: crate::DlpackFlags) -> Result<(), crate::tensor::Error> {
+    pub fn set_flags(
+        &mut self,
+        flags: crate::DlpackFlags,
+    ) -> Result<&mut Self, crate::tensor::Error> {
         if flags.newly_asserts_is_copied(self.managed.flags()) {
             return Err(crate::tensor::Error::CannotAssertIsCopied);
         }
         unsafe { (&mut *self.managed.as_ptr()).set_flags_unchecked(flags) };
-        Ok(())
+        Ok(self)
     }
 
     /// Sets flags verbatim, including `IS_COPIED`.
     ///
-    /// # Safety
-    ///
-    /// If `flags` includes `IS_COPIED`, no other reference to the tensor data
-    /// may exist.
-    pub unsafe fn set_flags_unchecked(&mut self, flags: crate::DlpackFlags) {
+    /// If `flags` includes `IS_COPIED`, the caller must establish the claimed
+    /// ownership before calling [`Self::finish`].
+    pub fn set_flags_unchecked(&mut self, flags: crate::DlpackFlags) -> &mut Self {
         unsafe { (&mut *self.managed.as_ptr()).set_flags_unchecked(flags) };
+        self
     }
 
     /// Finishes initialization and returns a locally produced tensor.
@@ -77,9 +81,10 @@ impl<M: crate::ManagedTensorBase, Storage> Initialized<M, Storage> {
     /// # Safety
     ///
     /// The completed descriptor must satisfy the DLPack contract. Its data and
-    /// metadata pointers must remain valid until the tensor is dropped.
+    /// metadata pointers must remain valid until the tensor is dropped, and
+    /// its flags must accurately describe aliasing and mutability.
     pub unsafe fn finish(self) -> crate::Local<M> {
-        unsafe { crate::Local::from_managed(self.managed) }
+        self.managed
     }
 }
 

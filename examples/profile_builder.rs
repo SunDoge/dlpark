@@ -1,4 +1,4 @@
-//! Ad-hoc CPU profiler for the DLPack builder's construction paths.
+//! Ad-hoc CPU profiler for fixed and dynamic metadata allocation paths.
 //!
 //! `pprof`'s signal-based sampling (`SIGPROF`/`setitimer`) doesn't touch the
 //! `perf_event` subsystem, so it works even with `perf_event_paranoid`
@@ -11,10 +11,10 @@
 //! Run: `cargo run --release --example profile_builder`
 //! Output: `target/flamegraph-<variant>.svg` per variant, viewable in a browser.
 
+use dlpark::OpaqueContext;
 use dlpark::ffi::DLManagedTensorVersioned;
-use dlpark::metadata::{CopiedArray, CopiedSlice};
+use dlpark::metadata::{Copied, Dynamic, Fixed};
 use dlpark::tensor::compact_strides_array;
-use dlpark::{Builder, OpaqueContext};
 use std::ffi::c_void;
 
 const N: usize = 64;
@@ -85,24 +85,22 @@ fn main() {
     // Order swapped vs the last run, to test whether allocator warm-up
     // ordering (not the approach itself) explains the alloc-time gap.
     profile("dynamic_layout_first", || {
-        let dlpack = Builder::new(
-            context(),
-            CopiedSlice::new(
-                std::hint::black_box(shape.as_slice()),
-                std::hint::black_box(strides.as_slice()),
-            ),
+        let prepared = Dynamic::new(
+            Copied(std::hint::black_box(shape.as_slice())),
+            Copied(std::hint::black_box(strides.as_slice())),
         )
-        .try_build::<DLManagedTensorVersioned>()
+        .prepare::<DLManagedTensorVersioned>()
         .unwrap();
-        std::hint::black_box(dlpack);
+        std::hint::black_box(prepared.initialize(context()).unwrap());
     });
 
     profile("array_layout_second", || {
-        let dlpack = Builder::new(
-            context(),
-            CopiedArray::new(std::hint::black_box(&shape), std::hint::black_box(&strides)),
+        let prepared = Fixed::new(
+            Copied(std::hint::black_box(&shape)),
+            Copied(std::hint::black_box(&strides)),
         )
-        .build::<DLManagedTensorVersioned>();
-        std::hint::black_box(dlpack);
+        .prepare::<DLManagedTensorVersioned>()
+        .unwrap();
+        std::hint::black_box(prepared.initialize(context()));
     });
 }

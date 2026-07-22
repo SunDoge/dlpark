@@ -1,7 +1,7 @@
 //! Fixed-rank metadata allocation without generic const expressions.
 
 use super::{Error, allocate, empty_tensor};
-use crate::{ManagedBox, ManagedTensorBase, OpaqueContext};
+use crate::{Local, ManagedTensorBase, OpaqueContext};
 use std::{alloc::Layout, mem::ManuallyDrop, ptr::NonNull};
 
 /// Storage selected by fixed-rank shape or strides metadata.
@@ -98,7 +98,7 @@ where
                 Some(drop_allocation::<C, M, N, Shape, Strides>),
             ));
             super::Initialized {
-                managed: ManagedBox::new_unchecked(this.managed.as_ptr()),
+                managed: Local::from_raw_unchecked(this.managed.as_ptr()),
                 storage: Metadata {
                     shape: this.shape,
                     strides: this.strides,

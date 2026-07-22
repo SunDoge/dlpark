@@ -1,7 +1,7 @@
 //! Conversions between DLPack and supported container libraries.
 //!
-//! Producer-side conversions return [`crate::Builder`] so callers can adjust
-//! flags and metadata before selecting a managed tensor ABI.
+//! Producer-side conversions return allocation-specific initialized values so
+//! callers can adjust scalar fields before finishing the managed tensor.
 //!
 //! # Feature selection
 //!

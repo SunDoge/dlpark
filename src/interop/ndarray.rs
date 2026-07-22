@@ -1,23 +1,27 @@
 //! Zero-copy CPU interop for owned and borrowed `ndarray` arrays.
 //!
-//! Boxed owned arrays convert into [`crate::Builder`] values. Shape and stride
-//! values are derived from the array and copied only when the builder is
-//! built, while the array allocation remains owned by its context.
+//! Boxed owned arrays convert into [`crate::allocation::dynamic::Initialized`]
+//! values. Shape and strides are copied into the managed allocation.
 //!
 //! ```
-//! use dlpark::{Builder, versioned};
+//! use dlpark::{Local, allocation::dynamic, ffi::DLManagedTensorVersioned};
 //! use ndarray::{ArrayViewD, arr2};
 //!
-//! let builder = Builder::from(Box::new(arr2(&[[1_i32, 2], [3, 4]])));
-//! let dlpack: versioned::Dlpack = builder.try_build()?;
+//! let initialized: dynamic::Initialized<DLManagedTensorVersioned> =
+//!     Box::new(arr2(&[[1_i32, 2], [3, 4]])).try_into()?;
+//! let dlpack: Local<DLManagedTensorVersioned> = unsafe { initialized.finish() };
 //! let view = ArrayViewD::<i32>::try_from(&dlpack)?;
 //! assert_eq!(view[[1, 0]], 3);
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
 use crate::{
-    Builder, DlpackElement, DlpackFlags, dlpack::ManagedBox, ffi::DLDevice,
-    managed_tensor::ManagedTensorBase, metadata::FromContext,
+    DlpackElement, DlpackFlags,
+    allocation::dynamic,
+    dlpack::Local,
+    ffi::DLDevice,
+    managed_tensor::ManagedTensorBase,
+    metadata::{Copied, Dynamic},
 };
 use ndarray::{ArrayBase, ArrayViewD, ArrayViewMutD, Dimension, IxDyn, OwnedRepr, ShapeBuilder};
 use snafu::{Snafu, ensure};
@@ -47,51 +51,47 @@ pub enum Error {
     Tensor { source: crate::tensor::Error },
 }
 
-/// Converts a boxed owned ndarray into a configurable DLPack builder.
+/// Converts a boxed owned ndarray into an initialized DLPack allocation.
 ///
 /// The array is not copied. Its shape and strides are converted to DLPack's
-/// `i64` representation during [`Builder::try_build`], after the boxed array
-/// has reached its stable location in the manager context. The resulting
-/// builder starts with [`DlpackFlags::IS_COPIED`] because ownership has been
+/// `i64` representation before the boxed array becomes the manager context.
+/// The resulting allocation starts with [`DlpackFlags::IS_COPIED`] because ownership has been
 /// transferred and no ndarray aliases remain.
-impl<T, D> From<Box<ArrayBase<OwnedRepr<T>, D>>>
-    for Builder<
-        Box<ArrayBase<OwnedRepr<T>, D>>,
-        FromContext<fn(&Box<ArrayBase<OwnedRepr<T>, D>>) -> (&[usize], &[isize]), usize, isize>,
-    >
+impl<T, D, M> TryFrom<Box<ArrayBase<OwnedRepr<T>, D>>> for dynamic::Initialized<M>
 where
     T: DlpackElement + Send,
     D: Dimension,
+    M: ManagedTensorBase,
 {
-    fn from(array: Box<ArrayBase<OwnedRepr<T>, D>>) -> Self {
+    type Error = crate::metadata::Error;
+
+    fn try_from(array: Box<ArrayBase<OwnedRepr<T>, D>>) -> Result<Self, Self::Error> {
         let data_ptr = if array.is_empty() {
             std::ptr::null_mut()
         } else {
             array.as_ptr() as *mut c_void
         };
-        #[allow(clippy::type_complexity)]
-        let derive: fn(&Box<ArrayBase<OwnedRepr<T>, D>>) -> (&[usize], &[isize]) =
-            |array| (array.shape(), array.strides());
-        let builder = Builder::from_context(array, derive);
-        // SAFETY: the boxed ndarray context owns the initialized data
-        // allocation addressed by data_ptr for the tensor's lifetime.
-        let builder = unsafe { builder.data(data_ptr) }
-            .dtype(T::DTYPE)
-            .device(DLDevice::CPU);
+        let prepared =
+            Dynamic::new(Copied(array.shape()), Copied(array.strides())).prepare::<M>()?;
+        let mut initialized = prepared.initialize(array)?;
+        initialized.set_data(data_ptr);
+        initialized.set_dtype(T::DTYPE);
+        initialized.set_device(DLDevice::CPU);
 
         // SAFETY: ownership of the ndarray is transferred into the builder.
-        unsafe { builder.flags_unchecked(DlpackFlags::IS_COPIED) }
+        initialized.set_flags_unchecked(DlpackFlags::IS_COPIED);
+        Ok(initialized)
     }
 }
 
-impl<'a, T, M> TryFrom<&'a ManagedBox<M>> for ArrayViewD<'a, T>
+impl<'a, T, M> TryFrom<&'a Local<M>> for ArrayViewD<'a, T>
 where
     T: DlpackElement,
     M: ManagedTensorBase,
 {
     type Error = Error;
 
-    fn try_from(dlpack: &'a ManagedBox<M>) -> Result<Self, Self::Error> {
+    fn try_from(dlpack: &'a Local<M>) -> Result<Self, Self::Error> {
         let tensor = dlpack.tensor();
         let (shape, strides) = shape_and_strides(tensor)?;
         let ptr = unsafe { tensor.offset_data_ptr::<T>()? };
@@ -100,14 +100,14 @@ where
     }
 }
 
-impl<'a, T, M> TryFrom<&'a mut ManagedBox<M>> for ArrayViewMutD<'a, T>
+impl<'a, T, M> TryFrom<&'a mut Local<M>> for ArrayViewMutD<'a, T>
 where
     T: DlpackElement,
     M: ManagedTensorBase,
 {
     type Error = Error;
 
-    fn try_from(dlpack: &'a mut ManagedBox<M>) -> Result<Self, Self::Error> {
+    fn try_from(dlpack: &'a mut Local<M>) -> Result<Self, Self::Error> {
         if !dlpack.flags().contains(DlpackFlags::IS_COPIED) {
             return Err(crate::tensor::Error::NotCopied.into());
         }
@@ -125,11 +125,11 @@ where
 ///
 /// The caller must ensure that no other references access the underlying
 /// data for the lifetime of the returned view. Exclusive access to this
-/// `ManagedBox` alone does not prove that the producer has no aliases.
+/// `Local` alone does not prove that the producer has no aliases.
 /// Prefer [`ArrayViewMutD::try_from`], which additionally requires
 /// [`DlpackFlags::IS_COPIED`] and needs no `unsafe` block.
 pub unsafe fn array_view_from_dlpack_mut_unchecked<'a, T, M>(
-    dlpack: &'a mut ManagedBox<M>,
+    dlpack: &'a mut Local<M>,
 ) -> Result<ArrayViewMutD<'a, T>, Error>
 where
     T: DlpackElement,
@@ -220,33 +220,49 @@ fn validate_non_overlapping(shape: &[usize], strides: &[usize]) -> Result<(), Er
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{legacy, versioned};
+    use crate::{Local, ManagedTensorBase, legacy, test_support, versioned};
     use ndarray::{Array, arr2};
+
+    fn managed_array<T, D, M>(array: ArrayBase<OwnedRepr<T>, D>) -> Local<M>
+    where
+        T: DlpackElement + Send,
+        D: Dimension,
+        M: ManagedTensorBase,
+    {
+        let initialized: dynamic::Initialized<M> = Box::new(array).try_into().unwrap();
+        test_support::managed(initialized)
+    }
+
+    fn managed_array_with_flags<T, D, M>(
+        array: ArrayBase<OwnedRepr<T>, D>,
+        flags: DlpackFlags,
+    ) -> Local<M>
+    where
+        T: DlpackElement + Send,
+        D: Dimension,
+        M: ManagedTensorBase,
+    {
+        let mut initialized: dynamic::Initialized<M> = Box::new(array).try_into().unwrap();
+        initialized.set_flags_unchecked(flags);
+        test_support::managed(initialized)
+    }
 
     /// A `[[1, 2, 3], [4, 5, 6]]` legacy tensor. Legacy tensors have no flags
     /// field, so this is always writable via the `_unchecked` accessors and
     /// never satisfies `IS_COPIED`.
     fn legacy_2x3_dlpack() -> legacy::Dlpack {
-        Builder::from(Box::new(arr2(&[[1i32, 2, 3], [4, 5, 6]])))
-            .try_build()
-            .unwrap()
+        managed_array(arr2(&[[1i32, 2, 3], [4, 5, 6]]))
     }
 
     /// The transpose of [`legacy_2x3_dlpack`]'s array, i.e. non-compact strides.
     fn legacy_3x2_transposed_dlpack() -> legacy::Dlpack {
         let array = arr2(&[[1i32, 2, 3], [4, 5, 6]]);
-        Builder::from(Box::new(array.reversed_axes().to_owned()))
-            .try_build()
-            .unwrap()
+        managed_array(array.reversed_axes().to_owned())
     }
 
     /// A `[[1, 2, 3], [4, 5, 6]]` versioned tensor carrying the given flags.
     fn versioned_2x3_dlpack(flags: DlpackFlags) -> versioned::Dlpack {
-        Builder::from(Box::new(arr2(&[[1i32, 2, 3], [4, 5, 6]])))
-            .flags(flags)
-            .unwrap()
-            .try_build()
-            .unwrap()
+        managed_array_with_flags(arr2(&[[1i32, 2, 3], [4, 5, 6]]), flags)
     }
 
     #[test]
@@ -264,7 +280,7 @@ mod tests {
     #[test]
     fn owned_ndarray_to_versioned_dlpack_keeps_layout_and_data() {
         let array = Array::from_shape_vec((2, 2), vec![1f32, 2., 3., 4.]).unwrap();
-        let dlpack: versioned::Dlpack = Builder::from(Box::new(array)).try_build().unwrap();
+        let dlpack: versioned::Dlpack = managed_array(array);
 
         assert_eq!(dlpack.shape().unwrap(), &[2, 2]);
         assert_eq!(dlpack.strides().unwrap().unwrap(), &[2, 1]);
@@ -277,7 +293,7 @@ mod tests {
     #[test]
     fn owned_ndarray_to_versioned_dlpack_sets_is_copied() {
         let array = Array::from_shape_vec((2, 2), vec![1f32, 2., 3., 4.]).unwrap();
-        let dlpack: versioned::Dlpack = Builder::from(Box::new(array)).try_build().unwrap();
+        let dlpack: versioned::Dlpack = managed_array(array);
 
         assert_eq!(dlpack.flags(), DlpackFlags::IS_COPIED);
     }
@@ -285,11 +301,8 @@ mod tests {
     #[test]
     fn ndarray_builder_allows_setting_read_only_safely() {
         let array = Array::from_shape_vec((2, 2), vec![1f32, 2., 3., 4.]).unwrap();
-        let dlpack: versioned::Dlpack = Builder::from(Box::new(array))
-            .insert_flags(DlpackFlags::READ_ONLY)
-            .unwrap()
-            .try_build()
-            .unwrap();
+        let dlpack: versioned::Dlpack =
+            managed_array_with_flags(array, DlpackFlags::IS_COPIED | DlpackFlags::READ_ONLY);
 
         assert_eq!(
             dlpack.flags(),
@@ -300,7 +313,7 @@ mod tests {
     #[test]
     fn owned_ndarray_to_versioned_dlpack_allows_unsafe_mutation() {
         let array = Array::from_shape_vec((2, 2), vec![1f32, 2., 3., 4.]).unwrap();
-        let mut dlpack: versioned::Dlpack = Builder::from(Box::new(array)).try_build().unwrap();
+        let mut dlpack: versioned::Dlpack = managed_array(array);
 
         unsafe {
             dlpack.cpu_slice_mut_unchecked::<f32>().unwrap()[1] = 42.;
@@ -315,7 +328,7 @@ mod tests {
     #[test]
     fn owned_arrayd_to_dlpack_keeps_dynamic_shape() {
         let array = arr2(&[[1i32, 2], [3, 4]]).into_dyn();
-        let dlpack: legacy::Dlpack = Builder::from(Box::new(array)).try_build().unwrap();
+        let dlpack: legacy::Dlpack = managed_array(array);
 
         assert_eq!(dlpack.shape().unwrap(), &[2, 2]);
         assert_eq!(dlpack.strides().unwrap().unwrap(), &[2, 1]);
@@ -421,13 +434,15 @@ mod tests {
     fn mut_ndarray_view_rejects_overlapping_strides() {
         let data = Box::new(vec![1i32, 2]);
         let data_ptr = data.as_ptr().cast_mut().cast();
-        let builder = Builder::new(data, crate::metadata::CopiedArray::new([2, 2], [0, 1]));
-        let mut dlpack = unsafe {
-            builder
-                .data(data_ptr)
-                .flags_unchecked(DlpackFlags::IS_COPIED)
-                .build::<crate::ffi::DLManagedTensorVersioned>()
-        };
+        let mut dlpack = test_support::fixed_local::<_, crate::ffi::DLManagedTensorVersioned, 2>(
+            data,
+            data_ptr,
+            <i32 as DlpackElement>::DTYPE,
+            DLDevice::CPU,
+            [2, 2],
+            [0, 1],
+            DlpackFlags::IS_COPIED,
+        );
 
         assert!(matches!(
             ArrayViewMutD::<i32>::try_from(&mut dlpack),
@@ -465,7 +480,7 @@ mod tests {
     #[test]
     fn sliced_owned_ndarray_to_dlpack_exports_non_standard_strides() {
         let array = Array::from_shape_vec((2, 2).strides((4, 2)), (0i32..7).collect()).unwrap();
-        let dlpack: legacy::Dlpack = Builder::from(Box::new(array)).try_build().unwrap();
+        let dlpack: legacy::Dlpack = managed_array(array);
         let view = ArrayViewD::<i32>::try_from(&dlpack).unwrap();
 
         assert_eq!(view.shape(), &[2, 2]);

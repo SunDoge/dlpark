@@ -1,24 +1,26 @@
 //! Zero-copy HWC image interop for owned and borrowed `image` buffers.
 //!
-//! Boxed owned image buffers convert into [`crate::Builder`] values with
+//! Boxed owned image buffers convert into [`crate::allocation::fixed::Initialized`] values with
 //! [`crate::DlpackFlags::IS_COPIED`] set. Reverse conversions validate an HWC
 //! compact layout before exposing the DLPack data as image storage.
 //!
 //! ```
-//! use dlpark::{Builder, versioned};
+//! use dlpark::{Local, allocation::fixed, ffi::DLManagedTensorVersioned};
 //! use image::{ImageBuffer, Rgb};
 //!
 //! let image = ImageBuffer::<Rgb<u8>, _>::from_raw(1, 1, vec![10, 20, 30]).unwrap();
-//! let dlpack: versioned::Dlpack = Builder::from(Box::new(image)).build();
+//! let initialized: fixed::Initialized<DLManagedTensorVersioned, 3> = Box::new(image).into();
+//! let dlpack: Local<DLManagedTensorVersioned> = unsafe { initialized.finish() };
 //! let image = ImageBuffer::<Rgb<u8>, &[u8]>::try_from(&dlpack)?;
 //! assert_eq!(image.get_pixel(0, 0).0, [10, 20, 30]);
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
 use crate::{
-    Builder, DlpackElement, DlpackFlags, ManagedBox, ManagedTensorBase,
+    DlpackElement, DlpackFlags, Local, ManagedTensorBase,
+    allocation::fixed,
     ffi::DLDevice,
-    metadata,
+    metadata::{Copied, Fixed},
     tensor::{compact_strides_array, is_compact_strides},
 };
 use image::{ImageBuffer, Pixel};
@@ -76,7 +78,7 @@ pub enum Error {
 }
 
 // ---------------------------------------------------------------------------
-// Forward: ImageBuffer → Builder  (infallible, so From not TryFrom)
+// Forward: ImageBuffer -> initialized fixed allocation
 //
 // Box<ImageBuffer> is used directly as the OpaqueContext, which avoids
 // extracting the inner Vec and double-boxing it.
@@ -87,13 +89,15 @@ pub enum Error {
 /// The pixel allocation is reused without copying and exported as compact HWC
 /// data. The builder starts with [`DlpackFlags::IS_COPIED`] because ownership
 /// of the image has been transferred without retaining aliases.
-impl<P> From<Box<ImageBuffer<P, Vec<P::Subpixel>>>>
-    for Builder<Box<ImageBuffer<P, Vec<P::Subpixel>>>, metadata::CopiedArray<[i64; 3], [i64; 3], 3>>
+impl<P, M> TryFrom<Box<ImageBuffer<P, Vec<P::Subpixel>>>> for fixed::Initialized<M, 3>
 where
     P: Pixel + Send,
     P::Subpixel: DlpackElement + Send,
+    M: ManagedTensorBase,
 {
-    fn from(img: Box<ImageBuffer<P, Vec<P::Subpixel>>>) -> Self {
+    type Error = crate::metadata::Error;
+
+    fn try_from(img: Box<ImageBuffer<P, Vec<P::Subpixel>>>) -> Result<Self, Self::Error> {
         let width = img.width();
         let height = img.height();
         let channels = P::CHANNEL_COUNT;
@@ -101,26 +105,26 @@ where
         let shape = [height as i64, width as i64, channels as i64];
         let strides = compact_strides_array(shape).expect("image shape must fit compact strides");
 
-        let builder = Builder::new(img, metadata::CopiedArray::new(shape, strides));
-        // SAFETY: the boxed image owns the initialized pixel allocation
-        // addressed by data_ptr for the tensor's lifetime.
-        let builder = unsafe { builder.data(data_ptr) }
-            .dtype(P::Subpixel::DTYPE)
-            .device(DLDevice::CPU);
+        let prepared = Fixed::new(Copied(shape), Copied(strides)).prepare::<M>()?;
+        let mut initialized = prepared.initialize(img);
+        initialized.set_data(data_ptr);
+        initialized.set_dtype(P::Subpixel::DTYPE);
+        initialized.set_device(DLDevice::CPU);
         // SAFETY: `img` was moved in above and its `Vec`-backed pixel buffer
         // has no other live references.
-        unsafe { builder.flags_unchecked(DlpackFlags::IS_COPIED) }
+        initialized.set_flags_unchecked(DlpackFlags::IS_COPIED);
+        Ok(initialized)
     }
 }
 
 // ---------------------------------------------------------------------------
-// Reverse borrowed: &ManagedBox → ImageBuffer<P, &[T]>
+// Reverse borrowed: &Local → ImageBuffer<P, &[T]>
 //
-// Zero-copy borrowed view. The ImageBuffer borrows from the ManagedBox
+// Zero-copy borrowed view. The ImageBuffer borrows from the Local
 // and cannot outlive it.
 // ---------------------------------------------------------------------------
 
-impl<'a, P, M> TryFrom<&'a ManagedBox<M>> for ImageBuffer<P, &'a [P::Subpixel]>
+impl<'a, P, M> TryFrom<&'a Local<M>> for ImageBuffer<P, &'a [P::Subpixel]>
 where
     P: Pixel,
     P::Subpixel: DlpackElement,
@@ -128,7 +132,7 @@ where
 {
     type Error = Error;
 
-    fn try_from(dlpack: &'a ManagedBox<M>) -> Result<Self, Self::Error> {
+    fn try_from(dlpack: &'a Local<M>) -> Result<Self, Self::Error> {
         let tensor = dlpack.tensor();
         let layout = validated_hwc::<P>(tensor)?;
 
@@ -141,16 +145,16 @@ where
 }
 
 // ---------------------------------------------------------------------------
-// Reverse owned: ManagedBox → ImageBuffer<P, DlpackContainer<M, T>>
+// Reverse owned: Local → ImageBuffer<P, DlpackContainer<M, T>>
 //
-// Zero-copy owned conversion. DlpackContainer holds the ManagedBox by value and
+// Zero-copy owned conversion. DlpackContainer holds the Local by value and
 // exposes its pixel data as a slice through Deref. No data is copied.
 // ---------------------------------------------------------------------------
 
-/// An owned container that wraps a [`ManagedBox`] and exposes its raw data as a
+/// An owned container that wraps a [`Local`] and exposes its raw data as a
 /// `&[T]` slice, suitable for use as the backing store of an [`ImageBuffer`].
 pub struct DlpackContainer<M: ManagedTensorBase, T> {
-    dlpack: ManagedBox<M>,
+    dlpack: Local<M>,
     data_ptr: *const T,
     num_elements: usize,
     _marker: PhantomData<T>,
@@ -165,7 +169,7 @@ impl<M: ManagedTensorBase, T> Deref for DlpackContainer<M, T> {
     }
 }
 
-impl<P, M> TryFrom<ManagedBox<M>> for ImageBuffer<P, DlpackContainer<M, P::Subpixel>>
+impl<P, M> TryFrom<Local<M>> for ImageBuffer<P, DlpackContainer<M, P::Subpixel>>
 where
     P: Pixel,
     P::Subpixel: DlpackElement,
@@ -173,7 +177,7 @@ where
 {
     type Error = Error;
 
-    fn try_from(dlpack: ManagedBox<M>) -> Result<Self, Self::Error> {
+    fn try_from(dlpack: Local<M>) -> Result<Self, Self::Error> {
         let layout = {
             let tensor = dlpack.tensor();
             validated_hwc::<P>(tensor)?
@@ -275,13 +279,27 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ffi::DLManagedTensor, legacy, versioned};
+    use crate::{
+        ffi::{DLManagedTensor, DLManagedTensorVersioned},
+        legacy,
+        test_support::fixed_local,
+        versioned,
+    };
     use image::Rgb;
+
+    fn image_tensor<M: ManagedTensorBase>(
+        img: ImageBuffer<Rgb<u8>, Vec<u8>>,
+        flags: DlpackFlags,
+    ) -> Local<M> {
+        let mut initialized: fixed::Initialized<M, 3> = Box::new(img).try_into().unwrap();
+        initialized.set_flags_unchecked(flags);
+        unsafe { initialized.finish() }
+    }
 
     #[test]
     fn test_image_to_dlpack() {
         let img = ImageBuffer::<Rgb<u8>, _>::from_vec(4, 4, vec![0u8; 48]).unwrap();
-        let dlpack: legacy::Dlpack = Builder::from(Box::new(img)).build();
+        let dlpack: legacy::Dlpack = image_tensor::<DLManagedTensor>(img, DlpackFlags::IS_COPIED);
 
         assert_eq!(dlpack.shape().unwrap(), &[4, 4, 3]);
     }
@@ -289,7 +307,8 @@ mod tests {
     #[test]
     fn versioned_image_to_dlpack_sets_is_copied() {
         let img = ImageBuffer::<Rgb<u8>, _>::from_vec(4, 4, vec![0u8; 48]).unwrap();
-        let dlpack: versioned::Dlpack = Builder::from(Box::new(img)).build();
+        let dlpack: versioned::Dlpack =
+            image_tensor::<DLManagedTensorVersioned>(img, DlpackFlags::IS_COPIED);
 
         assert_eq!(dlpack.flags(), DlpackFlags::IS_COPIED);
     }
@@ -297,10 +316,10 @@ mod tests {
     #[test]
     fn image_builder_allows_setting_read_only_safely() {
         let img = ImageBuffer::<Rgb<u8>, _>::from_vec(4, 4, vec![0u8; 48]).unwrap();
-        let dlpack: versioned::Dlpack = Builder::from(Box::new(img))
-            .insert_flags(DlpackFlags::READ_ONLY)
-            .unwrap()
-            .build();
+        let dlpack: versioned::Dlpack = image_tensor::<DLManagedTensorVersioned>(
+            img,
+            DlpackFlags::IS_COPIED | DlpackFlags::READ_ONLY,
+        );
 
         assert_eq!(
             dlpack.flags(),
@@ -311,7 +330,8 @@ mod tests {
     #[test]
     fn versioned_image_to_dlpack_allows_unsafe_mutation() {
         let img = ImageBuffer::<Rgb<u8>, _>::from_vec(4, 4, vec![0u8; 48]).unwrap();
-        let mut dlpack: versioned::Dlpack = Builder::from(Box::new(img)).build();
+        let mut dlpack: versioned::Dlpack =
+            image_tensor::<DLManagedTensorVersioned>(img, DlpackFlags::IS_COPIED);
 
         unsafe {
             dlpack.cpu_slice_mut_unchecked::<u8>().unwrap()[0] = 42;
@@ -323,7 +343,7 @@ mod tests {
     #[test]
     fn test_borrowed_roundtrip() {
         let img = ImageBuffer::<Rgb<u8>, _>::from_vec(4, 4, vec![42u8; 48]).unwrap();
-        let dlpack: legacy::Dlpack = Builder::from(Box::new(img)).build();
+        let dlpack: legacy::Dlpack = image_tensor::<DLManagedTensor>(img, DlpackFlags::IS_COPIED);
 
         let img2 = ImageBuffer::<Rgb<u8>, _>::try_from(&dlpack).unwrap();
         assert_eq!(img2.width(), 4);
@@ -334,7 +354,7 @@ mod tests {
     #[test]
     fn test_owned_roundtrip() {
         let img = ImageBuffer::<Rgb<u8>, _>::from_vec(4, 4, vec![99u8; 48]).unwrap();
-        let dlpack: legacy::Dlpack = Builder::from(Box::new(img)).build();
+        let dlpack: legacy::Dlpack = image_tensor::<DLManagedTensor>(img, DlpackFlags::IS_COPIED);
 
         let img2 = ImageBuffer::<Rgb<u8>, DlpackContainer<_, u8>>::try_from(dlpack).unwrap();
         assert_eq!(img2.width(), 4);
@@ -348,12 +368,16 @@ mod tests {
         let data_ptr = data.as_ptr() as *mut c_void;
         let shape = [1, 1, 3];
         let strides = [3, 3, 1];
-        let dlpack = unsafe {
-            Builder::new(data, metadata::CopiedArray::new(&shape, &strides)).data(data_ptr)
-        }
-        .byte_offset(1)
-        .dtype(u8::DTYPE)
-        .build::<DLManagedTensor>();
+        let prepared = Fixed::new(Copied(shape), Copied(strides))
+            .prepare::<DLManagedTensor>()
+            .unwrap();
+        let mut initialized = prepared.initialize(data);
+        initialized.set_data(data_ptr);
+        initialized
+            .set_dtype(u8::DTYPE)
+            .set_device(DLDevice::CPU)
+            .set_byte_offset(1);
+        let dlpack = unsafe { initialized.finish() };
 
         let img = ImageBuffer::<Rgb<u8>, _>::try_from(&dlpack).unwrap();
         assert_eq!(img.as_raw(), &[10, 20, 30]);
@@ -364,9 +388,15 @@ mod tests {
         let data = Box::new(vec![0u8; 3]);
         let shape = [1, 1, 3];
         let strides = [3, 3, 1];
-        let dlpack = Builder::new(data, metadata::CopiedArray::new(&shape, &strides))
-            .dtype(u8::DTYPE)
-            .build::<DLManagedTensor>();
+        let dlpack = fixed_local::<_, DLManagedTensor, 3>(
+            data,
+            std::ptr::null_mut(),
+            u8::DTYPE,
+            DLDevice::CPU,
+            shape,
+            strides,
+            DlpackFlags::empty(),
+        );
 
         let err = ImageBuffer::<Rgb<u8>, _>::try_from(&dlpack).unwrap_err();
         assert!(matches!(
@@ -383,11 +413,15 @@ mod tests {
         let data_ptr = data.as_ptr() as *mut c_void;
         let shape = [1, 1, 3];
         let strides = [6, 3, 1];
-        let dlpack = unsafe {
-            Builder::new(data, metadata::CopiedArray::new(&shape, &strides)).data(data_ptr)
-        }
-        .dtype(u8::DTYPE)
-        .build::<DLManagedTensor>();
+        let dlpack = fixed_local::<_, DLManagedTensor, 3>(
+            data,
+            data_ptr,
+            u8::DTYPE,
+            DLDevice::CPU,
+            shape,
+            strides,
+            DlpackFlags::empty(),
+        );
 
         let err = ImageBuffer::<Rgb<u8>, _>::try_from(&dlpack).unwrap_err();
         assert!(matches!(err, Error::UnsupportedStrides { .. }));

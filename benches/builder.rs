@@ -6,10 +6,10 @@
 //! variant's own metadata allocation strategy, not context boxing.
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
+use dlpark::OpaqueContext;
 use dlpark::ffi::DLManagedTensor;
-use dlpark::metadata::{BorrowedArray, BorrowedSlice, CopiedArray, CopiedSlice};
+use dlpark::metadata::{Borrowed, Copied, Dynamic, Fixed};
 use dlpark::tensor::compact_strides_array;
-use dlpark::{Builder, OpaqueContext};
 use std::ffi::c_void;
 
 struct NoopContext;
@@ -41,60 +41,53 @@ fn bench_ndim<const N: usize>(c: &mut Criterion) {
 
     group.bench_function(BenchmarkId::new("copied_array", N), |b| {
         b.iter(|| {
-            let dlpack = Builder::new(
-                context(),
-                CopiedArray::new(std::hint::black_box(&shape), std::hint::black_box(&strides)),
+            let prepared = Fixed::new(
+                Copied(std::hint::black_box(&shape)),
+                Copied(std::hint::black_box(&strides)),
             )
-            .build::<DLManagedTensor>();
-            std::hint::black_box(dlpack);
+            .prepare::<DLManagedTensor>()
+            .unwrap();
+            std::hint::black_box(prepared.initialize(context()));
         });
     });
 
     group.bench_function(BenchmarkId::new("borrowed_array", N), |b| {
         b.iter(|| {
-            let dlpack = unsafe {
-                Builder::new(
-                    context(),
-                    BorrowedArray::new(
-                        std::hint::black_box(&shape),
-                        std::hint::black_box(&strides),
-                    ),
+            let prepared = unsafe {
+                Fixed::new(
+                    Borrowed(std::hint::black_box(&shape)),
+                    Borrowed(std::hint::black_box(&strides)),
                 )
-                .build::<DLManagedTensor>()
+                .prepare_unchecked::<DLManagedTensor>()
+                .unwrap()
             };
-            std::hint::black_box(dlpack);
+            std::hint::black_box(prepared.initialize(context()));
         });
     });
 
     group.bench_function(BenchmarkId::new("copied_slice", N), |b| {
         b.iter(|| {
-            let dlpack = Builder::new(
-                context(),
-                CopiedSlice::new(
-                    std::hint::black_box(shape.as_slice()),
-                    std::hint::black_box(strides.as_slice()),
-                ),
+            let prepared = Dynamic::new(
+                Copied(std::hint::black_box(shape.as_slice())),
+                Copied(std::hint::black_box(strides.as_slice())),
             )
-            .try_build::<DLManagedTensor>()
+            .prepare::<DLManagedTensor>()
             .unwrap();
-            std::hint::black_box(dlpack);
+            std::hint::black_box(prepared.initialize(context()).unwrap());
         });
     });
 
     group.bench_function(BenchmarkId::new("borrowed_slice", N), |b| {
         b.iter(|| {
-            let dlpack = unsafe {
-                Builder::new(
-                    context(),
-                    BorrowedSlice::new(
-                        std::hint::black_box(shape.as_slice()),
-                        std::hint::black_box(strides.as_slice()),
-                    ),
+            let prepared = unsafe {
+                Dynamic::new(
+                    Borrowed(std::hint::black_box(shape.as_slice())),
+                    Borrowed(std::hint::black_box(strides.as_slice())),
                 )
-                .try_build::<DLManagedTensor>()
+                .prepare_unchecked::<DLManagedTensor>()
                 .unwrap()
             };
-            std::hint::black_box(dlpack);
+            std::hint::black_box(prepared.initialize(context()).unwrap());
         });
     });
 

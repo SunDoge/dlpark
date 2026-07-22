@@ -1,7 +1,7 @@
 //! Runtime-sized extra metadata allocation.
 
 use super::{Error, allocate, empty_tensor};
-use crate::{ManagedBox, ManagedTensorBase, OpaqueContext};
+use crate::{Local, ManagedTensorBase, OpaqueContext};
 use std::{alloc::Layout, mem::ManuallyDrop, ptr::NonNull};
 
 /// An uninitialized managed tensor allocation with dynamic extra capacity.
@@ -54,7 +54,7 @@ impl<M: ManagedTensorBase> Allocation<M> {
                 Some(drop_allocation::<C, M>),
             ));
             Ok(super::Initialized {
-                managed: ManagedBox::new_unchecked(this.managed.as_ptr()),
+                managed: Local::from_raw_unchecked(this.managed.as_ptr()),
                 storage: Metadata {
                     extra: this.extra,
                     extra_len: this.extra_len,

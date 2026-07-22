@@ -31,7 +31,7 @@ impl DlpackFlags {
     /// flags, would newly assert [`DlpackFlags::IS_COPIED`] — turn it on
     /// when it wasn't already set.
     ///
-    /// Turning it on is the risky direction: `ManagedBox::cpu_slice_mut`
+    /// Turning it on is the risky direction: `Local::cpu_slice_mut`
     /// and safe mutable ndarray conversion trust it unconditionally to skip
     /// aliasing checks. Leaving an already-set `IS_COPIED` on asserts nothing
     /// new, so that case is not flagged.
@@ -43,7 +43,7 @@ impl DlpackFlags {
 /// Common operations implemented by the legacy and versioned managed tensor
 /// ABIs.
 ///
-/// This trait lets [`crate::Builder`] and [`crate::ManagedBox`] operate
+/// This trait lets allocation and ownership APIs operate
 /// generically while preserving the concrete C layout selected by the caller.
 /// # Safety
 ///
@@ -85,7 +85,7 @@ pub unsafe trait ManagedTensorBase {
     /// # Safety
     ///
     /// If `flags` includes `IS_COPIED`, the caller must ensure that no other
-    /// reference to the tensor's data exists: `ManagedBox::cpu_slice_mut`
+    /// reference to the tensor's data exists: `Local::cpu_slice_mut`
     /// and safe mutable ndarray conversion trust that bit unconditionally and
     /// skip aliasing checks accordingly.
     unsafe fn set_flags_unchecked(&mut self, _flags: crate::DlpackFlags) {}
