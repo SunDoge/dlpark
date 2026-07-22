@@ -17,20 +17,12 @@
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
-use crate::{
-    DlpackElement, DlpackFlags, Foreign, ManagedTensorBase, TryFromDlpack,
-    allocation::fixed,
-    ffi::DLDevice,
-    metadata::{Copied, Fixed},
-    tensor::{compact_strides_array, is_compact_strides},
-};
-use image::{ImageBuffer, Pixel};
-use snafu::{Snafu, ensure};
-use std::{marker::PhantomData, ops::Deref, os::raw::c_void};
+use snafu::Snafu;
 
-// ---------------------------------------------------------------------------
-// Error
-// ---------------------------------------------------------------------------
+mod consumer;
+mod producer;
+
+pub use consumer::DlpackContainer;
 
 #[derive(Debug, Snafu)]
 /// Errors produced while validating a DLPack tensor as an image buffer.
@@ -78,205 +70,17 @@ pub enum Error {
     Tensor { source: crate::tensor::Error },
 }
 
-// ---------------------------------------------------------------------------
-// Forward: ImageBuffer -> initialized fixed allocation
-//
-// Box<ImageBuffer> is used directly as the OpaqueContext, which avoids
-// extracting the inner Vec and double-boxing it.
-// ---------------------------------------------------------------------------
-
-/// Converts a boxed, vector-backed image into a configurable DLPack builder.
-///
-/// The pixel allocation is reused without copying and exported as compact HWC
-/// data. The builder starts with [`DlpackFlags::IS_COPIED`] because ownership
-/// of the image has been transferred without retaining aliases.
-impl<P, M> TryFrom<Box<ImageBuffer<P, Vec<P::Subpixel>>>> for fixed::Initialized<M, 3>
-where
-    P: Pixel + Send,
-    P::Subpixel: DlpackElement + Send,
-    M: ManagedTensorBase,
-{
-    type Error = crate::metadata::Error;
-
-    fn try_from(img: Box<ImageBuffer<P, Vec<P::Subpixel>>>) -> Result<Self, Self::Error> {
-        let width = img.width();
-        let height = img.height();
-        let channels = P::CHANNEL_COUNT;
-        let data_ptr = img.as_raw().as_ptr() as *mut c_void;
-        let shape = [height as i64, width as i64, channels as i64];
-        let strides = compact_strides_array(shape).expect("image shape must fit compact strides");
-
-        let prepared = Fixed::new(Copied(shape), Copied(strides)).prepare::<M>()?;
-        let mut initialized = prepared.initialize(img);
-        initialized
-            .set_data(data_ptr)
-            .set_dtype(P::Subpixel::DTYPE)
-            .set_device(DLDevice::CPU)
-            // SAFETY: `img` was moved in above and its `Vec`-backed pixel buffer
-            // has no other live references.
-            .set_flags_unchecked(DlpackFlags::IS_COPIED);
-        Ok(initialized)
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Reverse borrowed: &Local → ImageBuffer<P, &[T]>
-//
-// Zero-copy borrowed view. The ImageBuffer borrows from the Local
-// and cannot outlive it.
-// ---------------------------------------------------------------------------
-
-impl<'a, P, M> TryFromDlpack<&'a Foreign<M>> for ImageBuffer<P, &'a [P::Subpixel]>
-where
-    P: Pixel,
-    P::Subpixel: DlpackElement,
-    M: ManagedTensorBase,
-{
-    type Error = Error;
-
-    unsafe fn try_from_dlpack(dlpack: &'a Foreign<M>) -> Result<Self, Self::Error> {
-        let tensor = unsafe { dlpack.tensor() };
-        let layout = validated_hwc::<P>(tensor)?;
-
-        let data_slice = unsafe {
-            std::slice::from_raw_parts(layout.data_ptr as *const P::Subpixel, layout.num_elements)
-        };
-
-        ImageBuffer::from_raw(layout.width, layout.height, data_slice).ok_or(Error::BufferTooSmall)
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Reverse owned: Local → ImageBuffer<P, DlpackContainer<M, T>>
-//
-// Zero-copy owned conversion. DlpackContainer holds the Local by value and
-// exposes its pixel data as a slice through Deref. No data is copied.
-// ---------------------------------------------------------------------------
-
-/// An owned container that wraps a [`Foreign`] and exposes its raw data as a
-/// `&[T]` slice, suitable for use as the backing store of an [`ImageBuffer`].
-pub struct DlpackContainer<M: ManagedTensorBase, T> {
-    dlpack: Foreign<M>,
-    data_ptr: *const T,
-    num_elements: usize,
-    _marker: PhantomData<T>,
-}
-
-impl<M: ManagedTensorBase, T> Deref for DlpackContainer<M, T> {
-    type Target = [T];
-
-    fn deref(&self) -> &[T] {
-        let _keep_alive = &self.dlpack;
-        unsafe { std::slice::from_raw_parts(self.data_ptr, self.num_elements) }
-    }
-}
-
-impl<P, M> TryFromDlpack<Foreign<M>> for ImageBuffer<P, DlpackContainer<M, P::Subpixel>>
-where
-    P: Pixel,
-    P::Subpixel: DlpackElement,
-    M: ManagedTensorBase,
-{
-    type Error = Error;
-
-    unsafe fn try_from_dlpack(dlpack: Foreign<M>) -> Result<Self, Self::Error> {
-        let layout = {
-            let tensor = unsafe { dlpack.tensor() };
-            validated_hwc::<P>(tensor)?
-        };
-
-        let container = DlpackContainer {
-            dlpack,
-            data_ptr: layout.data_ptr as *const P::Subpixel,
-            num_elements: layout.num_elements,
-            _marker: PhantomData,
-        };
-        ImageBuffer::from_raw(layout.width, layout.height, container).ok_or(Error::BufferTooSmall)
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Shared validation helper
-// ---------------------------------------------------------------------------
-
-struct HwcLayout {
-    height: u32,
-    width: u32,
-    data_ptr: *const (),
-    num_elements: usize,
-}
-
-fn validated_hwc<P>(tensor: &crate::ffi::DLTensor) -> Result<HwcLayout, Error>
-where
-    P: Pixel,
-    P::Subpixel: DlpackElement,
-{
-    ensure!(tensor.ndim == 3, InvalidNdimSnafu { ndim: tensor.ndim });
-
-    let shape = unsafe { tensor.shape()? };
-    let [height, width, channels] = [shape[0], shape[1], shape[2]];
-
-    ensure!(
-        height > 0 && width > 0 && channels > 0,
-        NonPositiveDimensionSnafu
-    );
-
-    let height = u32::try_from(height).map_err(|_| Error::DimensionOverflow {
-        dimension: "height",
-        value: height,
-    })?;
-    let width = u32::try_from(width).map_err(|_| Error::DimensionOverflow {
-        dimension: "width",
-        value: width,
-    })?;
-    let _channels_u32 = u32::try_from(channels).map_err(|_| Error::DimensionOverflow {
-        dimension: "channels",
-        value: channels,
-    })?;
-
-    ensure!(
-        channels == P::CHANNEL_COUNT as i64,
-        ChannelMismatchSnafu {
-            expected: P::CHANNEL_COUNT,
-            actual: channels
-        }
-    );
-
-    let expected_strides = [
-        i64::from(width)
-            .checked_mul(P::CHANNEL_COUNT as i64)
-            .ok_or(Error::ElementCountOverflow)?,
-        P::CHANNEL_COUNT as i64,
-        1,
-    ];
-    if let Some(strides) = unsafe { tensor.strides()? } {
-        let actual = [strides[0], strides[1], strides[2]];
-        ensure!(
-            is_compact_strides(shape, Some(strides))?,
-            UnsupportedStridesSnafu {
-                expected_0: expected_strides[0],
-                expected_1: expected_strides[1],
-                expected_2: expected_strides[2],
-                actual_0: actual[0],
-                actual_1: actual[1],
-                actual_2: actual[2],
-            }
-        );
-    }
-
-    let data = unsafe { tensor.cpu_slice::<P::Subpixel>()? };
-
-    Ok(HwcLayout {
-        height,
-        width,
-        data_ptr: data.as_ptr().cast(),
-        num_elements: data.len(),
-    })
-}
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
+#[cfg(test)]
+use crate::{
+    DlpackElement, DlpackFlags, ManagedTensorBase, TryFromDlpack,
+    allocation::fixed,
+    ffi::DLDevice,
+    metadata::{Copied, Fixed},
+};
+#[cfg(test)]
+use image::ImageBuffer;
+#[cfg(test)]
+use std::ffi::c_void;
 
 #[cfg(test)]
 mod tests {
