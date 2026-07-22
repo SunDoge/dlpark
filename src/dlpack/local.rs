@@ -47,8 +47,7 @@ impl<M: ManagedTensorBase> Local<M> {
     /// Ownership and destruction remain valid; only the descriptor's
     /// trustworthiness is relinquished. Use this when feeding a locally
     /// produced tensor into a consumer-side conversion that revalidates its
-    /// fields. The reverse direction is [`Foreign::into_local`], which is
-    /// `unsafe` because it asserts the descriptor satisfies the DLPack contract.
+    /// fields.
     pub fn into_foreign(self) -> Foreign<M> {
         let ptr = self.0.as_ptr();
         std::mem::forget(self);
@@ -90,6 +89,34 @@ where
     #[inline]
     pub fn num_bytes(&self) -> Result<usize, tensor::Error> {
         unsafe { self.tensor().num_bytes() }
+    }
+
+    pub fn device(&self) -> crate::ffi::DLDevice {
+        self.tensor().device
+    }
+
+    pub fn dtype(&self) -> crate::ffi::DLDataType {
+        self.tensor().dtype
+    }
+
+    pub fn byte_offset(&self) -> u64 {
+        self.tensor().byte_offset
+    }
+
+    pub fn strides_or_compact(&self) -> Result<std::borrow::Cow<'_, [i64]>, tensor::Error> {
+        unsafe { self.tensor().strides_or_compact() }
+    }
+
+    pub fn is_compact(&self) -> Result<bool, tensor::Error> {
+        unsafe { self.tensor().is_compact() }
+    }
+
+    pub fn cpu_slice<T: DlpackElement>(&self) -> Result<&[T], tensor::Error> {
+        unsafe { self.tensor().cpu_slice::<T>() }
+    }
+
+    pub fn cpu_bytes(&self) -> Result<&[u8], tensor::Error> {
+        unsafe { self.tensor().cpu_bytes() }
     }
 
     /// Returns the CPU tensor data as a mutable typed slice, without proving exclusivity.
@@ -286,6 +313,24 @@ mod tests {
             unsafe { dlpack.tensor().cpu_slice::<i32>() }.unwrap(),
             &[1, 7, 3]
         );
+    }
+
+    #[test]
+    fn immutable_cpu_access_is_safe_for_local_tensor() {
+        let dlpack = dlpack_with_flags::<DLManagedTensor>(DlpackFlags::empty());
+
+        assert_eq!(dlpack.cpu_slice::<i32>().unwrap(), &[1, 2, 3]);
+        assert_eq!(dlpack.cpu_bytes().unwrap().len(), 3 * size_of::<i32>());
+        assert_eq!(dlpack.device().device_type, DLDevice::CPU.device_type);
+        assert_eq!(dlpack.device().device_id, 0);
+        let dtype = dlpack.dtype();
+        let expected_dtype = crate::ffi::DLDataType::of::<i32>();
+        assert_eq!(dtype.code, expected_dtype.code);
+        assert_eq!(dtype.bits, expected_dtype.bits);
+        assert_eq!(dtype.lanes, expected_dtype.lanes);
+        assert_eq!(dlpack.byte_offset(), 0);
+        assert!(dlpack.is_compact().unwrap());
+        assert_eq!(&*dlpack.strides_or_compact().unwrap(), &[1]);
     }
 
     #[test]

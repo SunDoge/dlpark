@@ -84,7 +84,8 @@ impl DlpackExchangeApiRef {
             ));
         }
 
-        Ok(unsafe { Foreign::from_raw_unchecked(out) })
+        unsafe { Foreign::from_raw(out) }
+            .map_err(|error| PyRuntimeError::new_err(error.to_string()))
     }
 
     /// Transfers an owning managed tensor directly into a Python tensor

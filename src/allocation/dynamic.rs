@@ -208,4 +208,36 @@ mod tests {
             DlpackFlags::READ_ONLY
         );
     }
+
+    #[test]
+    fn versioned_version_is_configurable() {
+        let allocation = Allocation::<DLManagedTensorVersioned>::allocate(0).unwrap();
+        let mut initialized = allocation.initialize(Box::new(()), 0).unwrap();
+        let version = crate::ffi::DLPackVersion { major: 1, minor: 2 };
+
+        initialized.set_version(version).unwrap();
+
+        assert_eq!(initialized.version().major, 1);
+        assert_eq!(initialized.version().minor, 2);
+        let actual = unsafe { initialized.finish() }.version();
+        assert_eq!(actual.major, version.major);
+        assert_eq!(actual.minor, version.minor);
+    }
+
+    #[test]
+    fn versioned_version_rejects_incompatible_major() {
+        let allocation = Allocation::<DLManagedTensorVersioned>::allocate(0).unwrap();
+        let mut initialized = allocation.initialize(Box::new(()), 0).unwrap();
+        let version = crate::ffi::DLPackVersion {
+            major: crate::ffi::DLPACK_MAJOR_VERSION + 1,
+            minor: 0,
+        };
+
+        let error = match initialized.set_version(version) {
+            Ok(_) => panic!("incompatible major version must be rejected"),
+            Err(error) => error,
+        };
+
+        assert_eq!(error.actual, version.major);
+    }
 }

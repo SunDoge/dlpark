@@ -2,6 +2,24 @@ use std::ffi::c_void;
 
 use crate::ffi::{DLManagedTensor, DLManagedTensorVersioned, DLPackVersion, DLTensor};
 use bitflags::bitflags;
+use snafu::Snafu;
+
+#[derive(Debug, Snafu)]
+#[snafu(display("incompatible DLPack major version: expected {expected}, got {actual}"))]
+pub struct VersionError {
+    pub expected: u32,
+    pub actual: u32,
+}
+
+pub(crate) fn validate_version(version: DLPackVersion) -> Result<(), VersionError> {
+    if version.major != crate::ffi::DLPACK_MAJOR_VERSION {
+        return Err(VersionError {
+            expected: crate::ffi::DLPACK_MAJOR_VERSION,
+            actual: version.major,
+        });
+    }
+    Ok(())
+}
 
 impl Default for DLPackVersion {
     fn default() -> Self {
@@ -69,6 +87,11 @@ pub unsafe trait ManagedTensorBase {
     fn manager_ctx(&self) -> *mut c_void;
     /// Returns the managed tensor deleter.
     fn deleter(&self) -> Option<unsafe extern "C" fn(self_: *mut Self)>;
+    /// Returns the declared ABI version, or `None` for the legacy ABI.
+    #[inline]
+    fn version(&self) -> Option<DLPackVersion> {
+        None
+    }
     /// Returns versioned flags, or empty flags for the legacy ABI.
     #[inline]
     fn flags(&self) -> DlpackFlags {
@@ -168,6 +191,11 @@ unsafe impl ManagedTensorBase for DLManagedTensorVersioned {
     #[inline]
     fn deleter(&self) -> Option<unsafe extern "C" fn(self_: *mut Self)> {
         self.deleter
+    }
+
+    #[inline]
+    fn version(&self) -> Option<DLPackVersion> {
+        Some(self.version)
     }
 
     #[inline]

@@ -101,7 +101,8 @@ impl<'py> FromPyObject<'_, 'py> for Foreign<DLManagedTensor> {
                 "DLPack capsule pointer is unexpectedly null",
             ));
         }
-        unsafe { Ok(Self::from_raw_unchecked(ptr as *mut _)) }
+        unsafe { Self::from_raw(ptr.cast()) }
+            .map_err(|error| PyRuntimeError::new_err(error.to_string()))
     }
 }
 
@@ -133,7 +134,8 @@ impl<'py> FromPyObject<'_, 'py> for Foreign<DLManagedTensorVersioned> {
                 "DLPack capsule pointer is unexpectedly null",
             ));
         }
-        unsafe { Ok(Self::from_raw_unchecked(ptr as *mut _)) }
+        unsafe { Self::from_raw(ptr.cast()) }
+            .map_err(|error| PyRuntimeError::new_err(error.to_string()))
     }
 }
 
@@ -179,7 +181,8 @@ impl Foreign<DLManagedTensorVersioned> {
                 "DLPack capsule pointer is unexpectedly null",
             ));
         }
-        unsafe { Ok(Self::from_raw_unchecked(ptr.cast())) }
+        unsafe { Self::from_raw(ptr.cast()) }
+            .map_err(|error| PyRuntimeError::new_err(error.to_string()))
     }
 
     /// Extracts a versioned DLPack tensor using an explicit consumer stream.

@@ -88,6 +88,23 @@ impl<M: crate::ManagedTensorBase, Storage> Initialized<M, Storage> {
     }
 }
 
+impl<Storage> Initialized<crate::ffi::DLManagedTensorVersioned, Storage> {
+    /// Returns the version declared by the initialized managed tensor.
+    pub fn version(&self) -> crate::ffi::DLPackVersion {
+        unsafe { (*self.managed.as_ptr()).version }
+    }
+
+    /// Sets a compatible version declared by the initialized managed tensor.
+    pub fn set_version(
+        &mut self,
+        version: crate::ffi::DLPackVersion,
+    ) -> Result<&mut Self, crate::VersionError> {
+        crate::managed_tensor::validate_version(version)?;
+        unsafe { (*self.managed.as_ptr()).version = version };
+        Ok(self)
+    }
+}
+
 fn allocate<M>(layout: Layout) -> NonNull<M> {
     let pointer = unsafe { std::alloc::alloc(layout) }.cast::<M>();
     NonNull::new(pointer).unwrap_or_else(|| std::alloc::handle_alloc_error(layout))

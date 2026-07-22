@@ -3,5 +3,5 @@
 mod foreign;
 mod local;
 
-pub use foreign::Foreign;
+pub use foreign::{Foreign, FromRawError};
 pub use local::Local;

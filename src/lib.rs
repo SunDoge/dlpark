@@ -56,4 +56,4 @@ pub use context::OpaqueContext;
 pub use convert::TryFromDlpack;
 pub use data_type::DlpackElement;
 pub use dlpack::{Foreign, Local};
-pub use managed_tensor::{DlpackFlags, ManagedTensorBase};
+pub use managed_tensor::{DlpackFlags, ManagedTensorBase, VersionError};
