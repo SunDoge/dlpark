@@ -33,6 +33,7 @@ pub mod ffi;
 pub mod allocation;
 mod borrowed;
 mod context;
+mod convert;
 /// Owning managed-tensor handles and data accessors.
 pub mod dlpack;
 /// Adapters for supported Rust tensor and image libraries.
@@ -59,6 +60,7 @@ pub mod versioned;
 
 pub use borrowed::Borrowed;
 pub use context::OpaqueContext;
+pub use convert::TryFromDlpack;
 pub use data_type::DlpackElement;
 pub use dlpack::{Foreign, Local};
 pub use managed_tensor::{DlpackFlags, ManagedTensorBase};

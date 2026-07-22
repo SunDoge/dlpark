@@ -1,5 +1,5 @@
 use candle_core::Tensor;
-use dlpark::{Foreign, allocation::dynamic, ffi::DLManagedTensorVersioned};
+use dlpark::{Foreign, TryFromDlpack, allocation::dynamic, ffi::DLManagedTensorVersioned};
 use ndarray::{Array2, ArrayViewD};
 use snafu::{ResultExt, Whatever};
 
@@ -15,7 +15,8 @@ fn main() -> Result<(), Whatever> {
     let dlpack: Foreign<DLManagedTensorVersioned> = unsafe { initialized.finish() }.into_foreign();
 
     // DLPack -> candle::Tensor: a copy, candle has no borrowed CPU tensor type.
-    let tensor = Tensor::try_from(&dlpack).whatever_context("DLPack -> candle::Tensor failed")?;
+    let tensor = unsafe { Tensor::try_from_dlpack(&dlpack) }
+        .whatever_context("DLPack -> candle::Tensor failed")?;
     println!("candle tensor shape: {:?}", tensor.dims());
 
     let sum = tensor
@@ -35,7 +36,7 @@ fn main() -> Result<(), Whatever> {
         unsafe { initialized.finish() }.into_foreign();
 
     // DLPack -> ndarray view: zero-copy.
-    let view = ArrayViewD::<f32>::try_from(&dlpack_back)
+    let view = unsafe { ArrayViewD::<f32>::try_from_dlpack(&dlpack_back) }
         .whatever_context("DLPack -> ndarray view failed")?;
     println!("round-tripped ndarray view:\n{view}");
     assert_eq!(

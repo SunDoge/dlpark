@@ -5,20 +5,20 @@
 //! compact layout before exposing the DLPack data as image storage.
 //!
 //! ```
-//! use dlpark::{Foreign, allocation::fixed, ffi::DLManagedTensorVersioned};
+//! use dlpark::{Foreign, TryFromDlpack, allocation::fixed, ffi::DLManagedTensorVersioned};
 //! use image::{ImageBuffer, Rgb};
 //!
 //! let image = ImageBuffer::<Rgb<u8>, _>::from_raw(1, 1, vec![10, 20, 30]).unwrap();
 //! let initialized: fixed::Initialized<DLManagedTensorVersioned, 3> = Box::new(image).try_into()?;
 //! let dlpack: Foreign<DLManagedTensorVersioned> =
 //!     unsafe { initialized.finish() }.into_foreign();
-//! let image = ImageBuffer::<Rgb<u8>, &[u8]>::try_from(&dlpack)?;
+//! let image = unsafe { ImageBuffer::<Rgb<u8>, &[u8]>::try_from_dlpack(&dlpack)? };
 //! assert_eq!(image.get_pixel(0, 0).0, [10, 20, 30]);
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
 use crate::{
-    DlpackElement, DlpackFlags, Foreign, ManagedTensorBase,
+    DlpackElement, DlpackFlags, Foreign, ManagedTensorBase, TryFromDlpack,
     allocation::fixed,
     ffi::DLDevice,
     metadata::{Copied, Fixed},
@@ -126,7 +126,7 @@ where
 // and cannot outlive it.
 // ---------------------------------------------------------------------------
 
-impl<'a, P, M> TryFrom<&'a Foreign<M>> for ImageBuffer<P, &'a [P::Subpixel]>
+impl<'a, P, M> TryFromDlpack<&'a Foreign<M>> for ImageBuffer<P, &'a [P::Subpixel]>
 where
     P: Pixel,
     P::Subpixel: DlpackElement,
@@ -134,7 +134,7 @@ where
 {
     type Error = Error;
 
-    fn try_from(dlpack: &'a Foreign<M>) -> Result<Self, Self::Error> {
+    unsafe fn try_from_dlpack(dlpack: &'a Foreign<M>) -> Result<Self, Self::Error> {
         let tensor = unsafe { dlpack.tensor() };
         let layout = validated_hwc::<P>(tensor)?;
 
@@ -171,7 +171,7 @@ impl<M: ManagedTensorBase, T> Deref for DlpackContainer<M, T> {
     }
 }
 
-impl<P, M> TryFrom<Foreign<M>> for ImageBuffer<P, DlpackContainer<M, P::Subpixel>>
+impl<P, M> TryFromDlpack<Foreign<M>> for ImageBuffer<P, DlpackContainer<M, P::Subpixel>>
 where
     P: Pixel,
     P::Subpixel: DlpackElement,
@@ -179,7 +179,7 @@ where
 {
     type Error = Error;
 
-    fn try_from(dlpack: Foreign<M>) -> Result<Self, Self::Error> {
+    unsafe fn try_from_dlpack(dlpack: Foreign<M>) -> Result<Self, Self::Error> {
         let layout = {
             let tensor = unsafe { dlpack.tensor() };
             validated_hwc::<P>(tensor)?
@@ -348,7 +348,7 @@ mod tests {
         let img = ImageBuffer::<Rgb<u8>, _>::from_vec(4, 4, vec![42u8; 48]).unwrap();
         let dlpack = image_tensor::<DLManagedTensor>(img, DlpackFlags::IS_COPIED).into_foreign();
 
-        let img2 = ImageBuffer::<Rgb<u8>, _>::try_from(&dlpack).unwrap();
+        let img2 = unsafe { ImageBuffer::<Rgb<u8>, _>::try_from_dlpack(&dlpack) }.unwrap();
         assert_eq!(img2.width(), 4);
         assert_eq!(img2.height(), 4);
         assert_eq!(img2.as_raw()[0], 42);
@@ -359,7 +359,9 @@ mod tests {
         let img = ImageBuffer::<Rgb<u8>, _>::from_vec(4, 4, vec![99u8; 48]).unwrap();
         let dlpack = image_tensor::<DLManagedTensor>(img, DlpackFlags::IS_COPIED).into_foreign();
 
-        let img2 = ImageBuffer::<Rgb<u8>, DlpackContainer<_, u8>>::try_from(dlpack).unwrap();
+        let img2 =
+            unsafe { ImageBuffer::<Rgb<u8>, DlpackContainer<_, u8>>::try_from_dlpack(dlpack) }
+                .unwrap();
         assert_eq!(img2.width(), 4);
         assert_eq!(img2.height(), 4);
         assert_eq!(img2.as_raw()[0], 99);
@@ -382,7 +384,7 @@ mod tests {
             .set_byte_offset(1);
         let dlpack = unsafe { initialized.finish() }.into_foreign();
 
-        let img = ImageBuffer::<Rgb<u8>, _>::try_from(&dlpack).unwrap();
+        let img = unsafe { ImageBuffer::<Rgb<u8>, _>::try_from_dlpack(&dlpack) }.unwrap();
         assert_eq!(img.as_raw(), &[10, 20, 30]);
     }
 
@@ -402,7 +404,7 @@ mod tests {
         )
         .into_foreign();
 
-        let err = ImageBuffer::<Rgb<u8>, _>::try_from(&dlpack).unwrap_err();
+        let err = unsafe { ImageBuffer::<Rgb<u8>, _>::try_from_dlpack(&dlpack) }.unwrap_err();
         assert!(matches!(
             err,
             Error::Tensor {
@@ -428,7 +430,7 @@ mod tests {
         )
         .into_foreign();
 
-        let err = ImageBuffer::<Rgb<u8>, _>::try_from(&dlpack).unwrap_err();
+        let err = unsafe { ImageBuffer::<Rgb<u8>, _>::try_from_dlpack(&dlpack) }.unwrap_err();
         assert!(matches!(err, Error::UnsupportedStrides { .. }));
     }
 }

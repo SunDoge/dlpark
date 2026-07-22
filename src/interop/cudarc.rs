@@ -24,7 +24,7 @@
 //!
 //! Unlike the forward direction, this conversion takes a single owned
 //! `Foreign<M>` and can fail, so it is exposed as
-//! `TryFrom<Foreign<M>> for BorrowedCudaSlice<M, T>`.
+//! [`crate::TryFromDlpack`] for `BorrowedCudaSlice<M, T>`.
 //!
 //! ## Why not return `CudaView<T>`?
 //!
@@ -62,7 +62,7 @@
 //! is responsible for explicit synchronization.
 
 use crate::{
-    Borrowed, DlpackElement, DlpackFlags, Foreign,
+    Borrowed, DlpackElement, DlpackFlags, Foreign, TryFromDlpack,
     allocation::{dynamic, fixed},
     ffi::{DLDevice, DLDeviceType},
     managed_tensor::ManagedTensorBase,
@@ -260,14 +260,14 @@ impl<M: ManagedTensorBase, T> Deref for BorrowedCudaSlice<M, T> {
 /// A fresh `CudaContext`/stream is created for the device. If the DLPack
 /// producer used a different stream, the caller must synchronize explicitly
 /// (e.g. via `cudaDeviceSynchronize`) before submitting GPU work.
-impl<T, M> TryFrom<Foreign<M>> for BorrowedCudaSlice<M, T>
+impl<T, M> TryFromDlpack<Foreign<M>> for BorrowedCudaSlice<M, T>
 where
     T: DlpackElement,
     M: ManagedTensorBase,
 {
     type Error = Error;
 
-    fn try_from(dlpack: Foreign<M>) -> Result<Self, Self::Error> {
+    unsafe fn try_from_dlpack(dlpack: Foreign<M>) -> Result<Self, Self::Error> {
         let tensor = unsafe { dlpack.tensor() };
         let (cu_device_ptr, len, device_id) = validated_cuda_parts::<T>(tensor)?;
 

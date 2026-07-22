@@ -33,7 +33,7 @@
 //! doc for why per-element addressing doesn't make sense for them.
 
 use crate::{
-    Foreign, ManagedTensorBase,
+    Foreign, ManagedTensorBase, TryFromDlpack,
     allocation::dynamic,
     ffi::{DLDataType, DLDataTypeCode, DLDevice},
     metadata::{Copied, Dynamic},
@@ -385,7 +385,11 @@ fn gather_strided_bytes(
 ///   `candle_dtype_from_dl` mapping.
 /// - Propagates [`crate::tensor::Error`] for device/null/offset issues (e.g.
 ///   the source tensor is not on CPU).
-pub fn candle_tensor_from_dlpack<M: ManagedTensorBase>(
+/// # Safety
+///
+/// The foreign descriptor and all data and metadata pointers it references
+/// must be valid and readable for the duration of this conversion.
+pub unsafe fn candle_tensor_from_dlpack<M: ManagedTensorBase>(
     dlpack: &Foreign<M>,
 ) -> Result<Tensor, Error> {
     let tensor = unsafe { dlpack.tensor() };
@@ -422,14 +426,14 @@ pub fn candle_tensor_from_dlpack<M: ManagedTensorBase>(
     Ok(Tensor::from_raw_buffer(&bytes, dtype, &dims, &Device::Cpu)?)
 }
 
-impl<'a, M> TryFrom<&'a Foreign<M>> for Tensor
+impl<'a, M> TryFromDlpack<&'a Foreign<M>> for Tensor
 where
     M: ManagedTensorBase,
 {
     type Error = Error;
 
-    fn try_from(dlpack: &'a Foreign<M>) -> Result<Self, Self::Error> {
-        candle_tensor_from_dlpack(dlpack)
+    unsafe fn try_from_dlpack(dlpack: &'a Foreign<M>) -> Result<Self, Self::Error> {
+        unsafe { candle_tensor_from_dlpack(dlpack) }
     }
 }
 
@@ -561,7 +565,7 @@ mod tests {
             [1],
         );
 
-        let tensor = Tensor::try_from(&dlpack).unwrap();
+        let tensor = unsafe { Tensor::try_from_dlpack(&dlpack) }.unwrap();
 
         assert_eq!(tensor.dims(), &[6]);
         assert_eq!(tensor.dtype(), DType::F4);
@@ -582,7 +586,7 @@ mod tests {
             [1, 3],
         );
 
-        let err = Tensor::try_from(&dlpack).unwrap_err();
+        let err = unsafe { Tensor::try_from_dlpack(&dlpack) }.unwrap_err();
         assert!(matches!(err, Error::SubByteStridesUnsupported { .. }));
     }
 
@@ -595,7 +599,7 @@ mod tests {
             [3, 1],
         );
 
-        let tensor = Tensor::try_from(&dlpack).unwrap();
+        let tensor = unsafe { Tensor::try_from_dlpack(&dlpack) }.unwrap();
 
         assert_eq!(tensor.dims(), &[2, 3]);
         assert_eq!(
@@ -615,7 +619,7 @@ mod tests {
             [1, 3],
         );
 
-        let tensor = Tensor::try_from(&dlpack).unwrap();
+        let tensor = unsafe { Tensor::try_from_dlpack(&dlpack) }.unwrap();
 
         assert_eq!(tensor.dims(), &[3, 2]);
         assert_eq!(
@@ -635,7 +639,7 @@ mod tests {
             [10, 1],
         );
 
-        let err = Tensor::try_from(&dlpack).unwrap_err();
+        let err = unsafe { Tensor::try_from_dlpack(&dlpack) }.unwrap_err();
         assert!(matches!(err, Error::StridedSpanOverflow));
     }
 
@@ -651,7 +655,7 @@ mod tests {
             [-1, -3],
         );
 
-        let err = Tensor::try_from(&dlpack).unwrap_err();
+        let err = unsafe { Tensor::try_from_dlpack(&dlpack) }.unwrap_err();
         assert!(matches!(err, Error::StridedSpanOverflow));
     }
 
@@ -668,7 +672,7 @@ mod tests {
             [3, 1],
         );
 
-        let tensor = Tensor::try_from(&dlpack).unwrap();
+        let tensor = unsafe { Tensor::try_from_dlpack(&dlpack) }.unwrap();
 
         assert_eq!(tensor.dims(), &[2, 3]);
         assert_eq!(tensor.dtype(), DType::F8E4M3);
@@ -687,7 +691,7 @@ mod tests {
             [1],
         );
 
-        let err = Tensor::try_from(&dlpack).unwrap_err();
+        let err = unsafe { Tensor::try_from_dlpack(&dlpack) }.unwrap_err();
         assert!(matches!(err, Error::UnsupportedDlDataType { .. }));
     }
 }

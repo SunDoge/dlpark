@@ -147,7 +147,7 @@ let data = unsafe { dlpack.tensor().cpu_slice::<f32>()? }; // compact CPU data, 
 - `DlpackFlags::IS_COPIED` asserts the export owns an unaliased copy. `cpu_slice_mut` requires it and needs no `unsafe`.
 - `DlpackFlags::READ_ONLY` forbids mutation; both mut accessors reject it.
 
-Without `IS_COPIED`, use the `unsafe ..._mut_unchecked` accessors and prove exclusivity yourself. **Legacy `DLManagedTensor` has no flags field**, so it can never satisfy `IS_COPIED` — mutation of a legacy tensor always goes through the `_unchecked` path. Interop adapters mirror this: `ArrayViewMutD::try_from(&mut dlpack)` is the safe, `IS_COPIED`-gated path; `array_view_from_dlpack_mut_unchecked` is the escape hatch.
+Without `IS_COPIED`, use the `unsafe ..._mut_unchecked` accessors and prove exclusivity yourself. **Legacy `DLManagedTensor` has no flags field**, so it can never satisfy `IS_COPIED` — mutation of a legacy local tensor always goes through the `_unchecked` path. Foreign interop uses the unsafe `TryFromDlpack` trait because descriptor pointers and aliasing cannot be proven by validation; mutable conversions require the caller to establish exclusivity rather than trusting foreign flags.
 
 `Local::flags()` / `version()` read the versioned fields; `flags_mut` is `unsafe` because setting `IS_COPIED` or clearing `READ_ONLY` asserts the corresponding ownership/mutability guarantee.
 
@@ -176,7 +176,7 @@ Two runnable examples:
 ### Converting between Rust and Python
 
 ```rust
-use dlpark::{Builder, versioned};
+use dlpark::{Builder, TryFromDlpack, versioned};
 use pyo3::prelude::*;
 
 // Rust to Python
@@ -202,18 +202,20 @@ use image::{ImageBuffer, Rgb};
 
 let img = ImageBuffer::<Rgb<u8>, _>::from_vec(100, 100, vec![0; 100 * 100 * 3])?;
 let tensor: versioned::Dlpack = Builder::from(Box::new(img)).build();
-let img2 = ImageBuffer::<Rgb<u8>, _>::try_from(&tensor)?;
+let tensor = tensor.into_foreign();
+let img2 = unsafe { ImageBuffer::<Rgb<u8>, _>::try_from_dlpack(&tensor)? };
 ```
 
 ### ndarray
 
 ```rust
-use dlpark::{Builder, versioned};
+use dlpark::{Builder, TryFromDlpack, versioned};
 use ndarray::{ArrayD, ArrayViewD, arr2};
 
 let array = arr2(&[[1i32, 2, 3], [4, 5, 6]]);
 let tensor: versioned::Dlpack = Builder::from(Box::new(array)).try_build()?;
-let view = ArrayViewD::<i32>::try_from(&tensor)?;
+let tensor = tensor.into_foreign();
+let view = unsafe { ArrayViewD::<i32>::try_from_dlpack(&tensor)? };
 
 assert_eq!(view[[1, 2]], 6);
 
@@ -227,12 +229,13 @@ Zero-copy from `candle::Tensor` to DLPack; the reverse direction (DLPack to `can
 
 ```rust
 use candle_core::Tensor;
-use dlpark::{Builder, DlpackFlags, ffi::DLManagedTensorVersioned, versioned};
+use dlpark::{Builder, DlpackFlags, TryFromDlpack, ffi::DLManagedTensorVersioned, versioned};
 
 let tensor = Tensor::new(&[1f32, 2., 3., 4.], &candle_core::Device::Cpu)?;
 let dlpack: versioned::Dlpack = Builder::try_from(Box::new(tensor))?.try_build()?;
+let dlpack = dlpack.into_foreign();
 
-let tensor2 = Tensor::try_from(&dlpack)?;
+let tensor2 = unsafe { Tensor::try_from_dlpack(&dlpack)? };
 assert_eq!(tensor2.to_vec1::<f32>()?, vec![1., 2., 3., 4.]);
 
 let tensor = Tensor::new(&[1f32, 2., 3., 4.], &candle_core::Device::Cpu)?;
@@ -248,7 +251,7 @@ Zero-copy in both directions between a [cudarc] `CudaSlice<T>` and a DLPack tens
 
 ```rust
 use dlpark::{
-    Builder,
+    Builder, TryFromDlpack,
     interop::cudarc::BorrowedCudaSlice,
     metadata::CopiedSlice,
     versioned,
@@ -257,7 +260,7 @@ use dlpark::{
 let dlpack: versioned::Dlpack = Builder::try_from(Box::new(cuda_slice))?
     .metadata(CopiedSlice::new([2, 3], [3, 1]))
     .try_build()?;
-let borrowed = BorrowedCudaSlice::<_, f32>::try_from(dlpack)?;
+let borrowed = unsafe { BorrowedCudaSlice::<_, f32>::try_from_dlpack(dlpack.into_foreign())? };
 ```
 
 [pyo3]: https://github.com/PyO3/pyo3
