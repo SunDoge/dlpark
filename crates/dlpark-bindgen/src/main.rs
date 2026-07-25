@@ -24,7 +24,16 @@ fn main() -> Result<(), Whatever> {
         // otherwise treats their indented C/C++ contents as Rust doctests.
         .replace("\\\\code{.c}", "```c")
         .replace("\\\\code", "```text")
-        .replace("\\\\endcode", "```");
+        .replace("\\\\endcode", "```")
+        // bindgen emits struct size/offset layout tests using the host pointer
+        // width, so they fail to compile on 32-bit targets (e.g. wasm32) where
+        // pointer-containing structs are smaller. Gate every layout-test block
+        // on a 64-bit pointer width so the checks still run where they were
+        // generated but don't break 32-bit builds.
+        .replace(
+            "#[allow(clippy::unnecessary_operation, clippy::identity_op)]",
+            "#[cfg(target_pointer_width = \"64\")]\n#[allow(clippy::unnecessary_operation, clippy::identity_op)]",
+        );
 
     std::fs::write("src/ffi.rs", &post_processed).whatever_context("failed to write file")?;
 

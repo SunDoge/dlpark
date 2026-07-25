@@ -14,6 +14,7 @@ pub struct DLPackVersion {
     #[doc = " DLPack minor version."]
     pub minor: u32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of DLPackVersion"][::std::mem::size_of::<DLPackVersion>() - 8usize];
@@ -69,6 +70,7 @@ pub struct DLDevice {
     #[doc = " The device index.\n For vanilla CPU memory, pinned memory, or managed memory, this is set to 0."]
     pub device_id: i32,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of DLDevice"][::std::mem::size_of::<DLDevice>() - 8usize];
@@ -130,6 +132,7 @@ pub struct DLDataType {
     #[doc = " Number of lanes in the type, used for vector types."]
     pub lanes: u16,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of DLDataType"][::std::mem::size_of::<DLDataType>() - 4usize];
@@ -157,6 +160,7 @@ pub struct DLTensor {
     #[doc = " The offset in bytes to the beginning pointer to data"]
     pub byte_offset: u64,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of DLTensor"][::std::mem::size_of::<DLTensor>() - 48usize];
@@ -181,6 +185,7 @@ pub struct DLManagedTensor {
     #[doc = " Destructor - this should be called\n to destruct the manager_ctx  which backs the DLManagedTensor. It can be\n NULL if there is no way for the caller to provide a reasonable destructor.\n The destructor deletes the argument self as well."]
     pub deleter: ::std::option::Option<unsafe extern "C" fn(self_: *mut DLManagedTensor)>,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of DLManagedTensor"][::std::mem::size_of::<DLManagedTensor>() - 64usize];
@@ -207,6 +212,7 @@ pub struct DLManagedTensorVersioned {
     #[doc = " DLTensor which is being memory managed"]
     pub dl_tensor: DLTensor,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of DLManagedTensorVersioned"]
@@ -277,6 +283,7 @@ pub struct DLPackExchangeAPIHeader {
     #[doc = " Optional pointer to an older DLPackExchangeAPI in the chain.\n\n It must be NULL if the framework does not support older versions.\n If the current major version is larger than the one supported by the\n consumer, the consumer may walk this to find an earlier supported version.\n\n \\sa DLPackExchangeAPI"]
     pub prev_api: *mut DLPackExchangeAPIHeader,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of DLPackExchangeAPIHeader"][::std::mem::size_of::<DLPackExchangeAPIHeader>() - 16usize];
@@ -304,6 +311,7 @@ pub struct DLPackExchangeAPI {
     #[doc = " Producer function pointer for DLPackCurrentWorkStream\n        This function must be not NULL.\n \\sa DLPackCurrentWorkStream"]
     pub current_work_stream: DLPackCurrentWorkStream,
 }
+#[cfg(target_pointer_width = "64")]
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of DLPackExchangeAPI"][::std::mem::size_of::<DLPackExchangeAPI>() - 56usize];
