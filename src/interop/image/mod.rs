@@ -12,7 +12,7 @@
 //! let initialized: fixed::Initialized<DLManagedTensorVersioned, 3> = Box::new(image).try_into()?;
 //! let dlpack: Managed<DLManagedTensorVersioned> =
 //!     unsafe { initialized.finish() };
-//! let image = unsafe { ImageBuffer::<Rgb<u8>, &[u8]>::try_from_dlpack(&dlpack)? };
+//! let image = unsafe { ImageBuffer::<Rgb<u8>, &[u8]>::try_from_dlpack(&dlpack, ())? };
 //! assert_eq!(image.get_pixel(0, 0).0, [10, 20, 30]);
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
@@ -29,11 +29,19 @@ pub use consumer::DlpackContainer;
 pub enum Error {
     /// The tensor is not a three-dimensional HWC layout.
     #[snafu(display("tensor must have exactly 3 dimensions (H, W, C), got {ndim}"))]
-    InvalidNdim { ndim: i32 },
+    InvalidNdim {
+        /// The reported dimension count.
+        ndim: i32,
+    },
 
     /// The final dimension differs from the pixel type's channel count.
     #[snafu(display("channel count mismatch: expected {expected}, got {actual}"))]
-    ChannelMismatch { expected: u8, actual: i64 },
+    ChannelMismatch {
+        /// The expected channel count.
+        expected: u8,
+        /// The actual channel count.
+        actual: i64,
+    },
 
     /// At least one HWC dimension is zero or negative.
     #[snafu(display("all dimensions must be positive"))]
@@ -41,7 +49,12 @@ pub enum Error {
 
     /// An image dimension cannot be represented by the `image` crate.
     #[snafu(display("dimension {dimension} with value {value} does not fit in u32"))]
-    DimensionOverflow { dimension: &'static str, value: i64 },
+    DimensionOverflow {
+        /// The name of the overflowing dimension.
+        dimension: &'static str,
+        /// The offending dimension value.
+        value: i64,
+    },
 
     /// The number of image elements overflowed `usize`.
     #[snafu(display("element count overflows usize"))]
@@ -53,11 +66,17 @@ pub enum Error {
          got [{actual_0}, {actual_1}, {actual_2}]"
     ))]
     UnsupportedStrides {
+        /// Expected compact stride along dimension 0.
         expected_0: i64,
+        /// Expected compact stride along dimension 1.
         expected_1: i64,
+        /// Expected compact stride along dimension 2.
         expected_2: i64,
+        /// Actual stride along dimension 0.
         actual_0: i64,
+        /// Actual stride along dimension 1.
         actual_1: i64,
+        /// Actual stride along dimension 2.
         actual_2: i64,
     },
 
@@ -67,7 +86,10 @@ pub enum Error {
 
     /// The underlying DLPack tensor failed validation.
     #[snafu(transparent)]
-    Tensor { source: crate::tensor::Error },
+    Tensor {
+        /// The underlying tensor error.
+        source: crate::tensor::Error,
+    },
 }
 
 #[cfg(test)]
@@ -152,7 +174,7 @@ mod tests {
         let img = ImageBuffer::<Rgb<u8>, _>::from_vec(4, 4, vec![42u8; 48]).unwrap();
         let dlpack = image_tensor::<DLManagedTensor>(img, DlpackFlags::empty());
 
-        let img2 = unsafe { ImageBuffer::<Rgb<u8>, _>::try_from_dlpack(&dlpack) }.unwrap();
+        let img2 = unsafe { ImageBuffer::<Rgb<u8>, _>::try_from_dlpack(&dlpack, ()) }.unwrap();
         assert_eq!(img2.width(), 4);
         assert_eq!(img2.height(), 4);
         assert_eq!(img2.as_raw()[0], 42);
@@ -164,7 +186,7 @@ mod tests {
         let dlpack = image_tensor::<DLManagedTensor>(img, DlpackFlags::empty());
 
         let img2 =
-            unsafe { ImageBuffer::<Rgb<u8>, DlpackContainer<_, u8>>::try_from_dlpack(dlpack) }
+            unsafe { ImageBuffer::<Rgb<u8>, DlpackContainer<_, u8>>::try_from_dlpack(dlpack, ()) }
                 .unwrap();
         assert_eq!(img2.width(), 4);
         assert_eq!(img2.height(), 4);
@@ -188,7 +210,7 @@ mod tests {
             .set_byte_offset(1);
         let dlpack = unsafe { initialized.finish() };
 
-        let img = unsafe { ImageBuffer::<Rgb<u8>, _>::try_from_dlpack(&dlpack) }.unwrap();
+        let img = unsafe { ImageBuffer::<Rgb<u8>, _>::try_from_dlpack(&dlpack, ()) }.unwrap();
         assert_eq!(img.as_raw(), &[10, 20, 30]);
     }
 
@@ -207,7 +229,7 @@ mod tests {
             DlpackFlags::empty(),
         );
 
-        let err = unsafe { ImageBuffer::<Rgb<u8>, _>::try_from_dlpack(&dlpack) }.unwrap_err();
+        let err = unsafe { ImageBuffer::<Rgb<u8>, _>::try_from_dlpack(&dlpack, ()) }.unwrap_err();
         assert!(matches!(
             err,
             Error::Tensor {
@@ -232,7 +254,7 @@ mod tests {
             DlpackFlags::empty(),
         );
 
-        let err = unsafe { ImageBuffer::<Rgb<u8>, _>::try_from_dlpack(&dlpack) }.unwrap_err();
+        let err = unsafe { ImageBuffer::<Rgb<u8>, _>::try_from_dlpack(&dlpack, ()) }.unwrap_err();
         assert!(matches!(err, Error::UnsupportedStrides { .. }));
     }
 }

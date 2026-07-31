@@ -177,13 +177,13 @@ pub unsafe fn candle_tensor_from_dlpack<M: ManagedTensorBase>(
     Ok(Tensor::from_raw_buffer(&bytes, dtype, &dims, &Device::Cpu)?)
 }
 
-impl<'a, M> TryFromDlpack<&'a Managed<M>> for Tensor
+impl<'a, M> TryFromDlpack<&'a Managed<M>, ()> for Tensor
 where
     M: ManagedTensorBase,
 {
     type Error = Error;
 
-    unsafe fn try_from_dlpack(dlpack: &'a Managed<M>) -> Result<Self, Self::Error> {
+    unsafe fn try_from_dlpack(dlpack: &'a Managed<M>, _stream: ()) -> Result<Self, Self::Error> {
         unsafe { candle_tensor_from_dlpack(dlpack) }
     }
 }

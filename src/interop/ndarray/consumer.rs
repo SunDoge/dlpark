@@ -3,14 +3,14 @@ use crate::{DlpackElement, Managed, ManagedTensorBase, TryFromDlpack};
 use ndarray::{ArrayViewD, ArrayViewMutD, IxDyn, ShapeBuilder};
 use snafu::ensure;
 
-impl<'a, T, M> TryFromDlpack<&'a Managed<M>> for ArrayViewD<'a, T>
+impl<'a, T, M> TryFromDlpack<&'a Managed<M>, ()> for ArrayViewD<'a, T>
 where
     T: DlpackElement,
     M: ManagedTensorBase,
 {
     type Error = Error;
 
-    unsafe fn try_from_dlpack(dlpack: &'a Managed<M>) -> Result<Self, Self::Error> {
+    unsafe fn try_from_dlpack(dlpack: &'a Managed<M>, _stream: ()) -> Result<Self, Self::Error> {
         let tensor = dlpack.validate()?;
         let (shape, strides) = shape_and_strides(&tensor)?;
         let ptr = unsafe { tensor.offset_data_ptr::<T>()? };
@@ -19,7 +19,7 @@ where
     }
 }
 
-impl<'a, T, M> TryFromDlpack<&'a mut Managed<M>> for ArrayViewMutD<'a, T>
+impl<'a, T, M> TryFromDlpack<&'a mut Managed<M>, ()> for ArrayViewMutD<'a, T>
 where
     T: DlpackElement,
     M: ManagedTensorBase,
@@ -30,7 +30,10 @@ where
     ///
     /// In addition to the trait-level requirements, no other reference may
     /// access the tensor data for the returned view's lifetime.
-    unsafe fn try_from_dlpack(dlpack: &'a mut Managed<M>) -> Result<Self, Self::Error> {
+    unsafe fn try_from_dlpack(
+        dlpack: &'a mut Managed<M>,
+        _stream: (),
+    ) -> Result<Self, Self::Error> {
         unsafe { array_view_from_dlpack_mut_unchecked(dlpack) }
     }
 }

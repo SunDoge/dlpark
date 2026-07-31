@@ -15,7 +15,7 @@ fn main() -> Result<(), Whatever> {
     let dlpack: versioned::Dlpack = unsafe { initialized.finish() };
 
     // DLPack -> candle::Tensor: a copy, candle has no borrowed CPU tensor type.
-    let tensor = unsafe { Tensor::try_from_dlpack(&dlpack) }
+    let tensor = unsafe { Tensor::try_from_dlpack(&dlpack, ()) }
         .whatever_context("DLPack -> candle::Tensor failed")?;
     println!("candle tensor shape: {:?}", tensor.dims());
 
@@ -35,7 +35,7 @@ fn main() -> Result<(), Whatever> {
     let dlpack_back: versioned::Dlpack = unsafe { initialized.finish() };
 
     // DLPack -> ndarray view: zero-copy.
-    let view = unsafe { ArrayViewD::<f32>::try_from_dlpack(&dlpack_back) }
+    let view = unsafe { ArrayViewD::<f32>::try_from_dlpack(&dlpack_back, ()) }
         .whatever_context("DLPack -> ndarray view failed")?;
     println!("round-tripped ndarray view:\n{view}");
     assert_eq!(

@@ -22,6 +22,8 @@ pub struct DlpackExchangeApiRef {
 }
 
 impl DlpackExchangeApiRef {
+    /// Obtains the exchange API from a Python object exposing
+    /// `__dlpack_c_exchange_api__`, if present.
     pub fn from_object(obj: Borrowed<'_, '_, PyAny>) -> pyo3::PyResult<Option<Self>> {
         let capsule = unsafe {
             let ty = pyo3::ffi::Py_TYPE(obj.as_ptr()) as *mut pyo3::ffi::PyObject;

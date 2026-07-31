@@ -7,13 +7,19 @@ use crate::tensor;
 use snafu::Snafu;
 use std::ptr::NonNull;
 
+/// Errors raised when taking ownership of a raw managed tensor pointer.
 #[derive(Debug, Snafu)]
 pub enum FromRawError {
+    /// The pointer is null.
     #[snafu(display("managed tensor pointer is null"))]
     Null,
 
+    /// The managed tensor declares an incompatible DLPack version.
     #[snafu(transparent)]
-    Version { source: crate::VersionError },
+    Version {
+        /// The underlying version error.
+        source: crate::VersionError,
+    },
 }
 
 /// An owning handle to a DLPack managed tensor.
@@ -29,7 +35,10 @@ pub enum FromRawError {
 #[repr(transparent)]
 pub struct Managed<M: ManagedTensorBase>(NonNull<M>);
 
-impl<M: ManagedTensorBase> Managed<M> {
+impl<M> Managed<M>
+where
+    M: ManagedTensorBase,
+{
     pub(crate) unsafe fn from_raw_unchecked(ptr: *mut M) -> Self {
         Self(unsafe { NonNull::new_unchecked(ptr) })
     }
@@ -63,12 +72,7 @@ impl<M: ManagedTensorBase> Managed<M> {
     pub fn as_ptr(&self) -> *mut M {
         self.0.as_ptr()
     }
-}
 
-impl<M> Managed<M>
-where
-    M: ManagedTensorBase,
-{
     /// Returns the embedded raw tensor descriptor without validating it.
     ///
     /// # Safety
@@ -95,29 +99,15 @@ where
         let tensor = unsafe { self.0.as_mut() }.tensor_mut();
         unsafe { tensor::TensorMut::from_raw(tensor, flags) }
     }
-}
 
-impl<M> std::ops::Deref for Managed<M>
-where
-    M: ManagedTensorBase,
-{
-    type Target = M;
-
-    fn deref(&self) -> &Self::Target {
-        unsafe { self.0.as_ref() }
+    /// Returns the DLPack bitmask flags (e.g. `READ_ONLY`, `IS_COPIED`).
+    #[inline]
+    pub fn flags(&self) -> DlpackFlags {
+        unsafe { self.0.as_ref() }.flags()
     }
 }
 
 impl Managed<DLManagedTensorVersioned> {
-    /// Returns the DLPack bitmask flags (e.g. `READ_ONLY`, `IS_COPIED`).
-    ///
-    /// Only present on the versioned tensor ABI; the legacy `DLManagedTensor`
-    /// has no `flags` field.
-    #[inline]
-    pub fn flags(&self) -> DlpackFlags {
-        unsafe { self.0.as_ref() }.flags
-    }
-
     /// Returns mutable access to the DLPack bitmask flags.
     ///
     /// # Safety

@@ -21,7 +21,8 @@
 //! versioned ABI and exposes version and flags.
 //!
 //! [DLPack]: https://dmlc.github.io/dlpack/latest/
-#![allow(
+#![warn(missing_docs)]
+#[allow(
     missing_docs,
     rustdoc::broken_intra_doc_links,
     rustdoc::invalid_html_tags

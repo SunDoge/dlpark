@@ -80,32 +80,74 @@ impl<M: ManagedTensorBase, T> Deref for BorrowedCudaSlice<M, T> {
 /// A fresh `CudaContext`/stream is created for the device. If the DLPack
 /// producer used a different stream, the caller must synchronize explicitly
 /// (e.g. via `cudaDeviceSynchronize`) before submitting GPU work.
-impl<T, M> TryFromDlpack<Managed<M>> for BorrowedCudaSlice<M, T>
+impl<T, M> TryFromDlpack<Managed<M>, ()> for BorrowedCudaSlice<M, T>
 where
     T: DlpackElement,
     M: ManagedTensorBase,
 {
     type Error = Error;
 
-    unsafe fn try_from_dlpack(dlpack: Managed<M>) -> Result<Self, Self::Error> {
-        let tensor = dlpack.validate()?;
-        let (cu_device_ptr, len, device_id) = validated_cuda_parts::<T>(&tensor)?;
-
-        let ctx = CudaContext::new(device_id).map_err(|source| Error::Driver { source })?;
-        let stream: Arc<CudaStream> = ctx.default_stream();
-
-        // SAFETY:
-        // - cu_device_ptr is the checked, byte-offset-adjusted DLPack data pointer,
-        //   which must reference a valid compact CUDA allocation for at least
-        //   `len * size_of::<T>()` bytes.
-        // - CudaSliceView::drop calls leak() instead of allowing cudaFree to run.
-        let slice = unsafe { stream.upgrade_device_ptr::<T>(cu_device_ptr, len) };
-
-        let view = CudaSliceView(ManuallyDrop::new(slice));
-        let inner = unsafe { Borrowed::new_unchecked(dlpack, view) };
-
-        Ok(BorrowedCudaSlice { inner })
+    /// # Safety
+    ///
+    /// In addition to the trait-level requirements, the caller must ensure the
+    /// device data is synchronized for the consumer's stream. With `S = ()`
+    /// the framework performs no synchronization.
+    unsafe fn try_from_dlpack(dlpack: Managed<M>, _stream: ()) -> Result<Self, Self::Error> {
+        build(dlpack, None)
     }
+}
+
+/// Converts a [`Managed`] tensor into an owning CUDA slice view, synchronizing
+/// the consumer's stream against the producer's stream.
+///
+/// This is the `S = Arc<CudaStream>` path: the consumer's default stream
+/// [`CudaStream::join`]s the producer's stream, recording a non-blocking wait
+/// for the producer's outstanding work before the slice is exposed.
+impl<T, M> TryFromDlpack<Managed<M>, Arc<CudaStream>> for BorrowedCudaSlice<M, T>
+where
+    T: DlpackElement,
+    M: ManagedTensorBase,
+{
+    type Error = Error;
+
+    unsafe fn try_from_dlpack(
+        dlpack: Managed<M>,
+        producer_stream: Arc<CudaStream>,
+    ) -> Result<Self, Self::Error> {
+        build(dlpack, Some(&producer_stream))
+    }
+}
+
+fn build<T, M>(
+    dlpack: Managed<M>,
+    producer_stream: Option<&CudaStream>,
+) -> Result<BorrowedCudaSlice<M, T>, Error>
+where
+    T: DlpackElement,
+    M: ManagedTensorBase,
+{
+    let tensor = dlpack.validate()?;
+    let (cu_device_ptr, len, device_id) = validated_cuda_parts::<T>(&tensor)?;
+
+    let ctx = CudaContext::new(device_id).map_err(|source| Error::Driver { source })?;
+    let stream: Arc<CudaStream> = ctx.default_stream();
+    if let Some(producer) = producer_stream {
+        stream
+            .join(producer)
+            .map_err(|source| Error::Driver { source })?;
+    }
+
+    // SAFETY:
+    // - cu_device_ptr is the checked, byte-offset-adjusted DLPack data pointer,
+    //   which must reference a valid compact CUDA allocation for at least
+    //   `len * size_of::<T>()` bytes.
+    // - CudaSliceView::drop calls leak() instead of allowing cudaFree to run.
+    let slice = unsafe { stream.upgrade_device_ptr::<T>(cu_device_ptr, len) };
+
+    let view = CudaSliceView(ManuallyDrop::new(slice));
+    let inner = unsafe { Borrowed::new_unchecked(dlpack, view) };
+
+    Ok(BorrowedCudaSlice { inner })
 }
 
 // ---------------------------------------------------------------------------

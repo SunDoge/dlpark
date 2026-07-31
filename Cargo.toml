@@ -2,6 +2,7 @@
 name = "dlpark"
 version = "0.9.0-alpha.1"
 edition = "2024"
+rust-version = "1.87"
 description = "dlpack Rust binding for Python"
 documentation = "https://docs.rs/dlpark"
 readme = "README.md"
@@ -10,7 +11,6 @@ repository = "https://github.com/SunDoge/dlpark"
 license = "Apache-2.0"
 include = [
   "CHANGELOG.md",
-  "Cargo.lock",
   "Cargo.toml",
   "LICENSE",
   "README.md",
@@ -43,9 +43,6 @@ image = { version = "0.25", default-features = false }
 ndarray = { version = "0.17", default-features = false, features = ["std"] }
 pyo3 = "0.29"
 snafu = "0.9"
-
-[lib]
-doctest = false
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

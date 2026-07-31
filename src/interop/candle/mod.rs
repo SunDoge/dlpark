@@ -41,41 +41,74 @@ mod producer;
 
 pub use consumer::candle_tensor_from_dlpack;
 
+/// Errors raised during candle interop.
 #[derive(Debug, Snafu)]
 pub enum Error {
+    /// Metadata preparation failed.
     #[snafu(transparent)]
-    Metadata { source: crate::metadata::Error },
+    Metadata {
+        /// The underlying metadata error.
+        source: crate::metadata::Error,
+    },
 
+    /// The candle tensor is not on CPU.
     #[snafu(display("candle tensor must be on CPU"))]
     UnsupportedDevice,
 
+    /// The candle dtype has no DLPack mapping.
     #[snafu(display("unsupported candle dtype: {dtype:?}"))]
-    UnsupportedCandleDType { dtype: DType },
+    UnsupportedCandleDType {
+        /// The unsupported candle dtype.
+        dtype: DType,
+    },
 
+    /// The DLPack dtype has no candle mapping.
     #[snafu(display("no candle dtype matches DLPack dtype: {dtype:?}"))]
-    UnsupportedDlDataType { dtype: crate::ffi::DLDataType },
+    UnsupportedDlDataType {
+        /// The unsupported DLPack dtype.
+        dtype: crate::ffi::DLDataType,
+    },
 
+    /// A shape or stride value does not fit the target integer type.
     #[snafu(display("shape/stride value does not fit the target integer type"))]
     DimensionOverflow,
 
+    /// A sub-byte packed dtype carries a nonzero element offset, which plain
+    /// pointer arithmetic cannot express.
     #[snafu(display(
         "sub-byte packed dtype {dtype:?} with a nonzero element offset is not supported"
     ))]
-    SubByteOffsetUnsupported { dtype: DLDataType },
+    SubByteOffsetUnsupported {
+        /// The offending packed dtype.
+        dtype: DLDataType,
+    },
 
+    /// A sub-byte packed dtype is used with non-compact strides.
     #[snafu(display(
         "sub-byte packed dtype {dtype:?} only supports compact (non-strided) tensors"
     ))]
-    SubByteStridesUnsupported { dtype: DLDataType },
+    SubByteStridesUnsupported {
+        /// The offending packed dtype.
+        dtype: DLDataType,
+    },
 
+    /// The strided index grid reaches outside the data buffer.
     #[snafu(display("strided access spans outside the tensor data buffer"))]
     StridedSpanOverflow,
 
+    /// The underlying DLPack tensor failed validation.
     #[snafu(transparent)]
-    Tensor { source: crate::tensor::Error },
+    Tensor {
+        /// The underlying tensor error.
+        source: crate::tensor::Error,
+    },
 
+    /// candle returned an error.
     #[snafu(transparent)]
-    Candle { source: candle_core::Error },
+    Candle {
+        /// The underlying candle error.
+        source: candle_core::Error,
+    },
 }
 
 #[cfg(test)]
@@ -213,7 +246,7 @@ mod tests {
             [1],
         );
 
-        let tensor = unsafe { Tensor::try_from_dlpack(&dlpack) }.unwrap();
+        let tensor = unsafe { Tensor::try_from_dlpack(&dlpack, ()) }.unwrap();
 
         assert_eq!(tensor.dims(), &[6]);
         assert_eq!(tensor.dtype(), DType::F4);
@@ -234,7 +267,7 @@ mod tests {
             [1, 3],
         );
 
-        let err = unsafe { Tensor::try_from_dlpack(&dlpack) }.unwrap_err();
+        let err = unsafe { Tensor::try_from_dlpack(&dlpack, ()) }.unwrap_err();
         assert!(matches!(err, Error::SubByteStridesUnsupported { .. }));
     }
 
@@ -247,7 +280,7 @@ mod tests {
             [3, 1],
         );
 
-        let tensor = unsafe { Tensor::try_from_dlpack(&dlpack) }.unwrap();
+        let tensor = unsafe { Tensor::try_from_dlpack(&dlpack, ()) }.unwrap();
 
         assert_eq!(tensor.dims(), &[2, 3]);
         assert_eq!(
@@ -267,7 +300,7 @@ mod tests {
             [1, 3],
         );
 
-        let tensor = unsafe { Tensor::try_from_dlpack(&dlpack) }.unwrap();
+        let tensor = unsafe { Tensor::try_from_dlpack(&dlpack, ()) }.unwrap();
 
         assert_eq!(tensor.dims(), &[3, 2]);
         assert_eq!(
@@ -287,7 +320,7 @@ mod tests {
             [10, 1],
         );
 
-        let err = unsafe { Tensor::try_from_dlpack(&dlpack) }.unwrap_err();
+        let err = unsafe { Tensor::try_from_dlpack(&dlpack, ()) }.unwrap_err();
         assert!(matches!(err, Error::StridedSpanOverflow));
     }
 
@@ -303,7 +336,7 @@ mod tests {
             [-1, -3],
         );
 
-        let err = unsafe { Tensor::try_from_dlpack(&dlpack) }.unwrap_err();
+        let err = unsafe { Tensor::try_from_dlpack(&dlpack, ()) }.unwrap_err();
         assert!(matches!(err, Error::StridedSpanOverflow));
     }
 
@@ -320,7 +353,7 @@ mod tests {
             [3, 1],
         );
 
-        let tensor = unsafe { Tensor::try_from_dlpack(&dlpack) }.unwrap();
+        let tensor = unsafe { Tensor::try_from_dlpack(&dlpack, ()) }.unwrap();
 
         assert_eq!(tensor.dims(), &[2, 3]);
         assert_eq!(tensor.dtype(), DType::F8E4M3);
@@ -339,7 +372,7 @@ mod tests {
             [1],
         );
 
-        let err = unsafe { Tensor::try_from_dlpack(&dlpack) }.unwrap_err();
+        let err = unsafe { Tensor::try_from_dlpack(&dlpack, ()) }.unwrap_err();
         assert!(matches!(err, Error::UnsupportedDlDataType { .. }));
     }
 }

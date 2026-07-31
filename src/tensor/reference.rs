@@ -49,38 +49,49 @@ impl<'a> TensorRef<'a> {
         })
     }
 
+    /// Returns the tensor's device.
     pub fn device(&self) -> DLDevice {
         self.tensor.device
     }
 
+    /// Returns the tensor's element dtype.
     pub fn dtype(&self) -> DLDataType {
         self.tensor.dtype
     }
 
+    /// Returns the number of dimensions.
     pub fn ndim(&self) -> usize {
         self.shape.len()
     }
 
+    /// Returns the shape as a slice of dimension sizes.
     pub fn shape(&self) -> &'a [i64] {
         self.shape
     }
 
+    /// Returns the explicit strides, or `None` when DLPack stores them
+    /// implicitly as compact row-major.
     pub fn strides(&self) -> Option<&'a [i64]> {
         self.strides
     }
 
+    /// Returns the byte offset from the base data pointer.
     pub fn byte_offset(&self) -> u64 {
         self.tensor.byte_offset
     }
 
+    /// Returns the total element count (product of the shape).
     pub fn num_elements(&self) -> usize {
         self.num_elements
     }
 
+    /// Returns the total byte size, accounting for packed sub-byte dtypes.
     pub fn num_bytes(&self) -> usize {
         self.num_bytes
     }
 
+    /// Returns explicit strides, or computed compact row-major strides when
+    /// DLPack stores them implicitly.
     pub fn strides_or_compact(&self) -> Result<Cow<'a, [i64]>, Error> {
         match self.strides {
             Some(strides) => Ok(Cow::Borrowed(strides)),
@@ -89,10 +100,12 @@ impl<'a> TensorRef<'a> {
         }
     }
 
+    /// Returns whether the strides describe compact row-major layout.
     pub fn is_compact(&self) -> Result<bool, Error> {
         is_compact_strides(self.shape, self.strides)
     }
 
+    /// Returns the base data pointer without the byte offset applied.
     pub fn data_ptr(&self) -> *const std::ffi::c_void {
         self.tensor.data_ptr()
     }

@@ -25,11 +25,17 @@ use std::{alloc::Layout, ptr::NonNull};
 pub mod dynamic;
 pub mod fixed;
 
+/// Errors raised while allocating a managed tensor.
 #[derive(Debug, Snafu)]
 pub enum Error {
+    /// The dimension count exceeds `i32::MAX`.
     #[snafu(display("dimension count ({ndim}) exceeds i32::MAX"))]
-    NdimOverflow { ndim: usize },
+    NdimOverflow {
+        /// The offending dimension count.
+        ndim: usize,
+    },
 
+    /// The managed tensor allocation layout overflows `usize`.
     #[snafu(display("managed tensor allocation layout overflows usize"))]
     LayoutOverflow,
 }

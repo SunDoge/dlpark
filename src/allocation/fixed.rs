@@ -11,6 +11,7 @@ use std::{alloc::Layout, mem::ManuallyDrop, ptr::NonNull};
 /// `initialize` must fully initialize a value at `storage`. `Storage` must be
 /// suitable for embedding directly in the managed tensor allocation.
 pub unsafe trait Storage<const N: usize> {
+    /// The inline value type stored in the managed tensor allocation.
     type Value: Copy;
 
     /// Initializes the inline storage at `storage`.
@@ -144,12 +145,14 @@ where
 }
 
 impl<M: ManagedTensorBase, const N: usize, Strides: Storage<N>> Allocation<M, N, Copied, Strides> {
+    /// Returns mutable access to the inline copied shape storage.
     pub fn shape_mut(&mut self) -> &mut [i64; N] {
         self.shape_storage_mut()
     }
 }
 
 impl<M: ManagedTensorBase, const N: usize, Shape: Storage<N>> Allocation<M, N, Shape, Copied> {
+    /// Returns mutable access to the inline copied strides storage.
     pub fn strides_mut(&mut self) -> &mut [i64; N] {
         self.strides_storage_mut()
     }
@@ -158,6 +161,7 @@ impl<M: ManagedTensorBase, const N: usize, Shape: Storage<N>> Allocation<M, N, S
 impl<M: ManagedTensorBase, const N: usize, Strides: Storage<N>>
     super::Initialized<M, Metadata<N, Copied, Strides>>
 {
+    /// Returns mutable access to the inline copied shape storage.
     pub fn shape_mut(&mut self) -> &mut [i64; N] {
         self.shape_storage_mut()
     }
@@ -166,6 +170,7 @@ impl<M: ManagedTensorBase, const N: usize, Strides: Storage<N>>
 impl<M: ManagedTensorBase, const N: usize, Shape: Storage<N>>
     super::Initialized<M, Metadata<N, Shape, Copied>>
 {
+    /// Returns mutable access to the inline copied strides storage.
     pub fn strides_mut(&mut self) -> &mut [i64; N] {
         self.strides_storage_mut()
     }

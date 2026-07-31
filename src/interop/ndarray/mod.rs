@@ -11,7 +11,7 @@
 //!     Box::new(arr2(&[[1_i32, 2], [3, 4]])).try_into()?;
 //! let dlpack: Managed<DLManagedTensorVersioned> =
 //!     unsafe { initialized.finish() };
-//! let view = unsafe { ArrayViewD::<i32>::try_from_dlpack(&dlpack)? };
+//! let view = unsafe { ArrayViewD::<i32>::try_from_dlpack(&dlpack, ())? };
 //! assert_eq!(view[[1, 0]], 3);
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
@@ -28,11 +28,21 @@ pub use consumer::array_view_from_dlpack_mut_unchecked;
 pub enum Error {
     /// An ndarray view cannot represent a negative DLPack stride.
     #[snafu(display("DLPack stride {axis} is negative: {value}"))]
-    NegativeStride { axis: usize, value: i64 },
+    NegativeStride {
+        /// The axis of the offending stride.
+        axis: usize,
+        /// The offending stride value.
+        value: i64,
+    },
 
     /// A DLPack stride cannot be represented by ndarray's `usize` stride.
     #[snafu(display("DLPack stride {axis} with value {value} does not fit in usize"))]
-    DlpackStrideOverflow { axis: usize, value: i64 },
+    DlpackStrideOverflow {
+        /// The axis of the offending stride.
+        axis: usize,
+        /// The offending stride value.
+        value: i64,
+    },
 
     /// The address span described by the shape and strides overflowed.
     #[snafu(display("strided ndarray view span overflows usize"))]
@@ -40,11 +50,17 @@ pub enum Error {
 
     /// ndarray rejected the converted shape and strides.
     #[snafu(display("failed to build ndarray shape"))]
-    Shape { source: ndarray::ShapeError },
+    Shape {
+        /// The underlying ndarray shape error.
+        source: ndarray::ShapeError,
+    },
 
     /// The underlying DLPack tensor failed validation.
     #[snafu(transparent)]
-    Tensor { source: crate::tensor::Error },
+    Tensor {
+        /// The underlying tensor error.
+        source: crate::tensor::Error,
+    },
 }
 
 #[cfg(test)]
@@ -177,7 +193,7 @@ mod tests {
     #[test]
     fn borrowed_dlpack_to_ndarray_view_is_zero_copy() {
         let dlpack = legacy_2x3_dlpack();
-        let view = unsafe { ArrayViewD::<i32>::try_from_dlpack(&dlpack) }.unwrap();
+        let view = unsafe { ArrayViewD::<i32>::try_from_dlpack(&dlpack, ()) }.unwrap();
 
         assert_eq!(view.shape(), &[2, 3]);
         assert_eq!(view.strides(), &[3, 1]);
@@ -187,7 +203,7 @@ mod tests {
     #[test]
     fn borrowed_dlpack_to_ndarray_view_preserves_strides() {
         let dlpack = legacy_3x2_transposed_dlpack();
-        let view = unsafe { ArrayViewD::<i32>::try_from_dlpack(&dlpack) }.unwrap();
+        let view = unsafe { ArrayViewD::<i32>::try_from_dlpack(&dlpack, ()) }.unwrap();
 
         assert_eq!(view.shape(), &[3, 2]);
         assert_eq!(view.strides(), &[1, 3]);
@@ -220,7 +236,7 @@ mod tests {
         assert_eq!(view.strides(), &[1, 3]);
         view[[2, 1]] = 42;
 
-        let view = unsafe { ArrayViewD::<i32>::try_from_dlpack(&dlpack) }.unwrap();
+        let view = unsafe { ArrayViewD::<i32>::try_from_dlpack(&dlpack, ()) }.unwrap();
         assert_eq!(view[[2, 1]], 42);
     }
 
@@ -243,7 +259,7 @@ mod tests {
     fn mut_ndarray_view_updates_writable_tensor() {
         let mut dlpack = versioned_2x3_dlpack(DlpackFlags::empty());
 
-        let mut view = unsafe { ArrayViewMutD::<i32>::try_from_dlpack(&mut dlpack) }.unwrap();
+        let mut view = unsafe { ArrayViewMutD::<i32>::try_from_dlpack(&mut dlpack, ()) }.unwrap();
         view[[1, 2]] = 42;
 
         assert_eq!(
@@ -256,7 +272,7 @@ mod tests {
     fn mut_ndarray_view_accepts_caller_proven_exclusivity_without_is_copied() {
         let mut dlpack = versioned_2x3_dlpack(DlpackFlags::empty());
 
-        let mut view = unsafe { ArrayViewMutD::<i32>::try_from_dlpack(&mut dlpack) }.unwrap();
+        let mut view = unsafe { ArrayViewMutD::<i32>::try_from_dlpack(&mut dlpack, ()) }.unwrap();
         view[[1, 2]] = 42;
     }
 
@@ -275,7 +291,7 @@ mod tests {
         );
 
         assert!(matches!(
-            unsafe { ArrayViewMutD::<i32>::try_from_dlpack(&mut dlpack) },
+            unsafe { ArrayViewMutD::<i32>::try_from_dlpack(&mut dlpack, ()) },
             Err(Error::Shape { .. })
         ));
     }
@@ -284,7 +300,7 @@ mod tests {
     fn mut_ndarray_view_accepts_caller_proven_legacy_exclusivity() {
         let mut dlpack = legacy_2x3_dlpack();
 
-        let mut view = unsafe { ArrayViewMutD::<i32>::try_from_dlpack(&mut dlpack) }.unwrap();
+        let mut view = unsafe { ArrayViewMutD::<i32>::try_from_dlpack(&mut dlpack, ()) }.unwrap();
         view[[1, 2]] = 42;
     }
 
@@ -292,7 +308,7 @@ mod tests {
     fn try_from_dlpack_mutates_with_caller_proven_exclusivity() {
         let mut dlpack = versioned_2x3_dlpack(DlpackFlags::empty());
 
-        let mut view = unsafe { ArrayViewMutD::<i32>::try_from_dlpack(&mut dlpack) }.unwrap();
+        let mut view = unsafe { ArrayViewMutD::<i32>::try_from_dlpack(&mut dlpack, ()) }.unwrap();
         view[[1, 2]] = 42;
 
         assert_eq!(
@@ -306,7 +322,7 @@ mod tests {
         let array = Array::from_shape_vec((2, 2).strides((4, 2)), (0i32..7).collect()).unwrap();
         let dlpack: LegacyDlpack = managed_array(array);
         let dlpack = dlpack;
-        let view = unsafe { ArrayViewD::<i32>::try_from_dlpack(&dlpack) }.unwrap();
+        let view = unsafe { ArrayViewD::<i32>::try_from_dlpack(&dlpack, ()) }.unwrap();
 
         assert_eq!(view.shape(), &[2, 2]);
         assert_eq!(view.strides(), &[4, 2]);

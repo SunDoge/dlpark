@@ -4,7 +4,7 @@ use image::{ImageBuffer, Pixel};
 use snafu::ensure;
 use std::{marker::PhantomData, ops::Deref};
 
-impl<'a, P, M> TryFromDlpack<&'a Managed<M>> for ImageBuffer<P, &'a [P::Subpixel]>
+impl<'a, P, M> TryFromDlpack<&'a Managed<M>, ()> for ImageBuffer<P, &'a [P::Subpixel]>
 where
     P: Pixel,
     P::Subpixel: DlpackElement,
@@ -12,7 +12,7 @@ where
 {
     type Error = Error;
 
-    unsafe fn try_from_dlpack(dlpack: &'a Managed<M>) -> Result<Self, Self::Error> {
+    unsafe fn try_from_dlpack(dlpack: &'a Managed<M>, _stream: ()) -> Result<Self, Self::Error> {
         let tensor = dlpack.validate()?;
         let layout = validated_hwc::<P>(&tensor)?;
 
@@ -49,7 +49,7 @@ impl<M: ManagedTensorBase, T> Deref for DlpackContainer<M, T> {
     }
 }
 
-impl<P, M> TryFromDlpack<Managed<M>> for ImageBuffer<P, DlpackContainer<M, P::Subpixel>>
+impl<P, M> TryFromDlpack<Managed<M>, ()> for ImageBuffer<P, DlpackContainer<M, P::Subpixel>>
 where
     P: Pixel,
     P::Subpixel: DlpackElement,
@@ -57,7 +57,7 @@ where
 {
     type Error = Error;
 
-    unsafe fn try_from_dlpack(dlpack: Managed<M>) -> Result<Self, Self::Error> {
+    unsafe fn try_from_dlpack(dlpack: Managed<M>, _stream: ()) -> Result<Self, Self::Error> {
         let layout = {
             let tensor = dlpack.validate()?;
             validated_hwc::<P>(&tensor)?

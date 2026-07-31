@@ -20,3 +20,5 @@ jobs:
         run: cargo build --verbose --all-features
       - name: Run tests
         run: cargo test --verbose --features cpu-all
+      - name: Run doctests
+        run: cargo test --doc --verbose --features cpu-all

@@ -10,60 +10,102 @@ mod reference;
 pub use layout::{compact_strides, compact_strides_array, is_compact_strides};
 pub use reference::{TensorMut, TensorRef};
 
+/// Errors raised while validating a raw DLPack tensor descriptor.
 #[derive(Debug, Snafu)]
 pub enum Error {
+    /// The shape pointer is null despite a positive `ndim`.
     #[snafu(display("shape pointer is null but ndim is {ndim}"))]
-    NullShapePtr { ndim: i32 },
+    NullShapePtr {
+        /// The rank reported by the tensor.
+        ndim: i32,
+    },
 
+    /// The rank (`ndim`) is negative.
     #[snafu(display("ndim is negative: {ndim}"))]
-    NegativeNdim { ndim: i32 },
+    NegativeNdim {
+        /// The offending rank value.
+        ndim: i32,
+    },
 
+    /// A shape dimension is negative.
     #[snafu(display("shape dimension {axis} is negative: {value}"))]
-    NegativeDimension { axis: usize, value: i64 },
+    NegativeDimension {
+        /// The axis of the offending dimension.
+        axis: usize,
+        /// The offending dimension value.
+        value: i64,
+    },
 
+    /// The total element count overflows `usize`.
     #[snafu(display("number of elements overflows usize"))]
     NumElementsOverflow,
 
+    /// The total byte size overflows `usize`.
     #[snafu(display("number of bytes overflows usize"))]
     NumBytesOverflow,
 
+    /// The shape and strides lengths disagree.
     #[snafu(display("shape length ({shape_len}) does not match strides length ({strides_len})"))]
     MismatchedStrides {
+        /// The number of shape dimensions.
         shape_len: usize,
+        /// The number of stride entries.
         strides_len: usize,
     },
 
+    /// The tensor is not compact row-major, which a contiguous Rust slice requires.
     #[snafu(display("a contiguous Rust slice requires compact row-major strides"))]
     NonCompactStrides,
 
+    /// The tensor is not on CPU, so its data cannot be exposed as a host slice.
     #[snafu(display("tensor must be on CPU to expose a Rust slice, got {device_type:?}"))]
-    NotCpu { device_type: DLDeviceType },
+    NotCpu {
+        /// The device type reported by the tensor.
+        device_type: DLDeviceType,
+    },
 
+    /// The tensor's dtype does not match the requested Rust element type.
     #[snafu(display("dtype mismatch: expected {expected:?}, got {actual:?}"))]
     DtypeMismatch {
+        /// The dtype expected by the caller.
         expected: DLDataType,
+        /// The dtype carried by the tensor.
         actual: DLDataType,
     },
 
+    /// The tensor is marked `READ_ONLY`.
     #[snafu(display("tensor is read-only"))]
     ReadOnly,
 
+    /// Asserting `IS_COPIED` would newly claim exclusivity the library cannot verify.
     #[snafu(display(
         "cannot safely assert IS_COPIED; use the unchecked flag setter after producing a copy"
     ))]
     CannotAssertIsCopied,
 
+    /// The data pointer is null for a non-empty tensor.
     #[snafu(display("tensor data pointer is null for a non-empty tensor"))]
     NullData,
 
+    /// The byte offset does not fit in `usize`.
     #[snafu(display("byte_offset {byte_offset} does not fit in usize"))]
-    ByteOffsetOverflow { byte_offset: u64 },
+    ByteOffsetOverflow {
+        /// The offending byte offset.
+        byte_offset: u64,
+    },
 
+    /// The data pointer plus byte offset overflows the address space.
     #[snafu(display("data pointer plus byte_offset overflows address space"))]
     DataPointerOverflow,
 
+    /// The byte-offset-adjusted data pointer is not aligned for the element type.
     #[snafu(display("data pointer {ptr:#x} is not aligned to {align} bytes"))]
-    MisalignedData { ptr: usize, align: usize },
+    MisalignedData {
+        /// The misaligned pointer address.
+        ptr: usize,
+        /// The required alignment in bytes.
+        align: usize,
+    },
 }
 
 impl DLTensor {

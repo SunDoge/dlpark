@@ -17,7 +17,7 @@ fn read_image(filename: &str) -> PyResult<versioned::Dlpack> {
 fn write_image(filename: &str, tensor: versioned::Dlpack) -> PyResult<()> {
     // SAFETY: this extension accepts tensors through the Python DLPack
     // protocol and relies on the producer to provide a valid descriptor.
-    let rgb_img: ImageBuffer<Rgb<u8>, _> = unsafe { ImageBuffer::try_from_dlpack(&tensor) }
+    let rgb_img: ImageBuffer<Rgb<u8>, _> = unsafe { ImageBuffer::try_from_dlpack(&tensor, ()) }
         .map_err(|err: dlpark::interop::image::Error| PyValueError::new_err(err.to_string()))?;
     rgb_img
         .save(filename)
