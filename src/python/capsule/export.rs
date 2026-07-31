@@ -1,6 +1,6 @@
 use super::{DLTENSOR, DLTENSOR_VERSIONED, USED_DLTENSOR, USED_DLTENSOR_VERSIONED};
 use crate::{
-    Foreign, Local,
+    Managed,
     ffi::{DLManagedTensor, DLManagedTensorVersioned},
 };
 use pyo3::{Bound, PyAny, PyErr, conversion::IntoPyObject, exceptions::PyBufferError};
@@ -23,7 +23,7 @@ unsafe extern "C" fn dlpack_capsule_deleter(capsule: *mut pyo3::ffi::PyObject) {
             return;
         }
 
-        let _ = Foreign::<DLManagedTensor>::from_raw_unchecked(ptr as *mut _);
+        let _ = Managed::<DLManagedTensor>::from_raw_unchecked(ptr as *mut _);
     }
 }
 
@@ -40,7 +40,7 @@ unsafe extern "C" fn dlpack_capsule_deleter_versioned(capsule: *mut pyo3::ffi::P
             return;
         }
 
-        let _ = Foreign::<DLManagedTensorVersioned>::from_raw_unchecked(ptr as *mut _);
+        let _ = Managed::<DLManagedTensorVersioned>::from_raw_unchecked(ptr as *mut _);
     }
 }
 
@@ -62,7 +62,7 @@ fn raw_dlpack_to_capsule(
     }
 }
 
-impl<'py> IntoPyObject<'py> for Foreign<DLManagedTensor> {
+impl<'py> IntoPyObject<'py> for Managed<DLManagedTensor> {
     type Target = PyAny;
     type Output = Bound<'py, PyAny>;
     type Error = pyo3::PyErr;
@@ -74,7 +74,7 @@ impl<'py> IntoPyObject<'py> for Foreign<DLManagedTensor> {
                 match raw_dlpack_to_capsule(raw as *mut _, DLTENSOR, dlpack_capsule_deleter) {
                     Ok(capsule) => capsule,
                     Err(err) => {
-                        let _ = Foreign::<DLManagedTensor>::from_raw_unchecked(raw);
+                        let _ = Managed::<DLManagedTensor>::from_raw_unchecked(raw);
                         return Err(err);
                     }
                 };
@@ -83,28 +83,7 @@ impl<'py> IntoPyObject<'py> for Foreign<DLManagedTensor> {
     }
 }
 
-impl<'py> IntoPyObject<'py> for Local<DLManagedTensor> {
-    type Target = PyAny;
-    type Output = Bound<'py, PyAny>;
-    type Error = pyo3::PyErr;
-
-    fn into_pyobject(self, py: pyo3::Python<'py>) -> pyo3::PyResult<Self::Output> {
-        unsafe {
-            let raw = self.into_raw();
-            let capsule = match raw_dlpack_to_capsule(raw.cast(), DLTENSOR, dlpack_capsule_deleter)
-            {
-                Ok(capsule) => capsule,
-                Err(err) => {
-                    let _ = Foreign::<DLManagedTensor>::from_raw_unchecked(raw);
-                    return Err(err);
-                }
-            };
-            Bound::from_owned_ptr_or_err(py, capsule)
-        }
-    }
-}
-
-impl<'py> IntoPyObject<'py> for Foreign<DLManagedTensorVersioned> {
+impl<'py> IntoPyObject<'py> for Managed<DLManagedTensorVersioned> {
     type Target = PyAny;
     type Output = Bound<'py, PyAny>;
     type Error = pyo3::PyErr;
@@ -119,31 +98,7 @@ impl<'py> IntoPyObject<'py> for Foreign<DLManagedTensorVersioned> {
             ) {
                 Ok(capsule) => capsule,
                 Err(err) => {
-                    let _ = Foreign::<DLManagedTensorVersioned>::from_raw_unchecked(raw);
-                    return Err(err);
-                }
-            };
-            Bound::from_owned_ptr_or_err(py, capsule)
-        }
-    }
-}
-
-impl<'py> IntoPyObject<'py> for Local<DLManagedTensorVersioned> {
-    type Target = PyAny;
-    type Output = Bound<'py, PyAny>;
-    type Error = pyo3::PyErr;
-
-    fn into_pyobject(self, py: pyo3::Python<'py>) -> pyo3::PyResult<Self::Output> {
-        unsafe {
-            let raw = self.into_raw();
-            let capsule = match raw_dlpack_to_capsule(
-                raw.cast(),
-                DLTENSOR_VERSIONED,
-                dlpack_capsule_deleter_versioned,
-            ) {
-                Ok(capsule) => capsule,
-                Err(err) => {
-                    let _ = Foreign::<DLManagedTensorVersioned>::from_raw_unchecked(raw);
+                    let _ = Managed::<DLManagedTensorVersioned>::from_raw_unchecked(raw);
                     return Err(err);
                 }
             };

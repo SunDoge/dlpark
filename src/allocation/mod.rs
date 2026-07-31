@@ -1,4 +1,23 @@
 //! Low-level allocation of managed tensors with writable metadata storage.
+//!
+//! A producer allocates a managed tensor together with its shape and strides
+//! storage, installs an owning context and deleter, writes the scalar tensor
+//! fields, then finishes. The flow is:
+//!
+//! 1. [`fixed::Allocation`] (compile-time rank) or [`dynamic::Allocation`]
+//!    (runtime rank) allocates the managed tensor header plus metadata
+//!    storage. [`fixed::Storage`] selects between inline `[i64; N]` storage
+//!    ([`fixed::Copied`]) and no inline storage ([`fixed::Borrowed`]); the
+//!    dynamic allocation stores shape and strides in a trailing `i64` buffer.
+//! 2. `initialize(ctx)` installs the owning context and deleter and returns
+//!    an [`Initialized`] handle.
+//! 3. [`Initialized`] setters write the data pointer, device, dtype, byte
+//!    offset, and flags; [`Initialized::finish`] returns the owning
+//!    [`Managed<M>`](crate::Managed), consuming the allocation.
+//!
+//! The [`crate::metadata`] helpers drive steps 1–2 from shape and strides
+//! values; interop producers drive them from a boxed container, which also
+//! serves as the owning context.
 
 use snafu::Snafu;
 use std::{alloc::Layout, ptr::NonNull};
@@ -6,18 +25,24 @@ use std::{alloc::Layout, ptr::NonNull};
 pub mod dynamic;
 pub mod fixed;
 
+/// Errors raised while allocating a managed tensor.
 #[derive(Debug, Snafu)]
 pub enum Error {
+    /// The dimension count exceeds `i32::MAX`.
     #[snafu(display("dimension count ({ndim}) exceeds i32::MAX"))]
-    NdimOverflow { ndim: usize },
+    NdimOverflow {
+        /// The offending dimension count.
+        ndim: usize,
+    },
 
+    /// The managed tensor allocation layout overflows `usize`.
     #[snafu(display("managed tensor allocation layout overflows usize"))]
     LayoutOverflow,
 }
 
 /// An initialized managed tensor paired with allocation-specific metadata.
 pub struct Initialized<M: crate::ManagedTensorBase, Storage> {
-    pub(super) managed: crate::Local<M>,
+    pub(super) managed: crate::Managed<M>,
     pub(super) storage: Storage,
 }
 
@@ -69,8 +94,8 @@ impl<M: crate::ManagedTensorBase, Storage> Initialized<M, Storage> {
 
     /// Sets flags verbatim, including `IS_COPIED`.
     ///
-    /// If `flags` includes `IS_COPIED`, the caller must establish the claimed
-    /// ownership before calling [`Self::finish`].
+    /// If `flags` includes `IS_COPIED`, the caller must ensure the producer
+    /// actually created a copy for this export.
     pub fn set_flags_unchecked(&mut self, flags: crate::DlpackFlags) -> &mut Self {
         unsafe { (&mut *self.managed.as_ptr()).set_flags_unchecked(flags) };
         self
@@ -83,7 +108,7 @@ impl<M: crate::ManagedTensorBase, Storage> Initialized<M, Storage> {
     /// The completed descriptor must satisfy the DLPack contract. Its data and
     /// metadata pointers must remain valid until the tensor is dropped, and
     /// its flags must accurately describe aliasing and mutability.
-    pub unsafe fn finish(self) -> crate::Local<M> {
+    pub unsafe fn finish(self) -> crate::Managed<M> {
         self.managed
     }
 }

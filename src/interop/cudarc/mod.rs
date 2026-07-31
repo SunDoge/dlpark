@@ -9,10 +9,10 @@
 //! 1-D tensor with shape `[slice.len()]` and strides `[1]`. Use
 //! [`crate::interop::cudarc::from_cuda_slice`] for a higher-rank layout. The slice is stored as the
 //! `manager_ctx`; the underlying CUDA allocation is freed when the DLPack
-//! deleter fires. Because ownership is transferred without any remaining Rust
-//! views, the initialized allocation starts with [`crate::DlpackFlags::IS_COPIED`].
+//! deleter fires. Moving the slice transfers ownership without copying the CUDA
+//! allocation, so `IS_COPIED` remains unset.
 //!
-//! # `to_cuda_slice` direction (`Foreign` → [`crate::interop::cudarc::BorrowedCudaSlice`])
+//! # `to_cuda_slice` direction (`Managed` → [`crate::interop::cudarc::BorrowedCudaSlice`])
 //!
 //! `upgrade_device_ptr` wraps the DLPack tensor's raw device pointer into a
 //! proper `CudaSlice<T>`. Because the DLPack tensor owns that allocation, we
@@ -23,7 +23,7 @@
 //! is dropped.
 //!
 //! Unlike the forward direction, this conversion takes a single owned
-//! `Foreign<M>` and can fail, so it is exposed as
+//! `Managed<M>` and can fail, so it is exposed as
 //! [`crate::TryFromDlpack`] for `BorrowedCudaSlice<M, T>`.
 //!
 //! ## Why not return `CudaView<T>`?
@@ -70,43 +70,74 @@ mod producer;
 pub use consumer::BorrowedCudaSlice;
 pub use producer::from_cuda_slice;
 
+/// Errors raised during cudarc interop.
 #[derive(Debug, Snafu)]
 pub enum Error {
+    /// Metadata preparation failed.
     #[snafu(transparent)]
-    Metadata { source: crate::metadata::Error },
+    Metadata {
+        /// The underlying metadata error.
+        source: crate::metadata::Error,
+    },
 
+    /// The tensor is not on a CUDA device.
     #[snafu(display("tensor is not on a CUDA device, got {:?}", device_type))]
-    NotCuda { device_type: DLDeviceType },
+    NotCuda {
+        /// The device type reported by the tensor.
+        device_type: DLDeviceType,
+    },
 
+    /// The tensor data pointer is null.
     #[snafu(display("tensor data pointer is null"))]
     NullData,
 
+    /// The CUDA slice length does not fit in `i64`.
     #[snafu(display("CUDA slice length {len} does not fit in i64"))]
     LengthOverflow {
+        /// The offending length.
         len: usize,
+        /// The underlying conversion error.
         source: std::num::TryFromIntError,
     },
 
+    /// The CUDA device ordinal does not fit in `i32`.
     #[snafu(display("CUDA device ordinal {ordinal} does not fit in i32"))]
     DeviceIdOverflow {
+        /// The offending device ordinal.
         ordinal: usize,
+        /// The underlying conversion error.
         source: std::num::TryFromIntError,
     },
 
+    /// The CUDA device ID is negative.
     #[snafu(display("CUDA device ID must be non-negative, got {device_id}"))]
-    InvalidDeviceId { device_id: i32 },
+    InvalidDeviceId {
+        /// The offending device ID.
+        device_id: i32,
+    },
 
+    /// The tensor's dtype does not match the requested Rust element type.
     #[snafu(display("dtype mismatch: expected {expected:?}, got {actual:?}"))]
     DtypeMismatch {
+        /// The dtype expected by the caller.
         expected: crate::ffi::DLDataType,
+        /// The dtype carried by the tensor.
         actual: crate::ffi::DLDataType,
     },
 
+    /// A cudarc driver error occurred.
     #[snafu(display("cudarc driver error: {source}"))]
-    Driver { source: cudarc::driver::DriverError },
+    Driver {
+        /// The underlying driver error.
+        source: cudarc::driver::DriverError,
+    },
 
+    /// The underlying DLPack tensor failed validation.
     #[snafu(transparent)]
-    Tensor { source: crate::tensor::Error },
+    Tensor {
+        /// The underlying tensor error.
+        source: crate::tensor::Error,
+    },
 }
 
 #[cfg(test)]
@@ -133,6 +164,7 @@ mod tests {
             strides: strides.as_ptr().cast_mut(),
             byte_offset: std::mem::size_of::<i32>() as u64,
         };
+        let tensor = unsafe { crate::tensor::TensorRef::from_raw(&tensor) }.unwrap();
 
         let (ptr, len, device_id) = validated_cuda_parts::<i32>(&tensor).unwrap();
         assert_eq!(ptr, unsafe { data.as_ptr().add(1) } as usize as u64);
@@ -154,6 +186,7 @@ mod tests {
             strides: strides.as_ptr().cast_mut(),
             byte_offset: 0,
         };
+        let tensor = unsafe { crate::tensor::TensorRef::from_raw(&tensor) }.unwrap();
 
         assert!(matches!(
             validated_cuda_parts::<i32>(&tensor),
@@ -177,10 +210,73 @@ mod tests {
             strides: strides.as_ptr().cast_mut(),
             byte_offset: 0,
         };
+        let tensor = unsafe { crate::tensor::TensorRef::from_raw(&tensor) }.unwrap();
 
         assert!(matches!(
             validated_cuda_parts::<i32>(&tensor),
             Err(Error::InvalidDeviceId { device_id: -1 })
         ));
+    }
+
+    /// End-to-end `CudaSlice` → DLPack → `BorrowedCudaSlice` round-trip using the
+    /// `S = Arc<CudaStream>` path: the consumer's stream `join`s the producer's
+    /// stream, so the data is visible without an explicit host sync.
+    #[test]
+    #[ignore = "requires a CUDA device; run with --ignored"]
+    fn cuda_slice_roundtrips_with_stream_sync() {
+        use crate::{Managed, TryFromDlpack, ffi::DLManagedTensorVersioned};
+        use cudarc::driver::{CudaContext, CudaSlice};
+        use std::sync::Arc;
+
+        let ctx = CudaContext::new(0).expect("CUDA context");
+        let producer_stream = ctx.new_stream().expect("producer stream");
+        let data = vec![1i32, 2, 3, 4];
+        let slice: CudaSlice<i32> = producer_stream.clone_htod(&data).expect("htod copy");
+
+        let (initialized, stream) =
+            from_cuda_slice::<i32, DLManagedTensorVersioned>(Box::new(slice), &[4], &[1])
+                .expect("producer");
+        assert!(
+            Arc::ptr_eq(&stream, &producer_stream),
+            "producer returns the slice's stream"
+        );
+
+        let managed: Managed<DLManagedTensorVersioned> = unsafe { initialized.finish() };
+
+        let borrowed: BorrowedCudaSlice<DLManagedTensorVersioned, i32> =
+            unsafe { TryFromDlpack::try_from_dlpack(managed, producer_stream.clone()) }
+                .expect("consumer join");
+
+        let consumer_stream = borrowed.stream().clone();
+        let host: Vec<i32> = consumer_stream.clone_dtoh(&*borrowed).expect("dtoh copy");
+        assert_eq!(host, data);
+    }
+
+    /// Same round-trip via the `S = ()` path: the framework does not sync, so
+    /// the caller must synchronize the producer's stream before reading.
+    #[test]
+    #[ignore = "requires a CUDA device; run with --ignored"]
+    fn cuda_slice_roundtrips_without_sync() {
+        use crate::{Managed, TryFromDlpack, ffi::DLManagedTensorVersioned};
+        use cudarc::driver::{CudaContext, CudaSlice};
+
+        let ctx = CudaContext::new(0).expect("CUDA context");
+        let producer_stream = ctx.new_stream().expect("producer stream");
+        let data = vec![5i32, 6, 7];
+        let slice: CudaSlice<i32> = producer_stream.clone_htod(&data).expect("htod copy");
+
+        let (initialized, _stream) =
+            from_cuda_slice::<i32, DLManagedTensorVersioned>(Box::new(slice), &[3], &[1])
+                .expect("producer");
+        let managed: Managed<DLManagedTensorVersioned> = unsafe { initialized.finish() };
+
+        let borrowed: BorrowedCudaSlice<DLManagedTensorVersioned, i32> =
+            unsafe { TryFromDlpack::try_from_dlpack(managed, ()) }.expect("consumer no-sync");
+
+        // `S = ()` leaves sync to the caller; wait on the producer's stream.
+        producer_stream.synchronize().expect("producer sync");
+        let consumer_stream = borrowed.stream().clone();
+        let host: Vec<i32> = consumer_stream.clone_dtoh(&*borrowed).expect("dtoh copy");
+        assert_eq!(host, data);
     }
 }

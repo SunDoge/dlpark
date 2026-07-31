@@ -1,12 +1,12 @@
 use super::Error;
 use crate::{
-    DlpackElement, DlpackFlags, ManagedTensorBase,
+    DlpackElement, ManagedTensorBase,
     allocation::{dynamic, fixed},
     ffi::DLDevice,
     metadata::{Copied, Dynamic, Fixed},
 };
-use cudarc::driver::{CudaSlice, DevicePtr};
-use std::os::raw::c_void;
+use cudarc::driver::{CudaSlice, CudaStream, DevicePtr};
+use std::{os::raw::c_void, sync::Arc};
 
 impl<T: DlpackElement, M: ManagedTensorBase> TryFrom<Box<CudaSlice<T>>>
     for fixed::Initialized<M, 1>
@@ -30,10 +30,6 @@ impl<T: DlpackElement, M: ManagedTensorBase> TryFrom<Box<CudaSlice<T>>>
         initialized.set_device(DLDevice::cuda(device_id));
         initialized.set_data(data_ptr);
         initialized.set_dtype(T::DTYPE);
-
-        // SAFETY: the owned CudaSlice was moved into the context and Rust
-        // permits no outstanding views while that move occurs.
-        initialized.set_flags_unchecked(DlpackFlags::IS_COPIED);
         Ok(initialized)
     }
 }
@@ -45,6 +41,10 @@ impl<T: DlpackElement, M: ManagedTensorBase> TryFrom<Box<CudaSlice<T>>>
 /// - `shape`   — dimension sizes in elements (any rank)
 /// - `strides` — element strides, must have the same length as `shape`
 ///
+/// Returns the initialized allocation together with the slice's stream, so a
+/// consumer can pass it to `TryFromDlpack::try_from_dlpack(.., stream)` for
+/// non-blocking cross-stream synchronization.
+///
 /// # Errors
 ///
 /// - [`crate::metadata::Error::MismatchedLength`] if `shape.len() != strides.len()`
@@ -54,11 +54,12 @@ pub fn from_cuda_slice<T: DlpackElement, M: ManagedTensorBase>(
     slice: Box<CudaSlice<T>>,
     shape: &[i64],
     strides: &[i64],
-) -> Result<dynamic::Initialized<M>, Error> {
+) -> Result<(dynamic::Initialized<M>, Arc<CudaStream>), Error> {
     let device_id = i32::try_from(slice.ordinal()).map_err(|source| Error::DeviceIdOverflow {
         ordinal: slice.ordinal(),
         source,
     })?;
+    let stream = slice.stream().clone();
     let data_ptr = device_ptr_of(&slice);
     let prepared = Dynamic::new(Copied(shape), Copied(strides)).prepare::<M>()?;
     let mut initialized = prepared
@@ -67,12 +68,11 @@ pub fn from_cuda_slice<T: DlpackElement, M: ManagedTensorBase>(
     initialized.set_device(DLDevice::cuda(device_id));
     initialized.set_dtype(T::DTYPE);
     initialized.set_data(data_ptr);
-    initialized.set_flags_unchecked(DlpackFlags::IS_COPIED);
-    Ok(initialized)
+    Ok((initialized, stream))
 }
 
 // ---------------------------------------------------------------------------
-// Reverse: Foreign<M> → BorrowedCudaSlice<M, T>
+// Reverse: Managed<M> → BorrowedCudaSlice<M, T>
 // ---------------------------------------------------------------------------
 
 /// Returns the CUDA device pointer of `slice` as a `*mut c_void` and records

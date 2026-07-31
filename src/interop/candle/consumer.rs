@@ -1,6 +1,6 @@
 use super::Error;
 use crate::{
-    Foreign, ManagedTensorBase, TryFromDlpack,
+    Managed, ManagedTensorBase, TryFromDlpack,
     ffi::{DLDataType, DLDataTypeCode},
 };
 use candle_core::{DType, Device, Tensor};
@@ -138,18 +138,18 @@ fn gather_strided_bytes(
 ///   the source tensor is not on CPU).
 /// # Safety
 ///
-/// The foreign descriptor and all data and metadata pointers it references
+/// The descriptor and all data and metadata pointers it references
 /// must be valid and readable for the duration of this conversion.
 pub unsafe fn candle_tensor_from_dlpack<M: ManagedTensorBase>(
-    dlpack: &Foreign<M>,
+    dlpack: &Managed<M>,
 ) -> Result<Tensor, Error> {
-    let tensor = unsafe { dlpack.tensor() };
-    let dl_dtype = tensor.dtype;
+    let tensor = dlpack.validate()?;
+    let dl_dtype = tensor.dtype();
     let dtype =
         candle_dtype_from_dl(dl_dtype).ok_or(Error::UnsupportedDlDataType { dtype: dl_dtype })?;
 
-    let shape = unsafe { tensor.shape()? };
-    let strides = unsafe { tensor.strides()? };
+    let shape = tensor.shape();
+    let strides = tensor.strides();
     let ptr = unsafe { tensor.offset_bytes_ptr()? };
 
     let compact = match strides {
@@ -157,14 +157,14 @@ pub unsafe fn candle_tensor_from_dlpack<M: ManagedTensorBase>(
         Some(s) => crate::tensor::is_compact_strides(shape, Some(s))?,
     };
     let bytes: Vec<u8> = if compact {
-        unsafe { std::slice::from_raw_parts(ptr, tensor.num_bytes()?) }.to_vec()
+        unsafe { std::slice::from_raw_parts(ptr, tensor.num_bytes()) }.to_vec()
     } else if dl_dtype.bits < 8 {
         // gather_strided_bytes copies whole bytes per element; a sub-byte
         // packed dtype has no single-element byte to copy.
         return Err(Error::SubByteStridesUnsupported { dtype: dl_dtype });
     } else {
         let s = strides.unwrap();
-        let num_bytes = unsafe { tensor.num_bytes()? };
+        let num_bytes = tensor.num_bytes();
         let total = validate_strided_span(shape, s, dl_dtype.element_size(), num_bytes)?;
         gather_strided_bytes(ptr, dl_dtype.element_size(), shape, s, total)
     };
@@ -177,13 +177,13 @@ pub unsafe fn candle_tensor_from_dlpack<M: ManagedTensorBase>(
     Ok(Tensor::from_raw_buffer(&bytes, dtype, &dims, &Device::Cpu)?)
 }
 
-impl<'a, M> TryFromDlpack<&'a Foreign<M>> for Tensor
+impl<'a, M> TryFromDlpack<&'a Managed<M>, ()> for Tensor
 where
     M: ManagedTensorBase,
 {
     type Error = Error;
 
-    unsafe fn try_from_dlpack(dlpack: &'a Foreign<M>) -> Result<Self, Self::Error> {
+    unsafe fn try_from_dlpack(dlpack: &'a Managed<M>, _stream: ()) -> Result<Self, Self::Error> {
         unsafe { candle_tensor_from_dlpack(dlpack) }
     }
 }

@@ -142,6 +142,7 @@ impl DLTensor {
         Ok(data.with_addr(data_addr).cast::<T>())
     }
 
+    /// Returns the base data pointer without the byte offset applied.
     #[inline]
     pub fn data_ptr(&self) -> *const c_void {
         self.data as *const c_void

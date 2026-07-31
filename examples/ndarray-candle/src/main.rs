@@ -1,5 +1,5 @@
 use candle_core::Tensor;
-use dlpark::{Foreign, TryFromDlpack, allocation::dynamic, ffi::DLManagedTensorVersioned};
+use dlpark::{TryFromDlpack, allocation::dynamic, ffi::DLManagedTensorVersioned, versioned};
 use ndarray::{Array2, ArrayViewD};
 use snafu::{ResultExt, Whatever};
 
@@ -12,10 +12,10 @@ fn main() -> Result<(), Whatever> {
     let initialized: dynamic::Initialized<DLManagedTensorVersioned> = Box::new(array)
         .try_into()
         .whatever_context("ndarray -> DLPack failed")?;
-    let dlpack: Foreign<DLManagedTensorVersioned> = unsafe { initialized.finish() }.into_foreign();
+    let dlpack: versioned::Dlpack = unsafe { initialized.finish() };
 
     // DLPack -> candle::Tensor: a copy, candle has no borrowed CPU tensor type.
-    let tensor = unsafe { Tensor::try_from_dlpack(&dlpack) }
+    let tensor = unsafe { Tensor::try_from_dlpack(&dlpack, ()) }
         .whatever_context("DLPack -> candle::Tensor failed")?;
     println!("candle tensor shape: {:?}", tensor.dims());
 
@@ -32,11 +32,10 @@ fn main() -> Result<(), Whatever> {
         Box::new(tensor)
             .try_into()
             .whatever_context("candle::Tensor -> DLPack failed")?;
-    let dlpack_back: Foreign<DLManagedTensorVersioned> =
-        unsafe { initialized.finish() }.into_foreign();
+    let dlpack_back: versioned::Dlpack = unsafe { initialized.finish() };
 
     // DLPack -> ndarray view: zero-copy.
-    let view = unsafe { ArrayViewD::<f32>::try_from_dlpack(&dlpack_back) }
+    let view = unsafe { ArrayViewD::<f32>::try_from_dlpack(&dlpack_back, ()) }
         .whatever_context("DLPack -> ndarray view failed")?;
     println!("round-tripped ndarray view:\n{view}");
     assert_eq!(

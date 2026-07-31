@@ -1,10 +1,10 @@
 use super::*;
-use crate::{DlpackElement, Foreign, ManagedTensorBase, TryFromDlpack, tensor::is_compact_strides};
+use crate::{DlpackElement, Managed, ManagedTensorBase, TryFromDlpack, tensor::is_compact_strides};
 use image::{ImageBuffer, Pixel};
 use snafu::ensure;
 use std::{marker::PhantomData, ops::Deref};
 
-impl<'a, P, M> TryFromDlpack<&'a Foreign<M>> for ImageBuffer<P, &'a [P::Subpixel]>
+impl<'a, P, M> TryFromDlpack<&'a Managed<M>, ()> for ImageBuffer<P, &'a [P::Subpixel]>
 where
     P: Pixel,
     P::Subpixel: DlpackElement,
@@ -12,9 +12,9 @@ where
 {
     type Error = Error;
 
-    unsafe fn try_from_dlpack(dlpack: &'a Foreign<M>) -> Result<Self, Self::Error> {
-        let tensor = unsafe { dlpack.tensor() };
-        let layout = validated_hwc::<P>(tensor)?;
+    unsafe fn try_from_dlpack(dlpack: &'a Managed<M>, _stream: ()) -> Result<Self, Self::Error> {
+        let tensor = dlpack.validate()?;
+        let layout = validated_hwc::<P>(&tensor)?;
 
         let data_slice = unsafe {
             std::slice::from_raw_parts(layout.data_ptr as *const P::Subpixel, layout.num_elements)
@@ -25,16 +25,16 @@ where
 }
 
 // ---------------------------------------------------------------------------
-// Reverse owned: Local → ImageBuffer<P, DlpackContainer<M, T>>
+// Reverse owned: Managed → ImageBuffer<P, DlpackContainer<M, T>>
 //
-// Zero-copy owned conversion. DlpackContainer holds the Local by value and
+// Zero-copy owned conversion. DlpackContainer holds the Managed by value and
 // exposes its pixel data as a slice through Deref. No data is copied.
 // ---------------------------------------------------------------------------
 
-/// An owned container that wraps a [`Foreign`] and exposes its raw data as a
+/// An owned container that wraps a [`Managed`] and exposes its raw data as a
 /// `&[T]` slice, suitable for use as the backing store of an [`ImageBuffer`].
 pub struct DlpackContainer<M: ManagedTensorBase, T> {
-    dlpack: Foreign<M>,
+    dlpack: Managed<M>,
     data_ptr: *const T,
     num_elements: usize,
     _marker: PhantomData<T>,
@@ -49,7 +49,7 @@ impl<M: ManagedTensorBase, T> Deref for DlpackContainer<M, T> {
     }
 }
 
-impl<P, M> TryFromDlpack<Foreign<M>> for ImageBuffer<P, DlpackContainer<M, P::Subpixel>>
+impl<P, M> TryFromDlpack<Managed<M>, ()> for ImageBuffer<P, DlpackContainer<M, P::Subpixel>>
 where
     P: Pixel,
     P::Subpixel: DlpackElement,
@@ -57,10 +57,10 @@ where
 {
     type Error = Error;
 
-    unsafe fn try_from_dlpack(dlpack: Foreign<M>) -> Result<Self, Self::Error> {
+    unsafe fn try_from_dlpack(dlpack: Managed<M>, _stream: ()) -> Result<Self, Self::Error> {
         let layout = {
-            let tensor = unsafe { dlpack.tensor() };
-            validated_hwc::<P>(tensor)?
+            let tensor = dlpack.validate()?;
+            validated_hwc::<P>(&tensor)?
         };
 
         let container = DlpackContainer {
@@ -84,14 +84,19 @@ struct HwcLayout {
     num_elements: usize,
 }
 
-fn validated_hwc<P>(tensor: &crate::ffi::DLTensor) -> Result<HwcLayout, Error>
+fn validated_hwc<P>(tensor: &crate::tensor::TensorRef<'_>) -> Result<HwcLayout, Error>
 where
     P: Pixel,
     P::Subpixel: DlpackElement,
 {
-    ensure!(tensor.ndim == 3, InvalidNdimSnafu { ndim: tensor.ndim });
+    ensure!(
+        tensor.ndim() == 3,
+        InvalidNdimSnafu {
+            ndim: tensor.ndim() as i32
+        }
+    );
 
-    let shape = unsafe { tensor.shape()? };
+    let shape = tensor.shape();
     let [height, width, channels] = [shape[0], shape[1], shape[2]];
 
     ensure!(
@@ -127,7 +132,7 @@ where
         P::CHANNEL_COUNT as i64,
         1,
     ];
-    if let Some(strides) = unsafe { tensor.strides()? } {
+    if let Some(strides) = tensor.strides() {
         let actual = [strides[0], strides[1], strides[2]];
         ensure!(
             is_compact_strides(shape, Some(strides))?,

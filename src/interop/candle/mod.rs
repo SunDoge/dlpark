@@ -16,7 +16,7 @@
 //! default; set [`crate::DlpackFlags::READ_ONLY`] on the returned initialized
 //! allocation before finishing it when required.
 //!
-//! # Reverse direction (`&Foreign<M>` → `Tensor`)
+//! # Reverse direction (`&Managed<M>` → `Tensor`)
 //!
 //! Always a copy: candle has no borrowed/strided CPU tensor view type, so a
 //! fresh contiguous `Vec<T>` is always built. Compact-stride sources take a
@@ -41,45 +41,78 @@ mod producer;
 
 pub use consumer::candle_tensor_from_dlpack;
 
+/// Errors raised during candle interop.
 #[derive(Debug, Snafu)]
 pub enum Error {
+    /// Metadata preparation failed.
     #[snafu(transparent)]
-    Metadata { source: crate::metadata::Error },
+    Metadata {
+        /// The underlying metadata error.
+        source: crate::metadata::Error,
+    },
 
+    /// The candle tensor is not on CPU.
     #[snafu(display("candle tensor must be on CPU"))]
     UnsupportedDevice,
 
+    /// The candle dtype has no DLPack mapping.
     #[snafu(display("unsupported candle dtype: {dtype:?}"))]
-    UnsupportedCandleDType { dtype: DType },
+    UnsupportedCandleDType {
+        /// The unsupported candle dtype.
+        dtype: DType,
+    },
 
+    /// The DLPack dtype has no candle mapping.
     #[snafu(display("no candle dtype matches DLPack dtype: {dtype:?}"))]
-    UnsupportedDlDataType { dtype: crate::ffi::DLDataType },
+    UnsupportedDlDataType {
+        /// The unsupported DLPack dtype.
+        dtype: crate::ffi::DLDataType,
+    },
 
+    /// A shape or stride value does not fit the target integer type.
     #[snafu(display("shape/stride value does not fit the target integer type"))]
     DimensionOverflow,
 
+    /// A sub-byte packed dtype carries a nonzero element offset, which plain
+    /// pointer arithmetic cannot express.
     #[snafu(display(
         "sub-byte packed dtype {dtype:?} with a nonzero element offset is not supported"
     ))]
-    SubByteOffsetUnsupported { dtype: DLDataType },
+    SubByteOffsetUnsupported {
+        /// The offending packed dtype.
+        dtype: DLDataType,
+    },
 
+    /// A sub-byte packed dtype is used with non-compact strides.
     #[snafu(display(
         "sub-byte packed dtype {dtype:?} only supports compact (non-strided) tensors"
     ))]
-    SubByteStridesUnsupported { dtype: DLDataType },
+    SubByteStridesUnsupported {
+        /// The offending packed dtype.
+        dtype: DLDataType,
+    },
 
+    /// The strided index grid reaches outside the data buffer.
     #[snafu(display("strided access spans outside the tensor data buffer"))]
     StridedSpanOverflow,
 
+    /// The underlying DLPack tensor failed validation.
     #[snafu(transparent)]
-    Tensor { source: crate::tensor::Error },
+    Tensor {
+        /// The underlying tensor error.
+        source: crate::tensor::Error,
+    },
 
+    /// candle returned an error.
     #[snafu(transparent)]
-    Candle { source: candle_core::Error },
+    Candle {
+        /// The underlying candle error.
+        source: candle_core::Error,
+    },
 }
 
 #[cfg(test)]
-use crate::{Foreign, ManagedTensorBase, TryFromDlpack, allocation::dynamic, ffi::DLDevice};
+use crate::{ManagedTensorBase, TryFromDlpack, allocation::dynamic, ffi::DLDevice};
 #[cfg(test)]
 use candle_core::{Device, Tensor};
 
@@ -87,12 +120,12 @@ use candle_core::{Device, Tensor};
 mod tests {
     use super::*;
     use crate::ffi::{DLDataTypeCode, DLManagedTensor, DLManagedTensorVersioned};
-    use crate::{DlpackElement, DlpackFlags, Local, allocation::fixed::make_test_tensor};
+    use crate::{DlpackElement, DlpackFlags, Managed, allocation::fixed::make_test_tensor};
 
-    type LegacyDlpack = Local<DLManagedTensor>;
-    type VersionedDlpack = Local<DLManagedTensorVersioned>;
+    type LegacyDlpack = Managed<DLManagedTensor>;
+    type VersionedDlpack = Managed<DLManagedTensorVersioned>;
 
-    fn managed_candle<M: ManagedTensorBase>(tensor: Tensor) -> Local<M> {
+    fn managed_candle<M: ManagedTensorBase>(tensor: Tensor) -> Managed<M> {
         let initialized: dynamic::Initialized<M> = Box::new(tensor).try_into().unwrap();
         unsafe { initialized.finish() }
     }
@@ -100,7 +133,7 @@ mod tests {
     fn managed_candle_with_flags<M: ManagedTensorBase>(
         tensor: Tensor,
         flags: DlpackFlags,
-    ) -> Local<M> {
+    ) -> Managed<M> {
         let mut initialized: dynamic::Initialized<M> = Box::new(tensor).try_into().unwrap();
         initialized.set_flags(flags).unwrap();
         unsafe { initialized.finish() }
@@ -111,7 +144,7 @@ mod tests {
         dtype: DLDataType,
         shape: [i64; N],
         strides: [i64; N],
-    ) -> Foreign<DLManagedTensor>
+    ) -> Managed<DLManagedTensor>
     where
         T: Send + 'static,
     {
@@ -126,7 +159,6 @@ mod tests {
             strides,
             DlpackFlags::empty(),
         )
-        .into_foreign()
     }
 
     #[test]
@@ -134,8 +166,8 @@ mod tests {
         let tensor = Tensor::from_vec(vec![1i32, 2, 3, 4, 5, 6], (2, 3), &Device::Cpu).unwrap();
         let dlpack: LegacyDlpack = managed_candle(tensor);
 
-        assert_eq!(dlpack.shape().unwrap(), &[2, 3]);
-        assert_eq!(dlpack.strides().unwrap().unwrap(), &[3, 1]);
+        assert_eq!(dlpack.validate().unwrap().shape(), &[2, 3]);
+        assert_eq!(dlpack.validate().unwrap().strides().unwrap(), &[3, 1]);
         assert_eq!(
             unsafe { dlpack.tensor().cpu_slice::<i32>() }.unwrap(),
             &[1, 2, 3, 4, 5, 6]
@@ -157,7 +189,7 @@ mod tests {
     #[test]
     fn candle_tensor_to_versioned_builder_allows_flags_before_build() {
         let tensor = Tensor::from_vec(vec![1f32, 2., 3., 4.], (2, 2), &Device::Cpu).unwrap();
-        let dlpack: Local<DLManagedTensorVersioned> =
+        let dlpack: Managed<DLManagedTensorVersioned> =
             managed_candle_with_flags(tensor, DlpackFlags::READ_ONLY);
 
         assert_eq!(dlpack.flags(), DlpackFlags::READ_ONLY);
@@ -175,11 +207,11 @@ mod tests {
         let tensor = Tensor::zeros((2, 3), DType::F8E4M3, &Device::Cpu).unwrap();
         let dlpack: LegacyDlpack = managed_candle(tensor);
 
-        assert_eq!(dlpack.shape().unwrap(), &[2, 3]);
-        let dtype = dlpack.tensor().dtype;
+        assert_eq!(dlpack.validate().unwrap().shape(), &[2, 3]);
+        let dtype = dlpack.validate().unwrap().dtype();
         assert_eq!(dtype.code, DLDataTypeCode::FLOAT8_E4M3);
         assert_eq!(dtype.bits, 8);
-        assert_eq!(dlpack.num_bytes().unwrap(), 6);
+        assert_eq!(dlpack.validate().unwrap().num_bytes(), 6);
     }
 
     #[test]
@@ -192,13 +224,13 @@ mod tests {
             Tensor::from_raw_buffer(&[0xAB, 0xCD, 0xEF], DType::F4, &[6], &Device::Cpu).unwrap();
         let dlpack: LegacyDlpack = managed_candle(tensor);
 
-        assert_eq!(dlpack.shape().unwrap(), &[6]);
-        let dtype = dlpack.tensor().dtype;
+        assert_eq!(dlpack.validate().unwrap().shape(), &[6]);
+        let dtype = dlpack.validate().unwrap().dtype();
         assert_eq!(dtype.code, DLDataTypeCode::FLOAT4_E2M1FN);
         assert_eq!(dtype.bits, 4);
         // This is the whole point of the num_bytes() fix: 6 * 4 bits = 3
         // bytes, not 6 (which is what per-element rounding would have given).
-        assert_eq!(dlpack.num_bytes().unwrap(), 3);
+        assert_eq!(dlpack.validate().unwrap().num_bytes(), 3);
     }
 
     #[test]
@@ -214,7 +246,7 @@ mod tests {
             [1],
         );
 
-        let tensor = unsafe { Tensor::try_from_dlpack(&dlpack) }.unwrap();
+        let tensor = unsafe { Tensor::try_from_dlpack(&dlpack, ()) }.unwrap();
 
         assert_eq!(tensor.dims(), &[6]);
         assert_eq!(tensor.dtype(), DType::F4);
@@ -235,7 +267,7 @@ mod tests {
             [1, 3],
         );
 
-        let err = unsafe { Tensor::try_from_dlpack(&dlpack) }.unwrap_err();
+        let err = unsafe { Tensor::try_from_dlpack(&dlpack, ()) }.unwrap_err();
         assert!(matches!(err, Error::SubByteStridesUnsupported { .. }));
     }
 
@@ -248,7 +280,7 @@ mod tests {
             [3, 1],
         );
 
-        let tensor = unsafe { Tensor::try_from_dlpack(&dlpack) }.unwrap();
+        let tensor = unsafe { Tensor::try_from_dlpack(&dlpack, ()) }.unwrap();
 
         assert_eq!(tensor.dims(), &[2, 3]);
         assert_eq!(
@@ -268,7 +300,7 @@ mod tests {
             [1, 3],
         );
 
-        let tensor = unsafe { Tensor::try_from_dlpack(&dlpack) }.unwrap();
+        let tensor = unsafe { Tensor::try_from_dlpack(&dlpack, ()) }.unwrap();
 
         assert_eq!(tensor.dims(), &[3, 2]);
         assert_eq!(
@@ -288,7 +320,7 @@ mod tests {
             [10, 1],
         );
 
-        let err = unsafe { Tensor::try_from_dlpack(&dlpack) }.unwrap_err();
+        let err = unsafe { Tensor::try_from_dlpack(&dlpack, ()) }.unwrap_err();
         assert!(matches!(err, Error::StridedSpanOverflow));
     }
 
@@ -304,7 +336,7 @@ mod tests {
             [-1, -3],
         );
 
-        let err = unsafe { Tensor::try_from_dlpack(&dlpack) }.unwrap_err();
+        let err = unsafe { Tensor::try_from_dlpack(&dlpack, ()) }.unwrap_err();
         assert!(matches!(err, Error::StridedSpanOverflow));
     }
 
@@ -321,7 +353,7 @@ mod tests {
             [3, 1],
         );
 
-        let tensor = unsafe { Tensor::try_from_dlpack(&dlpack) }.unwrap();
+        let tensor = unsafe { Tensor::try_from_dlpack(&dlpack, ()) }.unwrap();
 
         assert_eq!(tensor.dims(), &[2, 3]);
         assert_eq!(tensor.dtype(), DType::F8E4M3);
@@ -340,7 +372,7 @@ mod tests {
             [1],
         );
 
-        let err = unsafe { Tensor::try_from_dlpack(&dlpack) }.unwrap_err();
+        let err = unsafe { Tensor::try_from_dlpack(&dlpack, ()) }.unwrap_err();
         assert!(matches!(err, Error::UnsupportedDlDataType { .. }));
     }
 }

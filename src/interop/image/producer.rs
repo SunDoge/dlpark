@@ -1,5 +1,5 @@
 use crate::{
-    DlpackElement, DlpackFlags, ManagedTensorBase,
+    DlpackElement, ManagedTensorBase,
     allocation::fixed,
     ffi::DLDevice,
     metadata::{Copied, Fixed},
@@ -11,8 +11,7 @@ use std::os::raw::c_void;
 /// Converts a boxed, vector-backed image into a configurable DLPack builder.
 ///
 /// The pixel allocation is reused without copying and exported as compact HWC
-/// data. The builder starts with [`DlpackFlags::IS_COPIED`] because ownership
-/// of the image has been transferred without retaining aliases.
+/// data. Moving the image transfers ownership without copying its pixel data.
 impl<P, M> TryFrom<Box<ImageBuffer<P, Vec<P::Subpixel>>>> for fixed::Initialized<M, 3>
 where
     P: Pixel + Send,
@@ -34,17 +33,14 @@ where
         initialized
             .set_data(data_ptr)
             .set_dtype(P::Subpixel::DTYPE)
-            .set_device(DLDevice::CPU)
-            // SAFETY: `img` was moved in above and its `Vec`-backed pixel buffer
-            // has no other live references.
-            .set_flags_unchecked(DlpackFlags::IS_COPIED);
+            .set_device(DLDevice::CPU);
         Ok(initialized)
     }
 }
 
 // ---------------------------------------------------------------------------
-// Reverse borrowed: &Local → ImageBuffer<P, &[T]>
+// Reverse borrowed: &Managed → ImageBuffer<P, &[T]>
 //
-// Zero-copy borrowed view. The ImageBuffer borrows from the Local
+// Zero-copy borrowed view. The ImageBuffer borrows from the Managed
 // and cannot outlive it.
 // ---------------------------------------------------------------------------

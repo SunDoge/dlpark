@@ -1,10 +1,13 @@
 use crate::ffi::DLPackVersion;
 use snafu::Snafu;
 
+/// The DLPack major version is incompatible with this build.
 #[derive(Debug, Snafu)]
 #[snafu(display("incompatible DLPack major version: expected {expected}, got {actual}"))]
 pub struct VersionError {
+    /// The expected major version (from the bundled headers).
     pub expected: u32,
+    /// The actual major version declared by the managed tensor.
     pub actual: u32,
 }
 

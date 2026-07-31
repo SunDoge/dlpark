@@ -52,6 +52,7 @@ impl StreamArg {
 /// compatible with `device`, follows that device type's Python DLPack stream
 /// convention, and remains valid for the duration of the `__dlpack__` call.
 pub unsafe trait DlpackStream {
+    /// Returns the stream as a Python argument for the `__dlpack__` call.
     fn as_python_arg(&self, py: Python<'_>, device: DLDevice) -> pyo3::PyResult<StreamArg>;
 }
 

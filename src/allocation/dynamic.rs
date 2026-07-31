@@ -1,7 +1,7 @@
 //! Runtime-sized extra metadata allocation.
 
 use super::{Error, allocate, empty_tensor};
-use crate::{Local, ManagedTensorBase, OpaqueContext};
+use crate::{Managed, ManagedTensorBase, OpaqueContext};
 use std::{alloc::Layout, mem::ManuallyDrop, ptr::NonNull};
 
 /// An uninitialized managed tensor allocation with dynamic extra capacity.
@@ -54,7 +54,7 @@ impl<M: ManagedTensorBase> Allocation<M> {
                 Some(drop_allocation::<C, M>),
             ));
             Ok(super::Initialized {
-                managed: Local::from_raw_unchecked(this.managed.as_ptr()),
+                managed: Managed::from_raw_unchecked(this.managed.as_ptr()),
                 storage: Metadata {
                     extra: this.extra,
                     extra_len: this.extra_len,
@@ -157,8 +157,8 @@ mod tests {
         initialized.tensor_mut().shape = extra;
         initialized.tensor_mut().strides = unsafe { extra.add(2) };
         let tensor = unsafe { initialized.finish() };
-        assert_eq!(tensor.shape().unwrap(), &[2, 3]);
-        assert_eq!(tensor.strides().unwrap().unwrap(), &[3, 1]);
+        assert_eq!(tensor.validate().unwrap().shape(), &[2, 3]);
+        assert_eq!(tensor.validate().unwrap().strides().unwrap(), &[3, 1]);
     }
 
     #[test]
@@ -170,7 +170,7 @@ mod tests {
         initialized.tensor_mut().shape = shape.as_ptr().cast_mut();
         initialized.tensor_mut().strides = initialized.extra_mut().as_mut_ptr();
         let tensor = unsafe { initialized.finish() };
-        assert_eq!(tensor.shape().unwrap(), &shape);
+        assert_eq!(tensor.validate().unwrap().shape(), &shape);
     }
 
     #[test]

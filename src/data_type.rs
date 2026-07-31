@@ -85,6 +85,7 @@ impl_data_type!(F6E3M2FN, DLDataTypeCode::FLOAT6_E3M2FN, 6);
 impl_data_type!(F4E2M1FN, DLDataTypeCode::FLOAT4_E2M1FN, 4);
 
 impl DLDataType {
+    /// Constructs a data type descriptor from its code, bit width, and lane count.
     pub fn new(code: DLDataTypeCode, bits: u8, lanes: u16) -> Self {
         Self { code, bits, lanes }
     }

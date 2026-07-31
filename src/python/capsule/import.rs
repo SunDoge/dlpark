@@ -1,6 +1,6 @@
 use super::{DLTENSOR, DLTENSOR_VERSIONED, USED_DLTENSOR, USED_DLTENSOR_VERSIONED};
 use crate::{
-    Foreign,
+    DlpackFlags, Managed,
     ffi::{DLManagedTensor, DLManagedTensorVersioned},
     python::{DlpackStream, device::dlpack_device, exchange::DlpackExchangeApiRef},
 };
@@ -85,7 +85,7 @@ fn call_dlpack<'py>(
     ob.call_method(PyString::intern(py, "__dlpack__"), (), Some(&kwargs))
 }
 
-impl<'py> FromPyObject<'_, 'py> for Foreign<DLManagedTensor> {
+impl<'py> FromPyObject<'_, 'py> for Managed<DLManagedTensor> {
     type Error = PyErr;
     fn extract(ob: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
         let owned_capsule;
@@ -106,7 +106,23 @@ impl<'py> FromPyObject<'_, 'py> for Foreign<DLManagedTensor> {
     }
 }
 
-impl<'py> FromPyObject<'_, 'py> for Foreign<DLManagedTensorVersioned> {
+fn validate_copy_result(
+    tensor: Managed<DLManagedTensorVersioned>,
+    requested: Option<bool>,
+) -> pyo3::PyResult<Managed<DLManagedTensorVersioned>> {
+    let copied = tensor.flags().contains(DlpackFlags::IS_COPIED);
+    match (requested, copied) {
+        (Some(true), false) => Err(PyBufferError::new_err(
+            "DLPack producer did not copy despite copy=True",
+        )),
+        (Some(false), true) => Err(PyBufferError::new_err(
+            "DLPack producer copied despite copy=False",
+        )),
+        _ => Ok(tensor),
+    }
+}
+
+impl<'py> FromPyObject<'_, 'py> for Managed<DLManagedTensorVersioned> {
     type Error = PyErr;
     fn extract(ob: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
         if let Some(api) = DlpackExchangeApiRef::from_object(ob)? {
@@ -139,7 +155,7 @@ impl<'py> FromPyObject<'_, 'py> for Foreign<DLManagedTensorVersioned> {
     }
 }
 
-impl Foreign<DLManagedTensorVersioned> {
+impl Managed<DLManagedTensorVersioned> {
     /// Extracts a versioned DLPack tensor with optional stream and copy
     /// requests.
     pub fn extract_with_options(
@@ -181,8 +197,9 @@ impl Foreign<DLManagedTensorVersioned> {
                 "DLPack capsule pointer is unexpectedly null",
             ));
         }
-        unsafe { Self::from_raw(ptr.cast()) }
-            .map_err(|error| PyRuntimeError::new_err(error.to_string()))
+        let tensor = unsafe { Self::from_raw(ptr.cast()) }
+            .map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
+        validate_copy_result(tensor, copy)
     }
 
     /// Extracts a versioned DLPack tensor using an explicit consumer stream.
@@ -190,7 +207,8 @@ impl Foreign<DLManagedTensorVersioned> {
     /// This follows the Python DLPack consumer protocol: it queries
     /// `__dlpack_device__()`, maps `stream` for that device, and passes the
     /// result to `__dlpack__(stream=..., max_version=..., copy=...)`.
-    /// `copy` maps directly to Python's tri-state copy request.
+    /// `copy` maps directly to Python's tri-state copy request. The returned
+    /// `IS_COPIED` flag is checked against an explicit `true` or `false` request.
     pub fn extract_with_stream<'py, S>(
         ob: Borrowed<'_, 'py, PyAny>,
         stream: &S,

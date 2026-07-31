@@ -10,7 +10,7 @@ mod import;
 
 #[cfg(test)]
 use crate::{
-    Foreign, Local,
+    Managed,
     ffi::{DLManagedTensor, DLManagedTensorVersioned},
     python::DlpackStream,
 };
@@ -45,7 +45,7 @@ mod tests {
         }
     }
 
-    fn legacy_tensor() -> Local<DLManagedTensor> {
+    fn legacy_tensor() -> Managed<DLManagedTensor> {
         let data = Box::new(vec![1i32, 2, 3]);
         let data_ptr = data.as_ptr() as *mut c_void;
         make_test_tensor(
@@ -59,7 +59,11 @@ mod tests {
         )
     }
 
-    fn versioned_tensor() -> Local<DLManagedTensorVersioned> {
+    fn versioned_tensor() -> Managed<DLManagedTensorVersioned> {
+        versioned_tensor_with_flags(DlpackFlags::empty())
+    }
+
+    fn versioned_tensor_with_flags(flags: DlpackFlags) -> Managed<DLManagedTensorVersioned> {
         let data = Box::new(vec![4i32, 5, 6]);
         let data_ptr = data.as_ptr() as *mut c_void;
         make_test_tensor(
@@ -69,7 +73,7 @@ mod tests {
             DLDevice::CPU,
             [3],
             [1],
-            DlpackFlags::empty(),
+            flags,
         )
     }
 
@@ -79,7 +83,7 @@ mod tests {
         pyo3::Python::attach(|py| -> pyo3::PyResult<()> {
             let data = Box::new(vec![4i32, 5, 6]);
             let data_ptr = data.as_ptr() as *mut c_void;
-            let tensor: Local<DLManagedTensorVersioned> = make_test_tensor(
+            let tensor: Managed<DLManagedTensorVersioned> = make_test_tensor(
                 data,
                 data_ptr,
                 DLDataType::of::<i32>(),
@@ -89,7 +93,7 @@ mod tests {
                 DlpackFlags::empty(),
             );
             let capsule = tensor.into_pyobject(py)?;
-            let tensor = Foreign::<DLManagedTensorVersioned>::extract(capsule.as_borrowed())?;
+            let tensor = Managed::<DLManagedTensorVersioned>::extract(capsule.as_borrowed())?;
             assert_eq!(
                 unsafe { tensor.tensor().cpu_slice::<i32>() }.unwrap(),
                 &[4, 5, 6]
@@ -105,13 +109,13 @@ mod tests {
         pyo3::Python::attach(|py| -> pyo3::PyResult<()> {
             let capsule = legacy_tensor().into_pyobject(py)?;
 
-            let dlpack = Foreign::<DLManagedTensor>::extract(capsule.as_borrowed())?;
+            let dlpack = Managed::<DLManagedTensor>::extract(capsule.as_borrowed())?;
             assert_eq!(
                 unsafe { dlpack.tensor().cpu_slice::<i32>() }.unwrap(),
                 &[1, 2, 3]
             );
 
-            let err = match Foreign::<DLManagedTensor>::extract(capsule.as_borrowed()) {
+            let err = match Managed::<DLManagedTensor>::extract(capsule.as_borrowed()) {
                 Ok(_) => panic!("consuming the same DLPack capsule twice should fail"),
                 Err(err) => err,
             };
@@ -128,17 +132,56 @@ mod tests {
         pyo3::Python::attach(|py| -> pyo3::PyResult<()> {
             let capsule = versioned_tensor().into_pyobject(py)?;
 
-            let dlpack = Foreign::<DLManagedTensorVersioned>::extract(capsule.as_borrowed())?;
+            let dlpack = Managed::<DLManagedTensorVersioned>::extract(capsule.as_borrowed())?;
             assert_eq!(
                 unsafe { dlpack.tensor().cpu_slice::<i32>() }.unwrap(),
                 &[4, 5, 6]
             );
 
-            let err = match Foreign::<DLManagedTensorVersioned>::extract(capsule.as_borrowed()) {
+            let err = match Managed::<DLManagedTensorVersioned>::extract(capsule.as_borrowed()) {
                 Ok(_) => panic!("consuming the same DLPack capsule twice should fail"),
                 Err(err) => err,
             };
             assert!(err.is_instance_of::<PyValueError>(py));
+
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn versioned_extract_rejects_copy_result_mismatch() {
+        pyo3::Python::initialize();
+        pyo3::Python::attach(|py| -> pyo3::PyResult<()> {
+            let module = PyModule::from_code(
+                py,
+                cr#"class Producer:
+    def __init__(self, capsule):
+        self.capsule = capsule
+
+    def __dlpack__(self, *, max_version=None, copy=None):
+        return self.capsule
+"#,
+                c"copy_mismatch_producer.py",
+                c"copy_mismatch_producer",
+            )?;
+
+            for (flags, requested) in [
+                (DlpackFlags::empty(), true),
+                (DlpackFlags::IS_COPIED, false),
+            ] {
+                let capsule = versioned_tensor_with_flags(flags).into_pyobject(py)?;
+                let producer = module.getattr("Producer")?.call1((capsule,))?;
+                let error = match Managed::<DLManagedTensorVersioned>::extract_with_options(
+                    producer.as_borrowed(),
+                    None,
+                    Some(requested),
+                ) {
+                    Ok(_) => panic!("copy result mismatch must be rejected"),
+                    Err(error) => error,
+                };
+                assert!(error.is_instance_of::<pyo3::exceptions::PyBufferError>(py));
+            }
 
             Ok(())
         })
@@ -164,7 +207,7 @@ mod tests {
             )?;
             let producer = module.getattr("Producer")?.call1((capsule,))?;
 
-            let dlpack = Foreign::<DLManagedTensor>::extract(producer.as_borrowed())?;
+            let dlpack = Managed::<DLManagedTensor>::extract(producer.as_borrowed())?;
             assert_eq!(
                 unsafe { dlpack.tensor().cpu_slice::<i32>() }.unwrap(),
                 &[1, 2, 3]
@@ -196,7 +239,7 @@ mod tests {
             )?;
             let producer = module.getattr("Producer")?.call1((capsule,))?;
 
-            let dlpack = Foreign::<DLManagedTensorVersioned>::extract(producer.as_borrowed())?;
+            let dlpack = Managed::<DLManagedTensorVersioned>::extract(producer.as_borrowed())?;
             assert_eq!(
                 unsafe { dlpack.tensor().cpu_slice::<i32>() }.unwrap(),
                 &[4, 5, 6]
@@ -244,7 +287,7 @@ mod tests {
             )?;
             let producer = module.getattr("Producer")?.call1((capsule,))?;
 
-            let _dlpack = Foreign::<DLManagedTensorVersioned>::extract_with_stream(
+            let _dlpack = Managed::<DLManagedTensorVersioned>::extract_with_stream(
                 producer.as_borrowed(),
                 &TestStream,
                 Some(false),
@@ -270,7 +313,7 @@ mod tests {
     fn versioned_extract_with_options_passes_copy_without_stream() {
         pyo3::Python::initialize();
         pyo3::Python::attach(|py| -> pyo3::PyResult<()> {
-            let capsule = versioned_tensor().into_pyobject(py)?;
+            let capsule = versioned_tensor_with_flags(DlpackFlags::IS_COPIED).into_pyobject(py)?;
             let module = PyModule::from_code(
                 py,
                 cr#"class Producer:
@@ -287,7 +330,7 @@ mod tests {
             )?;
             let producer = module.getattr("Producer")?.call1((capsule,))?;
 
-            let _dlpack = Foreign::<DLManagedTensorVersioned>::extract_with_options(
+            let _dlpack = Managed::<DLManagedTensorVersioned>::extract_with_options(
                 producer.as_borrowed(),
                 None,
                 Some(true),
@@ -317,7 +360,7 @@ mod tests {
             )?;
             let producer = module.getattr("Producer")?.call0()?;
 
-            let err = match Foreign::<DLManagedTensorVersioned>::extract(producer.as_borrowed()) {
+            let err = match Managed::<DLManagedTensorVersioned>::extract(producer.as_borrowed()) {
                 Ok(_) => panic!("versioned extraction requires max_version support"),
                 Err(err) => err,
             };
@@ -348,7 +391,7 @@ mod tests {
             )?;
             let producer = module.getattr("Producer")?.call0()?;
 
-            let err = match Foreign::<DLManagedTensorVersioned>::extract(producer.as_borrowed()) {
+            let err = match Managed::<DLManagedTensorVersioned>::extract(producer.as_borrowed()) {
                 Ok(_) => panic!("producer TypeError should propagate"),
                 Err(err) => err,
             };

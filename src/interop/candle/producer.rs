@@ -173,5 +173,5 @@ impl<M: ManagedTensorBase> TryFrom<Box<Tensor>> for dynamic::Initialized<M> {
 }
 
 // ---------------------------------------------------------------------------
-// Reverse: &Local<M> → candle_core::Tensor
+// Reverse: &Managed<M> → candle_core::Tensor
 // ---------------------------------------------------------------------------
