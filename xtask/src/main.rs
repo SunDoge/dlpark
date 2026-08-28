@@ -2,6 +2,16 @@ use bindgen::callbacks::ParseCallbacks;
 use snafu::{ResultExt, Whatever};
 
 fn main() -> Result<(), Whatever> {
+    match std::env::args().nth(1).as_deref() {
+        Some("bindgen") => generate_bindings(),
+        _ => {
+            eprintln!("usage: cargo xtask bindgen");
+            std::process::exit(2);
+        }
+    }
+}
+
+fn generate_bindings() -> Result<(), Whatever> {
     let bindings = bindgen::builder()
         .header("dlpack/include/dlpack/dlpack.h")
         .allowlist_item("DL.*")

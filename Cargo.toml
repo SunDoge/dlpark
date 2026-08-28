@@ -26,9 +26,9 @@ features = ["candle", "half", "image", "ndarray"]
 [workspace]
 resolver = "2"
 members = [
-  "crates/dlpark-bindgen",
   "examples/dlparkimg",
-  "examples/ndarray-candle"
+  "examples/ndarray-candle",
+  "xtask",
 ]
 
 [workspace.dependencies]

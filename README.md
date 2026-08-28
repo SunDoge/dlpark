@@ -368,10 +368,10 @@ let borrowed =
 
 ## Regenerating FFI bindings
 
-The C bindings in `src/ffi.rs` are generated from the `dlpack` C header (a git submodule at `dlpack/`) by the `dlpark-bindgen` workspace member:
+The C bindings in `src/ffi.rs` are generated from the `dlpack` C header (a git submodule at `dlpack/`) by the workspace maintenance tool:
 
 ```bash
-just bindgen    # = cargo run -r -p dlpark-bindgen
+mise run bindgen    # = cargo xtask bindgen
 ```
 
 It is a manual regeneration step, not a build dependency of the crate.
