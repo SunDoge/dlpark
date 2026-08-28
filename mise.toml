@@ -2,4 +2,12 @@
 actionlint = "latest"
 git-cliff = "latest"
 jj = "latest"
-just = "latest"
+
+[tasks.bindgen]
+run = "cargo xtask bindgen"
+
+[tasks.miri]
+run = "cargo miri test"
+
+[tasks.doc]
+run = "cargo doc --open --no-default-features --features candle,half,image,ndarray"
