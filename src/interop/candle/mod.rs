@@ -375,4 +375,21 @@ mod tests {
         let err = unsafe { Tensor::try_from_dlpack(&dlpack, ()) }.unwrap_err();
         assert!(matches!(err, Error::UnsupportedDlDataType { .. }));
     }
+
+    #[test]
+    fn dlpack_with_vector_lanes_is_rejected() {
+        let dlpack = raw_tensor(
+            vec![0f32; 6],
+            DLDataType {
+                code: DLDataTypeCode::FLOAT,
+                bits: 32,
+                lanes: 2,
+            },
+            [3],
+            [1],
+        );
+
+        let err = unsafe { Tensor::try_from_dlpack(&dlpack, ()) }.unwrap_err();
+        assert!(matches!(err, Error::UnsupportedDlDataType { .. }));
+    }
 }

@@ -11,6 +11,9 @@ use candle_core::{DType, Device, Tensor};
 /// supported — matching on `(code, bits)` makes that enumeration explicit,
 /// a plain enum-to-enum mapping with no generic dispatch involved.
 fn candle_dtype_from_dl(dtype: DLDataType) -> Option<DType> {
+    if dtype.lanes != 1 {
+        return None;
+    }
     match (dtype.code, dtype.bits) {
         (DLDataTypeCode::UINT, 8) => Some(DType::U8),
         (DLDataTypeCode::UINT, 32) => Some(DType::U32),

@@ -25,6 +25,7 @@ features = ["candle", "half", "image", "ndarray"]
 
 [workspace]
 resolver = "2"
+default-members = ["."]
 members = [
   "examples/dlparkimg",
   "examples/ndarray-candle",

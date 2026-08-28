@@ -44,6 +44,14 @@ pub enum Error {
     #[snafu(display("number of bytes overflows usize"))]
     NumBytesOverflow,
 
+    /// The dtype has a zero bit width.
+    #[snafu(display("dtype bit width must be greater than zero"))]
+    ZeroDtypeBits,
+
+    /// The dtype has zero lanes.
+    #[snafu(display("dtype lane count must be greater than zero"))]
+    ZeroDtypeLanes,
+
     /// The shape and strides lengths disagree.
     #[snafu(display("shape length ({shape_len}) does not match strides length ({strides_len})"))]
     MismatchedStrides {

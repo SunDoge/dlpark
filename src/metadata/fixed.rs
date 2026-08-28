@@ -167,7 +167,8 @@ mod tests {
         let prepared = Fixed::new(Copied([2_u32, 3]), Copied([3_isize, 1]))
             .prepare::<DLManagedTensor>()
             .unwrap();
-        let initialized = prepared.initialize(Box::new(()));
+        let mut initialized = prepared.initialize(Box::new(()));
+        initialized.set_dtype(crate::ffi::DLDataType::U8);
         let tensor = unsafe { initialized.finish() };
 
         assert_eq!(tensor.validate().unwrap().shape(), &[2, 3]);
@@ -182,7 +183,8 @@ mod tests {
                 .prepare_unchecked::<DLManagedTensor>()
                 .unwrap()
         };
-        let initialized = prepared.initialize(Box::new(()));
+        let mut initialized = prepared.initialize(Box::new(()));
+        initialized.set_dtype(crate::ffi::DLDataType::U8);
         let tensor = unsafe { initialized.finish() };
 
         assert_eq!(tensor.validate().unwrap().shape(), &shape);

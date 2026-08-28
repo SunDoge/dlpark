@@ -156,6 +156,7 @@ mod tests {
         let extra = initialized.extra_mut().as_mut_ptr();
         initialized.tensor_mut().shape = extra;
         initialized.tensor_mut().strides = unsafe { extra.add(2) };
+        initialized.set_dtype(crate::ffi::DLDataType::U8);
         let tensor = unsafe { initialized.finish() };
         assert_eq!(tensor.validate().unwrap().shape(), &[2, 3]);
         assert_eq!(tensor.validate().unwrap().strides().unwrap(), &[3, 1]);
@@ -169,6 +170,7 @@ mod tests {
         let mut initialized = allocation.initialize(Box::new(()), 2).unwrap();
         initialized.tensor_mut().shape = shape.as_ptr().cast_mut();
         initialized.tensor_mut().strides = initialized.extra_mut().as_mut_ptr();
+        initialized.set_dtype(crate::ffi::DLDataType::U8);
         let tensor = unsafe { initialized.finish() };
         assert_eq!(tensor.validate().unwrap().shape(), &shape);
     }

@@ -366,7 +366,22 @@ let borrowed =
     unsafe { BorrowedCudaSlice::<DLManagedTensorVersioned, f32>::try_from_dlpack(dlpack)? };
 ```
 
-## Regenerating FFI bindings
+## Development
+
+Install the pinned development tools and the Conventional Commits hook after
+cloning the repository:
+
+```bash
+mise install
+cog install-hook commit-msg
+```
+
+Commit messages use the Conventional Commits types `feat`, `fix`, `docs`,
+`refactor`, `perf`, `test`, `build`, `ci`, `chore`, and `revert`. Pull requests
+validate every new commit in CI. Cocogitto only validates commit messages;
+git-cliff and GitHub PR labels remain responsible for changelog generation.
+
+### Regenerating FFI bindings
 
 The C bindings in `src/ffi.rs` are generated from the `dlpack` C header (a git submodule at `dlpack/`) by the workspace maintenance tool:
 
@@ -375,6 +390,8 @@ mise run bindgen    # = cargo xtask bindgen
 ```
 
 It is a manual regeneration step, not a build dependency of the crate.
+CI verifies that the checked-in bindings are current with
+`cargo xtask bindgen --check`.
 
 [pyo3]: https://github.com/PyO3/pyo3
 [image]: https://github.com/image-rs/image

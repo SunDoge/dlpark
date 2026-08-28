@@ -194,7 +194,8 @@ mod tests {
                 .prepare_unchecked::<DLManagedTensor>()
                 .unwrap()
         };
-        let initialized = prepared.initialize(Box::new(())).unwrap();
+        let mut initialized = prepared.initialize(Box::new(())).unwrap();
+        initialized.set_dtype(crate::ffi::DLDataType::U8);
         let tensor = unsafe { initialized.finish() };
 
         assert_eq!(tensor.validate().unwrap().shape(), &shape);

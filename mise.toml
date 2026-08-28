@@ -1,13 +1,19 @@
 [tools]
-actionlint = "latest"
-git-cliff = "latest"
-jj = "latest"
+actionlint = "1.7.12"
+cocogitto = "7.0.0"
+git-cliff = "2.13.1"
 
 [tasks.bindgen]
 run = "cargo xtask bindgen"
+
+[tasks."bindgen:check"]
+run = "cargo xtask bindgen --check"
 
 [tasks.miri]
 run = "cargo miri test"
 
 [tasks.doc]
 run = "cargo doc --open --no-default-features --features candle,half,image,ndarray"
+
+[tasks."commit:check"]
+run = "cog check origin/main..HEAD"

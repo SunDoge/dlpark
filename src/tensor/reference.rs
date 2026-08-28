@@ -30,12 +30,20 @@ pub struct TensorMut<'a> {
 
 impl<'a> TensorRef<'a> {
     /// Validates the descriptor's readable metadata and arithmetic invariants.
+    /// Unknown dtype codes and device types remain valid for forward
+    /// compatibility, but dtype bit width and lane count must be nonzero.
     ///
     /// # Safety
     ///
     /// `tensor` and its shape and optional strides pointers must remain readable
     /// and immutable for `'a`.
     pub unsafe fn from_raw(tensor: &'a DLTensor) -> Result<Self, Error> {
+        if tensor.dtype.bits == 0 {
+            return Err(Error::ZeroDtypeBits);
+        }
+        if tensor.dtype.lanes == 0 {
+            return Err(Error::ZeroDtypeLanes);
+        }
         let shape = unsafe { tensor.shape()? };
         let strides = unsafe { tensor.strides()? };
         let num_elements = unsafe { tensor.num_elements()? };
@@ -213,6 +221,7 @@ mod tests {
     fn rejects_negative_rank() {
         let tensor = DLTensor {
             ndim: -1,
+            dtype: DLDataType::U8,
             ..DLTensor::default()
         };
         let error = match unsafe { TensorRef::from_raw(&tensor) } {
@@ -226,6 +235,7 @@ mod tests {
     fn rejects_null_shape_for_nonzero_rank() {
         let tensor = DLTensor {
             ndim: 1,
+            dtype: DLDataType::U8,
             ..DLTensor::default()
         };
         let error = match unsafe { TensorRef::from_raw(&tensor) } {
@@ -241,6 +251,7 @@ mod tests {
         let strides = [3_i64, 1];
         let tensor = DLTensor {
             ndim: 2,
+            dtype: DLDataType::U8,
             shape: shape.as_ptr().cast_mut(),
             strides: strides.as_ptr().cast_mut(),
             ..DLTensor::default()
@@ -250,5 +261,39 @@ mod tests {
         assert_eq!(tensor.shape(), &shape);
         assert_eq!(tensor.strides(), Some(strides.as_slice()));
         assert_eq!(tensor.num_elements(), 6);
+    }
+
+    #[test]
+    fn rejects_zero_width_dtype() {
+        let tensor = DLTensor {
+            dtype: DLDataType {
+                code: crate::ffi::DLDataTypeCode::UINT,
+                bits: 0,
+                lanes: 1,
+            },
+            ..DLTensor::default()
+        };
+
+        assert!(matches!(
+            unsafe { TensorRef::from_raw(&tensor) },
+            Err(Error::ZeroDtypeBits)
+        ));
+    }
+
+    #[test]
+    fn rejects_zero_lane_dtype() {
+        let tensor = DLTensor {
+            dtype: DLDataType {
+                code: crate::ffi::DLDataTypeCode::UINT,
+                bits: 8,
+                lanes: 0,
+            },
+            ..DLTensor::default()
+        };
+
+        assert!(matches!(
+            unsafe { TensorRef::from_raw(&tensor) },
+            Err(Error::ZeroDtypeLanes)
+        ));
     }
 }
