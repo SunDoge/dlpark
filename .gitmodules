@@ -1,3 +1,0 @@
-[submodule "dlpack"]
-	path = dlpack
-	url = https://github.com/dmlc/dlpack

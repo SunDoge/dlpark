@@ -383,7 +383,8 @@ git-cliff and GitHub PR labels remain responsible for changelog generation.
 
 ### Regenerating FFI bindings
 
-The C bindings in `src/ffi.rs` are generated from the `dlpack` C header (a git submodule at `dlpack/`) by the workspace maintenance tool:
+The C bindings in `src/ffi.rs` are generated from the pinned DLPack header in
+`vendor/dlpack/` by the workspace maintenance tool:
 
 ```bash
 mise run bindgen    # = cargo xtask bindgen
@@ -392,6 +393,18 @@ mise run bindgen    # = cargo xtask bindgen
 It is a manual regeneration step, not a build dependency of the crate.
 CI verifies that the checked-in bindings are current with
 `cargo xtask bindgen --check`.
+
+Refresh the vendored header and license from the pinned, signed upstream
+release, then regenerate the bindings, with:
+
+```bash
+mise run vendor:dlpack
+```
+
+Upgrading to a newer DLPack release is deliberate: update its version and full
+commit SHA in the xtask first, run the vendor task, and review the vendored
+header and generated binding diffs together. The task requires the release tag
+to resolve to that commit and GitHub to report a valid commit signature.
 
 [pyo3]: https://github.com/PyO3/pyo3
 [image]: https://github.com/image-rs/image

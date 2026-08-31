@@ -2,12 +2,16 @@
 actionlint = "1.7.12"
 cocogitto = "7.0.0"
 git-cliff = "2.13.1"
+github-cli = "2.98.0"
 
 [tasks.bindgen]
 run = "cargo xtask bindgen"
 
 [tasks."bindgen:check"]
 run = "cargo xtask bindgen --check"
+
+[tasks."vendor:dlpack"]
+run = "cargo xtask vendor-dlpack"
 
 [tasks.miri]
 run = "cargo miri test"
