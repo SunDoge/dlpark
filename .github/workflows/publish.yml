@@ -3,8 +3,7 @@ name: Publish to crates.io
 on:
   push:
     tags:
-      - "*"
-  workflow_dispatch:
+      - "v*"
 
 permissions: {}
 
@@ -25,6 +24,14 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+
+      - name: Verify release version
+        run: |
+          version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "dlpark") | .version')
+          test "${GITHUB_REF_NAME}" = "v${version}"
+
+      - name: Verify package
+        run: cargo publish --dry-run
 
       - name: Authenticate with registry
         uses: rust-lang/crates-io-auth-action@bbd81622f20ce9e2dd9622e3218b975523e45bbe # v1.0.4

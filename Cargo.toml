@@ -1,6 +1,6 @@
 [package]
 name = "dlpark"
-version = "0.9.0-alpha.1"
+version = "0.9.0-alpha.2"
 edition = "2024"
 rust-version = "1.87"
 description = "dlpack Rust binding for Python"
@@ -16,6 +16,7 @@ include = [
   "README.md",
   "benches/**",
   "examples/profile_builder.rs",
+  "examples/type_id_fast_path.rs",
   "src/**",
 ]
 

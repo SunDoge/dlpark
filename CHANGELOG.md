@@ -4,6 +4,53 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## 0.9.0-alpha.2 - 2026-08-31
+
+### 🌀 Miscellaneous
+
+- Refactor: vendor the DLPack header and add a verified update task
+- Fix: harden tensor validation and development tooling
+- Refactor: migrate bindgen tooling to xtask ([#71](https://github.com/SunDoge/dlpark/pull/71))
+
+### 🧑‍🤝‍🧑 Contributors
+
+* [@SunDoge](https://github.com/SunDoge)
+
+**Full Changelog**: <https://github.com/SunDoge/dlpark/compare/v0.9.0-alpha.1...v0.9.0-alpha.2>
+
+---
+
+## 0.9.0-alpha.1 - 2026-07-31
+
+### 🚀 Features
+
+- Add provenance-aware managed tensor allocation APIs
+- Add semantic DLPack version comparisons
+- Add stream-synchronized DLPack consumption
+- Add unsafe conversions from externally supplied DLPack tensors
+- Strengthen local and foreign tensor APIs
+
+### 🐛 Fixes
+
+- Preserve tensors when exchange export is unavailable
+- Reject non-CPU tensor slice access
+- Gate generated layout tests on 64-bit pointer width ([#69](https://github.com/SunDoge/dlpark/pull/69))
+
+### ♻️ Refactoring
+
+- Separate tensor semantics from generated FFI bindings
+- Split Python capsule, backend interop, metadata, and ownership modules by responsibility
+- Unify managed tensor validation ([#70](https://github.com/SunDoge/dlpark/pull/70))
+
+### 🧑‍🤝‍🧑 Contributors
+
+* [@SunDoge](https://github.com/SunDoge)
+* [@kylebarron](https://github.com/kylebarron)
+
+**Full Changelog**: <https://github.com/SunDoge/dlpark/compare/v0.8.0...v0.9.0-alpha.1>
+
+---
+
 ## 0.8.0 - 2026-07-21
 
 ### 🌀 Miscellaneous

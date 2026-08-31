@@ -14,7 +14,8 @@
 /// (e.g. `consumer_stream.join(producer_stream)` for cudarc). It is *not* the
 /// consumer's own stream — the consumer creates that internally — and it is
 /// *not* the Python `__dlpack__(stream=)` argument, which flows the other
-/// direction and is handled by the [`crate::python`] layer. `S = ()` means no
+/// direction and is handled by the crate's optional Python interop layer.
+/// `S = ()` means no
 /// producer stream is available: device-tensor consumers then leave
 /// cross-stream synchronization to the caller, while CPU consumers ignore it.
 pub trait TryFromDlpack<D, S = ()>: Sized {
