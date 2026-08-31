@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 
 ### 🌀 Miscellaneous
 
+- Fix: regenerate changelog with git-cliff
 - Chore: prepare 0.9.0-alpha.2 release
 - Refactor: vendor dlpack header
 - Fix: harden validation and development tooling

@@ -13,6 +13,15 @@ run = "cargo xtask bindgen --check"
 [tasks."vendor:dlpack"]
 run = "cargo xtask vendor-dlpack"
 
+[tasks.changelog]
+description = "Regenerate CHANGELOG.md for the current dlpark version"
+run = '''
+package_id=$(cargo pkgid --package dlpark)
+version=${package_id##*#}
+version=${version##*@}
+git cliff --tag "v${version}"
+'''
+
 [tasks.miri]
 run = "cargo miri test"
 
