@@ -8,45 +8,57 @@ All notable changes to this project will be documented in this file.
 
 ### 🌀 Miscellaneous
 
-- Refactor: vendor the DLPack header and add a verified update task
-- Fix: harden tensor validation and development tooling
+- Chore: prepare 0.9.0-alpha.2 release
+- Refactor: vendor dlpack header
+- Fix: harden validation and development tooling
 - Refactor: migrate bindgen tooling to xtask ([#71](https://github.com/SunDoge/dlpark/pull/71))
+- Refactor: migrate bindgen tooling to xtask
 
 ### 🧑‍🤝‍🧑 Contributors
 
 * [@SunDoge](https://github.com/SunDoge)
-
 **Full Changelog**: <https://github.com/SunDoge/dlpark/compare/v0.9.0-alpha.1...v0.9.0-alpha.2>
 
 ---
 
 ## 0.9.0-alpha.1 - 2026-07-31
 
-### 🚀 Features
+### 🌀 Miscellaneous
 
-- Add provenance-aware managed tensor allocation APIs
-- Add semantic DLPack version comparisons
-- Add stream-synchronized DLPack consumption
-- Add unsafe conversions from externally supplied DLPack tensors
-- Strengthen local and foreign tensor APIs
-
-### 🐛 Fixes
-
-- Preserve tensors when exchange export is unavailable
-- Reject non-CPU tensor slice access
-- Gate generated layout tests on 64-bit pointer width ([#69](https://github.com/SunDoge/dlpark/pull/69))
-
-### ♻️ Refactoring
-
-- Separate tensor semantics from generated FFI bindings
-- Split Python capsule, backend interop, metadata, and ownership modules by responsibility
-- Unify managed tensor validation ([#70](https://github.com/SunDoge/dlpark/pull/70))
+- Refactor: unify managed tensor validation ([#70](https://github.com/SunDoge/dlpark/pull/70))
+- Feat: stream-synced DLPack consumption and public API docs
+- Doc: update docs
+- Refactor: unify managed tensor validation
+- Fix: gate bindgen layout tests on 64-bit pointer width ([#69](https://github.com/SunDoge/dlpark/pull/69))
+- Fix: gate bindgen layout tests on 64-bit pointer width
+- Chk: pre-release audit and fixes ([#67](https://github.com/SunDoge/dlpark/pull/67))
+- Chk: pre-release audit and fixes
+- Feat: add semantic DLPack version comparisons
+- Feat: strengthen local and foreign tensor APIs
+- Fix: reject non-CPU tensor slice access
+- Refactor: isolate generated ffi bindings
+- Refactor: split Python capsule import and export
+- Refactor: split image interop by direction
+- Refactor: split cudarc interop by direction
+- Refactor: split ndarray interop by direction
+- Refactor: split candle interop by direction
+- Refactor: separate tensor semantics from ffi
+- Refactor: split metadata storage by rank
+- Refactor: colocate fixed tensor test helper
+- Fix: preserve tensors when exchange export is unavailable
+- Feat: add unsafe TryFromDlpack conversions
+- Refactor: split local and foreign dlpack handles
+- Refactor: use Foreign for untrusted dlpack
+- Refactor: build managed tensors from allocation metadata
+- Refactor: share initialized allocation behavior
+- Feat: add provenance-aware managed tensor allocations
+- Chore: add type helpers
+- Refactor: clarify tensor data access APIs
 
 ### 🧑‍🤝‍🧑 Contributors
 
 * [@SunDoge](https://github.com/SunDoge)
 * [@kylebarron](https://github.com/kylebarron)
-
 **Full Changelog**: <https://github.com/SunDoge/dlpark/compare/v0.8.0...v0.9.0-alpha.1>
 
 ---
@@ -55,6 +67,7 @@ All notable changes to this project will be documented in this file.
 
 ### 🌀 Miscellaneous
 
+- Chore: fix changelog generation
 - Chore: update changelog
 - Docs: configure docs.rs features ([#66](https://github.com/SunDoge/dlpark/pull/66))
 - Docs: configure docs.rs features
