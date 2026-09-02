@@ -100,8 +100,11 @@ A producer pipeline has three stages: **metadata** → **initialization** → **
 | ---- | ------------- | ----------------- |
 | Fixed, known at compile time | `Fixed::new(Copied(shape), Copied(strides))` → `prepare` | `Fixed::new(Borrowed(&shape), Borrowed(&strides))` → `prepare_unchecked` |
 | Dynamic, runtime | `Dynamic::new(Copied(shape_vec), Copied(strides_vec))` → `prepare` | `Dynamic::new(Borrowed(shape_slice), Borrowed(strides_slice))` → `prepare_unchecked` |
+| Dynamic, compact | `Dynamic::compact(Copied(shape_vec))` → `prepare` | `Dynamic::compact(Borrowed(shape_slice))` → `prepare_unchecked` |
 
 `Copied` accepts any integer element type that implements `TryInto<i64>` (for example `u32`, `i16`, `usize`, `isize`), not just `i64`. When the source is already `i64`, a `TypeId` fast path uses `ptr::copy_nonoverlapping` directly; otherwise each value is converted in place. Either way no temporary `Vec<i64>` is allocated.
+
+`Dynamic::compact` computes row-major strides and stores them explicitly. This satisfies the DLPack v1.2+ producer requirement that a non-scalar tensor have a non-null `strides` pointer.
 
 ### 2. Initialization
 
@@ -169,7 +172,7 @@ Once you hold a `Managed`, validate its descriptor into a `TensorRef` before rea
 ```rust
 let tensor = dlpack.validate()?;
 let shape = tensor.shape();                      // &[i64]
-let strides = tensor.strides();                  // Option<&[i64]> (None = compact)
+let strides = tensor.strides();                  // None only for scalar or legacy/foreign descriptors
 let n = tensor.num_elements();
 let bytes = tensor.num_bytes();                   // sub-byte-packing aware
 let data = unsafe { tensor.cpu_slice::<f32>()? }; // compact CPU data, dtype-checked

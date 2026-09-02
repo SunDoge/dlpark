@@ -13,13 +13,15 @@
 //! [`crate::allocation::Initialized`]. `Copied` accepts any integer element
 //! implementing `TryInto<i64>` (not just `i64`); an `i64` source takes a
 //! `TypeId` fast path through `ptr::copy_nonoverlapping`.
+//! [`Dynamic::compact`](crate::metadata::Dynamic::compact) computes and stores
+//! explicit row-major strides, as required of non-scalar DLPack v1.2+ tensors.
 
 use snafu::Snafu;
 mod dynamic;
 mod fixed;
 mod storage;
 
-pub use dynamic::{Dynamic, PreparedDynamic};
+pub use dynamic::{Compact, Dynamic, PreparedDynamic};
 pub use fixed::{Fixed, PreparedFixed};
 pub use storage::{Borrowed, Copied};
 
@@ -57,6 +59,19 @@ pub enum Error {
         /// The axis of the offending value.
         axis: usize,
     },
+
+    /// A shape value is negative and cannot describe a compact tensor.
+    #[snafu(display("shape value at axis {axis} is negative: {value}"))]
+    NegativeShapeValue {
+        /// The axis of the offending value.
+        axis: usize,
+        /// The negative dimension.
+        value: i64,
+    },
+
+    /// Computing compact row-major strides overflowed `i64`.
+    #[snafu(display("compact strides overflow i64"))]
+    CompactStrideOverflow,
 
     /// A stride value at the given axis does not fit in `i64`.
     #[snafu(display("stride value at axis {axis} does not fit in i64"))]

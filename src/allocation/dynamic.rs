@@ -46,6 +46,14 @@ impl<M: ManagedTensorBase> Allocation<M> {
         ndim: usize,
     ) -> Result<Initialized<M>, Error> {
         let ndim = i32::try_from(ndim).map_err(|_| Error::NdimOverflow { ndim })?;
+        Ok(self.initialize_validated(ctx, ndim))
+    }
+
+    pub(crate) fn initialize_validated<C: OpaqueContext>(
+        self,
+        ctx: C,
+        ndim: i32,
+    ) -> Initialized<M> {
         let this = ManuallyDrop::new(self);
         unsafe {
             this.managed.as_ptr().write(M::from_parts(
@@ -53,13 +61,13 @@ impl<M: ManagedTensorBase> Allocation<M> {
                 ctx.into_raw(),
                 Some(drop_allocation::<C, M>),
             ));
-            Ok(super::Initialized {
+            super::Initialized {
                 managed: Managed::from_raw_unchecked(this.managed.as_ptr()),
                 storage: Metadata {
                     extra: this.extra,
                     extra_len: this.extra_len,
                 },
-            })
+            }
         }
     }
 }

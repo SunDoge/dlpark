@@ -108,10 +108,12 @@ impl DLTensor {
         Ok(unsafe { std::slice::from_raw_parts(self.shape, self.ndim as usize) })
     }
 
-    /// Returns the strides of the tensor as a slice, or `None` for compact row-major layout.
+    /// Returns the strides of the tensor as a slice, or `None` when the raw
+    /// pointer is null.
     ///
-    /// Per the DLPack spec, a null `strides` pointer indicates a compact row-major (C-contiguous)
-    /// layout where strides are implicitly derived from the shape.
+    /// A null pointer is accepted as compact for compatibility with foreign
+    /// descriptors produced against DLPack before v1.2. DLPack v1.2+ producers
+    /// must store explicit strides whenever `ndim != 0`.
     ///
     /// # Errors
     ///
@@ -132,10 +134,10 @@ impl DLTensor {
         }))
     }
 
-    /// Returns explicit strides, or computed compact row-major strides when
-    /// DLPack stores them implicitly as a null pointer.
+    /// Returns explicit strides, or computes compact row-major strides for a
+    /// legacy/foreign descriptor whose strides pointer is null.
     ///
-    /// Explicit strides are borrowed from the tensor. Implicit compact strides
+    /// Explicit strides are borrowed from the tensor. Compatibility strides
     /// are returned as an owned allocation.
     ///
     /// # Errors

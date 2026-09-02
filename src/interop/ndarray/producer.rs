@@ -28,7 +28,7 @@ where
         };
         let prepared =
             Dynamic::new(Copied(array.shape()), Copied(array.strides())).prepare::<M>()?;
-        let mut initialized = prepared.initialize(array)?;
+        let mut initialized = prepared.initialize(array);
         initialized.set_data(data_ptr);
         initialized.set_dtype(T::DTYPE);
         initialized.set_device(DLDevice::CPU);

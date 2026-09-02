@@ -91,7 +91,7 @@ fn main() {
         )
         .prepare::<DLManagedTensorVersioned>()
         .unwrap();
-        std::hint::black_box(prepared.initialize(context()).unwrap());
+        std::hint::black_box(prepared.initialize(context()));
     });
 
     profile("array_layout_second", || {

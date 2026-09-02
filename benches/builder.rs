@@ -73,7 +73,7 @@ fn bench_ndim<const N: usize>(c: &mut Criterion) {
             )
             .prepare::<DLManagedTensor>()
             .unwrap();
-            std::hint::black_box(prepared.initialize(context()).unwrap());
+            std::hint::black_box(prepared.initialize(context()));
         });
     });
 
@@ -87,7 +87,7 @@ fn bench_ndim<const N: usize>(c: &mut Criterion) {
                 .prepare_unchecked::<DLManagedTensor>()
                 .unwrap()
             };
-            std::hint::black_box(prepared.initialize(context()).unwrap());
+            std::hint::black_box(prepared.initialize(context()));
         });
     });
 

@@ -162,9 +162,7 @@ impl<M: ManagedTensorBase> TryFrom<Box<Tensor>> for dynamic::Initialized<M> {
             strides,
         } = dlpack_layout_from_candle(&tensor)?;
         let prepared = Dynamic::new(Copied(dims), Copied(strides)).prepare::<M>()?;
-        let mut initialized = prepared
-            .initialize(tensor)
-            .map_err(crate::metadata::Error::from)?;
+        let mut initialized = prepared.initialize(tensor);
         initialized.set_data(data_ptr);
         initialized.set_dtype(dtype);
         initialized.set_device(DLDevice::CPU);

@@ -62,9 +62,7 @@ pub fn from_cuda_slice<T: DlpackElement, M: ManagedTensorBase>(
     let stream = slice.stream().clone();
     let data_ptr = device_ptr_of(&slice);
     let prepared = Dynamic::new(Copied(shape), Copied(strides)).prepare::<M>()?;
-    let mut initialized = prepared
-        .initialize(slice)
-        .map_err(crate::metadata::Error::from)?;
+    let mut initialized = prepared.initialize(slice);
     initialized.set_device(DLDevice::cuda(device_id));
     initialized.set_dtype(T::DTYPE);
     initialized.set_data(data_ptr);
