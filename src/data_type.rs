@@ -13,76 +13,61 @@ pub unsafe trait DlpackElement: 'static {
     const DTYPE: DLDataType;
 }
 
-macro_rules! impl_dlpack_element {
-    ($ty:ty, $code:expr, $bits:expr) => {
-        unsafe impl DlpackElement for $ty {
-            const DTYPE: DLDataType = DLDataType {
-                code: $code,
-                bits: $bits,
-                lanes: 1,
-            };
-        }
-    };
-}
-
-impl_dlpack_element!(i8, DLDataTypeCode::INT, 8);
-impl_dlpack_element!(i16, DLDataTypeCode::INT, 16);
-impl_dlpack_element!(i32, DLDataTypeCode::INT, 32);
-impl_dlpack_element!(i64, DLDataTypeCode::INT, 64);
-
-impl_dlpack_element!(u8, DLDataTypeCode::UINT, 8);
-impl_dlpack_element!(u16, DLDataTypeCode::UINT, 16);
-impl_dlpack_element!(u32, DLDataTypeCode::UINT, 32);
-impl_dlpack_element!(u64, DLDataTypeCode::UINT, 64);
-
-impl_dlpack_element!(f32, DLDataTypeCode::FLOAT, 32);
-impl_dlpack_element!(f64, DLDataTypeCode::FLOAT, 64);
-
-#[cfg(feature = "half")]
-impl_dlpack_element!(half::f16, DLDataTypeCode::FLOAT, 16);
-
-#[cfg(feature = "half")]
-impl_dlpack_element!(half::bf16, DLDataTypeCode::BFLOAT, 16);
-
-macro_rules! impl_data_type {
+macro_rules! define_data_type {
     ($name:ident, $code:expr, $bits:expr) => {
         impl DLDataType {
             #[doc = concat!("The scalar DLPack `", stringify!($name), "` data type.")]
-            pub const $name: Self = Self {
-                code: $code,
-                bits: $bits,
-                lanes: 1,
-            };
+            pub const $name: Self = Self::scalar($code, $bits);
+        }
+    };
+    ($(#[$attribute:meta])* $name:ident, $ty:ty, $code:expr, $bits:expr) => {
+        define_data_type!($name, $code, $bits);
+
+        $(#[$attribute])*
+        unsafe impl DlpackElement for $ty {
+            const DTYPE: DLDataType = DLDataType::$name;
         }
     };
 }
 
-impl_data_type!(BOOL, DLDataTypeCode::BOOL, 8);
-impl_data_type!(I8, DLDataTypeCode::INT, 8);
-impl_data_type!(I16, DLDataTypeCode::INT, 16);
-impl_data_type!(I32, DLDataTypeCode::INT, 32);
-impl_data_type!(I64, DLDataTypeCode::INT, 64);
-impl_data_type!(U8, DLDataTypeCode::UINT, 8);
-impl_data_type!(U16, DLDataTypeCode::UINT, 16);
-impl_data_type!(U32, DLDataTypeCode::UINT, 32);
-impl_data_type!(U64, DLDataTypeCode::UINT, 64);
-impl_data_type!(F16, DLDataTypeCode::FLOAT, 16);
-impl_data_type!(F32, DLDataTypeCode::FLOAT, 32);
-impl_data_type!(F64, DLDataTypeCode::FLOAT, 64);
-impl_data_type!(BF16, DLDataTypeCode::BFLOAT, 16);
-impl_data_type!(C64, DLDataTypeCode::COMPLEX, 64);
-impl_data_type!(C128, DLDataTypeCode::COMPLEX, 128);
-impl_data_type!(F8E3M4, DLDataTypeCode::FLOAT8_E3M4, 8);
-impl_data_type!(F8E4M3, DLDataTypeCode::FLOAT8_E4M3, 8);
-impl_data_type!(F8E4M3B11FNUZ, DLDataTypeCode::FLOAT8_E4M3B11FNUZ, 8);
-impl_data_type!(F8E4M3FN, DLDataTypeCode::FLOAT8_E4M3FN, 8);
-impl_data_type!(F8E4M3FNUZ, DLDataTypeCode::FLOAT8_E4M3FNUZ, 8);
-impl_data_type!(F8E5M2, DLDataTypeCode::FLOAT8_E5M2, 8);
-impl_data_type!(F8E5M2FNUZ, DLDataTypeCode::FLOAT8_E5M2FNUZ, 8);
-impl_data_type!(F8E8M0FNU, DLDataTypeCode::FLOAT8_E8M0FNU, 8);
-impl_data_type!(F6E2M3FN, DLDataTypeCode::FLOAT6_E2M3FN, 6);
-impl_data_type!(F6E3M2FN, DLDataTypeCode::FLOAT6_E3M2FN, 6);
-impl_data_type!(F4E2M1FN, DLDataTypeCode::FLOAT4_E2M1FN, 4);
+define_data_type!(BOOL, DLDataTypeCode::BOOL, 8);
+define_data_type!(I8, i8, DLDataTypeCode::INT, 8);
+define_data_type!(I16, i16, DLDataTypeCode::INT, 16);
+define_data_type!(I32, i32, DLDataTypeCode::INT, 32);
+define_data_type!(I64, i64, DLDataTypeCode::INT, 64);
+define_data_type!(U8, u8, DLDataTypeCode::UINT, 8);
+define_data_type!(U16, u16, DLDataTypeCode::UINT, 16);
+define_data_type!(U32, u32, DLDataTypeCode::UINT, 32);
+define_data_type!(U64, u64, DLDataTypeCode::UINT, 64);
+define_data_type!(
+    #[cfg(feature = "half")]
+    F16,
+    half::f16,
+    DLDataTypeCode::FLOAT,
+    16
+);
+define_data_type!(F32, f32, DLDataTypeCode::FLOAT, 32);
+define_data_type!(F64, f64, DLDataTypeCode::FLOAT, 64);
+define_data_type!(
+    #[cfg(feature = "half")]
+    BF16,
+    half::bf16,
+    DLDataTypeCode::BFLOAT,
+    16
+);
+define_data_type!(C64, DLDataTypeCode::COMPLEX, 64);
+define_data_type!(C128, DLDataTypeCode::COMPLEX, 128);
+define_data_type!(F8E3M4, DLDataTypeCode::FLOAT8_E3M4, 8);
+define_data_type!(F8E4M3, DLDataTypeCode::FLOAT8_E4M3, 8);
+define_data_type!(F8E4M3B11FNUZ, DLDataTypeCode::FLOAT8_E4M3B11FNUZ, 8);
+define_data_type!(F8E4M3FN, DLDataTypeCode::FLOAT8_E4M3FN, 8);
+define_data_type!(F8E4M3FNUZ, DLDataTypeCode::FLOAT8_E4M3FNUZ, 8);
+define_data_type!(F8E5M2, DLDataTypeCode::FLOAT8_E5M2, 8);
+define_data_type!(F8E5M2FNUZ, DLDataTypeCode::FLOAT8_E5M2FNUZ, 8);
+define_data_type!(F8E8M0FNU, DLDataTypeCode::FLOAT8_E8M0FNU, 8);
+define_data_type!(F6E2M3FN, DLDataTypeCode::FLOAT6_E2M3FN, 6);
+define_data_type!(F6E3M2FN, DLDataTypeCode::FLOAT6_E3M2FN, 6);
+define_data_type!(F4E2M1FN, DLDataTypeCode::FLOAT4_E2M1FN, 4);
 
 impl DLDataType {
     /// Constructs a data type descriptor from its code, bit width, and lane count.
