@@ -1,9 +1,9 @@
 [package]
 name = "dlpark"
-version = "0.9.0-alpha.2"
+version = "0.9.0-beta.1"
 edition = "2024"
 rust-version = "1.87"
-description = "dlpack Rust binding for Python"
+description = "Pure Rust DLPack implementation for zero-copy tensor interoperability"
 documentation = "https://docs.rs/dlpark"
 readme = "README.md"
 homepage = "https://crates.io/crates/dlpark"
@@ -15,8 +15,6 @@ include = [
   "LICENSE",
   "README.md",
   "benches/**",
-  "examples/profile_builder.rs",
-  "examples/type_id_fast_path.rs",
   "src/**",
 ]
 
@@ -25,21 +23,19 @@ no-default-features = true
 features = ["candle", "half", "image", "ndarray"]
 
 [workspace]
-resolver = "2"
-default-members = ["."]
+resolver = "3"
 members = [
   "examples/dlparkimg",
   "examples/ndarray-candle",
   "xtask",
 ]
+default-members = ["."]
 
 [workspace.dependencies]
+bitflags = "2.13"
 candle-core = "0.11"
 cudarc = "0.19.2"
-dlpark = {
-  path = ".",
-  default-features = false
-}  # Add dlpark as a workspace dependency
+dlpark = { path = ".", default-features = false }  # Add dlpark as a workspace dependency
 half = "2.7"
 image = { version = "0.25", default-features = false }
 ndarray = { version = "0.17", default-features = false, features = ["std"] }
@@ -53,7 +49,7 @@ harness = false
 name = "builder"
 
 [dependencies]
-bitflags = "2.9"
+bitflags = { workspace = true }
 snafu = { workspace = true }
 
 candle-core = { workspace = true, optional = true }
@@ -87,11 +83,7 @@ cpu-all = ["candle", "half", "image", "ndarray", "pyo3"]
 # tests call the Python C API.
 miri = ["candle", "half", "image", "ndarray"]
 
-cudarc = [
-  "cudarc/cuda-version-from-build-system",
-  "cudarc/fallback-latest",
-  "dep:cudarc"
-]
+cudarc = ["cudarc/cuda-version-from-build-system", "cudarc/fallback-latest", "dep:cudarc"]
 
 # Not supported yet — needs a CUDA toolchain to verify against candle's real (non-dummy) cuda backend
 # candle-cuda = ["candle", "candle-core/cuda"]
