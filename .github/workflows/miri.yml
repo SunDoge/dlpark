@@ -15,10 +15,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
         with:
           toolchain: nightly
           components: miri
+          # cargo-miri builds a temporary sysroot manifest that currently emits
+          # an unused-dependency warning. Keep Cargo's default warning level.
+          build-warnings: ""
       - name: Run Miri tests
         run: cargo miri test
       - name: Run Miri tests with CPU features
