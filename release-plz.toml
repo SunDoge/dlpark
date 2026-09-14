@@ -1,20 +1,47 @@
 [workspace]
-# Keep the existing changelog format while release-plz updates it in release PRs.
-changelog_config = "cliff.toml"
 # Mark SemVer prereleases such as beta and rc as GitHub prereleases.
 git_release_type = "auto"
 # Preserve the repository's existing v0.0.0 tag format.
 git_tag_name = "v{{ version }}"
 
-# Workspace tooling and examples are never released independently.
-[[package]]
-name = "dlparkimg"
-release = false
+[changelog]
+header = """
+# Changelog
 
-[[package]]
-name = "ndarray-candle"
-release = false
+All notable changes to this project will be documented in this file.
+"""
+body = """
+---
 
-[[package]]
-name = "xtask"
-release = false
+## {{ version }} - {{ timestamp | date(format="%Y-%m-%d") }}
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | striptags | trim | upper_first }}
+{% for commit in commits %}
+- {{ commit.message | upper_first }}{% if commit.remote.pr_number %} ([#{{ commit.remote.pr_number }}]({{ remote.link }}/pull/{{ commit.remote.pr_number }})){% endif %}
+{% if commit.breaking %}  - **BREAKING**: {{ commit.breaking_description }}{% endif %}
+{% endfor %}
+{% endfor %}
+{%- if remote.contributors %}
+### 🧑‍🤝‍🧑 Contributors
+{% for contributor in remote.contributors %}
+{% if contributor.username and contributor.username != "dependabot[bot]" %}* [@{{ contributor.username }}](https://github.com/{{ contributor.username }})
+{% endif %}
+{%- endfor %}
+{% endif %}
+{% if release_link %}**Full Changelog**: <{{ release_link }}>
+{% endif %}
+---
+"""
+trim = true
+protect_breaking_commits = true
+sort_commits = "newest"
+tag_pattern = "v[0-9].*"
+
+commit_parsers = [
+  { field = "breaking", pattern = "true", group = "<!-- 0 --> 🏗️ Breaking changes" },
+  { message = "^feat", group = "<!-- 1 --> 🚀 Features" },
+  { message = "^fix", group = "<!-- 2 --> 🐛 Fixes" },
+  { message = "^docs?", group = "<!-- 3 --> 📝 Documentation" },
+  { message = '^chore\(deps\)', group = "<!-- 4 --> 🧪 Dependencies" },
+  { message = ".*", group = "<!-- 5 --> 🌀 Miscellaneous" },
+]
