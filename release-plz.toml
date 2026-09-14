@@ -1,0 +1,20 @@
+[workspace]
+# Keep the existing changelog format while release-plz updates it in release PRs.
+changelog_config = "cliff.toml"
+# Mark SemVer prereleases such as beta and rc as GitHub prereleases.
+git_release_type = "auto"
+# Preserve the repository's existing v0.0.0 tag format.
+git_tag_name = "v{{ version }}"
+
+# Workspace tooling and examples are never released independently.
+[[package]]
+name = "dlparkimg"
+release = false
+
+[[package]]
+name = "ndarray-candle"
+release = false
+
+[[package]]
+name = "xtask"
+release = false
