@@ -59,6 +59,15 @@ impl<O, V> Borrowed<O, V> {
     pub fn view_mut(&mut self) -> &mut V {
         &mut self.view
     }
+
+    /// Drops the dependent view and returns its owner.
+    pub fn into_owner(self) -> O {
+        let mut this = ManuallyDrop::new(self);
+        unsafe {
+            ManuallyDrop::drop(&mut this.view);
+            ManuallyDrop::take(&mut this.owner)
+        }
+    }
 }
 
 impl<O, V> Deref for Borrowed<O, V> {
@@ -114,6 +123,25 @@ mod tests {
 
         drop(unsafe { Borrowed::new_unchecked(owner, view) });
 
+        assert_eq!(&*drops.borrow(), &["view", "owner"]);
+    }
+
+    #[test]
+    fn into_owner_drops_view_and_returns_live_owner() {
+        let drops = Rc::new(RefCell::new(Vec::new()));
+        let owner = Tracked {
+            name: "owner",
+            drops: drops.clone(),
+        };
+        let view = Tracked {
+            name: "view",
+            drops: drops.clone(),
+        };
+
+        let owner = unsafe { Borrowed::new_unchecked(owner, view) }.into_owner();
+        assert_eq!(&*drops.borrow(), &["view"]);
+
+        drop(owner);
         assert_eq!(&*drops.borrow(), &["view", "owner"]);
     }
 }

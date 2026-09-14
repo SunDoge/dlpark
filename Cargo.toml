@@ -24,6 +24,7 @@ features = ["candle", "half", "image", "ndarray"]
 
 [workspace]
 resolver = "3"
+exclude = ["examples/cuda-python"]
 members = [
   "examples/dlparkimg",
   "examples/ndarray-candle",
