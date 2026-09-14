@@ -44,6 +44,11 @@ impl<M: ManagedTensorBase, T> BorrowedCudaSlice<M, T> {
     pub fn dlpack(&self) -> &Managed<M> {
         self.inner.owner()
     }
+
+    /// Drops the CUDA slice view and returns the DLPack tensor that owns its allocation.
+    pub fn into_dlpack(self) -> Managed<M> {
+        self.inner.into_owner()
+    }
 }
 
 impl<M: ManagedTensorBase, T> Deref for BorrowedCudaSlice<M, T> {

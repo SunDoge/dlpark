@@ -246,8 +246,9 @@ No features are enabled by default — enable the backends you need (see [Instal
 
 ## Quick start
 
-Two runnable examples:
+Runnable examples:
 
+- [`examples/cuda-python`](./examples/cuda-python/) — local zero-copy DLPack relays between CuPy and Torch through `cudarc`.
 - [`examples/dlparkimg`](./examples/dlparkimg/) — a Python extension module (via `pyo3`) transferring `image::RgbImage` to/from Python (e.g. `torch.Tensor`). Run with `uv run main.py`.
 - [`examples/ndarray-candle`](./examples/ndarray-candle/) — a plain binary round-tripping data through DLPack: `ndarray::Array2` → `versioned::Dlpack` → `candle::Tensor` → `versioned::Dlpack` → `ndarray` view, run with `cargo run -p ndarray-candle`.
 
