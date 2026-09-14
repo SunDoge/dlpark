@@ -4,10 +4,44 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## 0.9.0-beta.1 - 2026-09-14
+
+### 🧪 Dependencies
+
+- Chore(deps): bump bindgen from 0.72.1 to 0.73.2 ([#77](https://github.com/SunDoge/dlpark/pull/77))
+- Chore(deps): bump bitflags from 2.13.1 to 2.13.2 ([#76](https://github.com/SunDoge/dlpark/pull/76))
+- Chore(deps): bump clap from 4.6.3 to 4.6.6 ([#75](https://github.com/SunDoge/dlpark/pull/75))
+- Chore(deps): bump pyo3 from 0.29.0 to 0.29.2 ([#74](https://github.com/SunDoge/dlpark/pull/74))
+- Chore(deps): bump cudarc from 0.19.8 to 0.19.9 ([#73](https://github.com/SunDoge/dlpark/pull/73))
+- Chore(deps): bump snafu from 0.9.1 to 0.9.2 ([#72](https://github.com/SunDoge/dlpark/pull/72))
+
+### 🌀 Miscellaneous
+
+- Chore: update crate manifest for 0.9.0-beta.1
+- Chore: update ffi.rs
+- Chore: fix bindgen 0.73 by cargo update
+- Chore(deps): bump bindgen from 0.72.1 to 0.73.2
+- Chore(deps): bump bitflags from 2.13.1 to 2.13.2
+- Chore(deps): bump clap from 4.6.3 to 4.6.6
+- Chore(deps): bump pyo3 from 0.29.0 to 0.29.2
+- Chore(deps): bump cudarc from 0.19.8 to 0.19.9
+- Chore(deps): bump snafu from 0.9.1 to 0.9.2
+- Feat: add explicit compact dynamic metadata
+- Refactor: consolidate internal data type definitions
+
+### 🧑‍🤝‍🧑 Contributors
+
+* [@SunDoge](https://github.com/SunDoge)
+
+**Full Changelog**: <https://github.com/SunDoge/dlpark/compare/v0.9.0-alpha.2...v0.9.0-beta.1>
+
+---
+
 ## 0.9.0-alpha.2 - 2026-08-31
 
 ### 🌀 Miscellaneous
 
+- Chore: add changelog generation task
 - Fix: regenerate changelog with git-cliff
 - Chore: prepare 0.9.0-alpha.2 release
 - Refactor: vendor dlpack header
