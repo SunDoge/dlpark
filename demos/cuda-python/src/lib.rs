@@ -16,20 +16,10 @@ fn runtime_error(error: impl std::fmt::Display) -> PyErr {
     PyRuntimeError::new_err(error.to_string())
 }
 
-struct SharedDlpack {
-    managed: versioned::Dlpack,
-}
-
-// DLPack requires a producer's managed-tensor deleter to be callable from an
-// arbitrary thread. The imported managed-tensor header is kept immutable, and
-// Rust never dereferences its CUDA device pointer.
-unsafe impl Send for SharedDlpack {}
-unsafe impl Sync for SharedDlpack {}
-
 /// A reusable CUDA tensor object implementing Python's DLPack protocol.
 #[pyclass(unsendable)]
 struct CudaTensor {
-    dlpack: Arc<SharedDlpack>,
+    dlpack: Arc<versioned::Dlpack>,
     stream: CudaStream,
 }
 
@@ -38,7 +28,7 @@ impl CudaTensor {
     where
         M: ManagedTensorBase,
     {
-        let descriptor = self.dlpack.managed.validate().map_err(runtime_error)?;
+        let descriptor = self.dlpack.validate().map_err(runtime_error)?;
         let shape = descriptor.shape().to_vec();
         let strides = descriptor.strides().unwrap_or(&[]).to_vec();
         let prepared = Dynamic::new(Copied(shape), Copied(strides))
@@ -50,14 +40,10 @@ impl CudaTensor {
             .set_device(descriptor.device())
             .set_dtype(descriptor.dtype())
             .set_byte_offset(descriptor.byte_offset());
-        let flags = self
-            .dlpack
-            .managed
-            .flags()
-            .difference(DlpackFlags::IS_COPIED);
+        let flags = self.dlpack.flags().difference(DlpackFlags::IS_COPIED);
         initialized.set_flags(flags).map_err(runtime_error)?;
         // SAFETY: this fresh header copies the source descriptor and retains
-        // `Arc<SharedDlpack>` in its manager context.
+        // `Arc<versioned::Dlpack>` in its manager context.
         Ok(unsafe { initialized.finish() })
     }
 
@@ -176,18 +162,13 @@ impl CudaTensor {
         eprintln!("[dlpark/cuda] source_wait_stream={:p}", stream.as_raw());
 
         Ok(Self {
-            dlpack: Arc::new(SharedDlpack { managed }),
+            dlpack: Arc::new(managed),
             stream,
         })
     }
 
     fn __dlpack_device__(&self) -> PyResult<(u32, i32)> {
-        let device = self
-            .dlpack
-            .managed
-            .validate()
-            .map_err(runtime_error)?
-            .device();
+        let device = self.dlpack.validate().map_err(runtime_error)?.device();
         Ok((device.device_type.0, device.device_id))
     }
 
@@ -205,7 +186,7 @@ impl CudaTensor {
                 "CudaTensor only supports zero-copy export",
             ));
         }
-        let descriptor = self.dlpack.managed.validate().map_err(runtime_error)?;
+        let descriptor = self.dlpack.validate().map_err(runtime_error)?;
         let device = descriptor.device();
         if let Some(requested) = dl_device
             && requested != (device.device_type.0, device.device_id)
@@ -219,7 +200,6 @@ impl CudaTensor {
         if !versioned
             && self
                 .dlpack
-                .managed
                 .flags()
                 .contains(DlpackFlags::IS_SUBBYTE_TYPE_PADDED)
         {
@@ -246,7 +226,6 @@ impl CudaTensor {
     fn device_id(&self) -> PyResult<usize> {
         let device_id = self
             .dlpack
-            .managed
             .validate()
             .map_err(runtime_error)?
             .device()
@@ -257,7 +236,7 @@ impl CudaTensor {
 
     #[getter]
     fn device_pointer(&self) -> PyResult<u64> {
-        let descriptor = self.dlpack.managed.validate().map_err(runtime_error)?;
+        let descriptor = self.dlpack.validate().map_err(runtime_error)?;
         let byte_offset = usize::try_from(descriptor.byte_offset())
             .map_err(|_| PyValueError::new_err("byte offset does not fit usize"))?;
         if descriptor.data_ptr().is_null() {
@@ -274,7 +253,6 @@ impl CudaTensor {
     fn length(&self) -> PyResult<usize> {
         Ok(self
             .dlpack
-            .managed
             .validate()
             .map_err(runtime_error)?
             .num_elements())

@@ -32,8 +32,18 @@ pub enum FromRawError {
 /// original owner. `Managed` therefore never calls a NULL deleter, which
 /// preserves the producer-ownership contract but means drop is not always a
 /// full release.
+///
+/// The handle is `Send + Sync`: DLPack metadata remains immutable while owned,
+/// and the managed-tensor deleter must be callable from any thread.
 #[repr(transparent)]
 pub struct Managed<M: ManagedTensorBase>(NonNull<M>);
+
+// SAFETY: `ManagedTensorBase` requires immutable metadata and a deleter which
+// may be called from any thread. Shared access only exposes immutable metadata;
+// mutable access requires `&mut self` and dereferencing the data pointer is
+// always unsafe.
+unsafe impl<M: ManagedTensorBase> Send for Managed<M> {}
+unsafe impl<M: ManagedTensorBase> Sync for Managed<M> {}
 
 impl<M> Managed<M>
 where
@@ -170,6 +180,14 @@ mod tests {
             [1],
             flags,
         )
+    }
+
+    #[test]
+    fn managed_handles_are_send_and_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+
+        assert_send_sync::<Managed<DLManagedTensor>>();
+        assert_send_sync::<Managed<DLManagedTensorVersioned>>();
     }
 
     #[test]
