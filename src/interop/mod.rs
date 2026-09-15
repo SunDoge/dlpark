@@ -11,6 +11,7 @@
 //! | `ndarray` | boxed owned array | `ArrayViewD` / `ArrayViewMutD` | zero-copy |
 //! | `candle` | boxed CPU `Tensor` | owned CPU `Tensor` | export is zero-copy; import copies |
 //! | `cudarc` | boxed `CudaSlice` | owning CUDA slice view | zero-copy |
+//! | `safetensors` | owned bytes or mmap | borrowed serializable view | zero-copy |
 //!
 //! The `half` feature adds DLPack element implementations for the `half`
 //! crate's 16-bit floating-point types. It is independent of these adapters.
@@ -21,6 +22,10 @@
 #[cfg(feature = "cudarc")]
 /// CUDA device-buffer interop through `cudarc`.
 pub mod cudarc;
+
+#[cfg(feature = "safetensors")]
+/// Read-only zero-copy interop with safetensors files and views.
+pub mod safetensors;
 
 #[cfg(feature = "image")]
 /// HWC image interop through the `image` crate.

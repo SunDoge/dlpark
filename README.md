@@ -20,12 +20,13 @@ cargo add dlpark --features "pyo3 image"             # Python extension
 cargo add dlpark --features "cuda pyo3"              # Linux/Windows CUDA stream exchange
 cargo add dlpark --features "cudarc"                  # CudaSlice container adapter + CUDA runtime
 cargo add dlpark --features "metal"                   # Apple-silicon shared MTLBuffer
+cargo add dlpark --features "safetensors"             # Read-only file/mmap interoperability
 ```
 
 Feature groups for testing:
 
-- `cpu-all` — every CPU-testable backend (`candle`, `half`, `image`, `ndarray`, `pyo3`) in one go. Used by the `cargo test` and `cargo clippy` CI jobs.
-- `miri` — `candle`, `half`, `image`, `ndarray` (no `pyo3`, whose tests call the Python C API). Used by the Miri job.
+- `cpu-all` — every CPU-testable backend (`candle`, `half`, `image`, `ndarray`, `pyo3`, `safetensors`) in one go. Used by the `cargo test` and `cargo clippy` CI jobs.
+- `miri` — `candle`, `half`, `image`, `ndarray`, `safetensors` (no `pyo3`, whose tests call the Python C API). Used by the Miri job.
 
 ## Mental model
 
@@ -214,6 +215,7 @@ The C Exchange API is intended for extension/library use where the consumer borr
 | `ndarray` | boxed owned array | `ArrayViewD` / `ArrayViewMutD` | zero-copy |
 | `candle` | boxed CPU `Tensor` | owned CPU `Tensor` | export is zero-copy; import copies |
 | `cudarc` | boxed `CudaSlice` | owning CUDA slice view | zero-copy |
+| `safetensors` | owned bytes or read-only mmap | borrowed serialization view | zero-copy |
 
 Producer conversions require a `Box` because the container itself becomes the stable, type-erased DLPack `manager_ctx`; the library does not implicitly allocate that box. The `half` feature adds `DlpackElement` impls for the [half] crate's 16-bit floating-point types, independent of these adapters.
 
@@ -232,6 +234,10 @@ Zero-copy from `candle::Tensor` to DLPack (the boxed tensor's `Arc`-refcounted s
 ### cudarc
 
 Zero-copy in both directions between a [cudarc] `CudaSlice<T>` and a DLPack tensor. The 1-D `TryFrom` producer returns a contiguous default layout (`shape = [len]`, `strides = [1]`) and leaves `IS_COPIED` unset; use `interop::cudarc::from_cuda_slice` for higher-rank tensors. The reverse direction consumes the managed tensor through `TryFromDlpack` for `BorrowedCudaSlice<M, T>`, which retains the managed DLPack owner for the CUDA view's lifetime.
+
+### safetensors
+
+`interop::safetensors::SafeTensorFile` parses owned bytes or opens a read-only mmap and exports named tensors without copying. Each result uses the versioned DLPack ABI, carries `READ_ONLY`, and retains shared ownership of the whole file independently of the reader. In-memory data whose address does not satisfy its dtype's natural alignment is rejected; ordinary mmap files are page-aligned. In the other direction, unsafe `DlpackView::from_dlpack` borrows a compact CPU tensor as a [safetensors] `View`; the caller must establish the allocation bounds because DLPack does not report them. All safetensors 0.8 dtypes, including packed F4/F6 and FP8 formats, have exact DLPack mappings. Zero-copy exchange is rejected on big-endian targets because safetensors stores little-endian data while DLPack uses native endianness.
 
 ### Device allocations and native runtimes
 
@@ -253,6 +259,7 @@ No features are enabled by default — enable the backends you need (see [Instal
 | `cuda` | Minimal dynamically loaded CUDA Runtime stream/event API on Linux and Windows | ✅ |
 | `cudarc` | Zero-copy `CudaSlice<T>` container adapter; implies `cuda` | ✅ |
 | `metal` | Shared `MTLBuffer` allocation for zero-copy export on Apple silicon | ✅ |
+| `safetensors` | Read-only zero-copy file/mmap export and compact CPU serialization views | ✅ |
 
 ## Quick start
 
@@ -413,6 +420,20 @@ let borrowed = unsafe {
 };
 ```
 
+### safetensors
+
+Export a named tensor from a file, or serialize a compact CPU DLPack tensor:
+
+```rust
+use dlpark::interop::safetensors::{DlpackView, SafeTensorFile};
+
+let file = SafeTensorFile::open("model.safetensors")?;
+let weight = file.tensor("model.weight")?;
+
+let view = unsafe { DlpackView::from_dlpack(&weight)? };
+let bytes = safetensors::serialize([("model.weight", view)], None)?;
+```
+
 ## Development
 
 Install the pinned development tools and the Conventional Commits hook after
@@ -459,3 +480,4 @@ to resolve to that commit and GitHub to report a valid commit signature.
 [half]: https://crates.io/crates/half
 [candle]: https://github.com/huggingface/candle
 [cudarc]: https://crates.io/crates/cudarc
+[safetensors]: https://crates.io/crates/safetensors

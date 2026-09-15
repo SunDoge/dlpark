@@ -595,11 +595,13 @@ dependencies = [
  "image",
  "libc",
  "libloading 0.8.9",
+ "memmap2",
  "ndarray",
  "objc2",
  "objc2-metal",
  "pprof",
  "pyo3",
+ "safetensors",
  "snafu",
 ]
 
