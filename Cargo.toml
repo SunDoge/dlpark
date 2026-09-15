@@ -14,6 +14,7 @@ include = [
   "LICENSE",
   "README.md",
   "benches/**",
+  "examples/*.rs",
   "src/**",
 ]
 
@@ -23,19 +24,12 @@ features = ["candle", "cuda", "half", "image", "ndarray", "safetensors"]
 
 [workspace]
 resolver = "3"
-exclude = ["examples/cuda-python", "examples/metal-python"]
-members = [
-  "examples/dlparkimg",
-  "examples/ndarray-candle",
-  "xtask",
-]
-default-members = ["."]
+members = ["xtask"]
 
 [workspace.dependencies]
 bitflags = "2.13"
 candle-core = "0.11"
 cudarc = "0.19.2"
-dlpark = { path = ".", default-features = false }  # Add dlpark as a workspace dependency
 half = "2.7"
 image = { version = "0.25", default-features = false }
 memmap2 = "0.9"
@@ -50,6 +44,11 @@ snafu = "0.9"
 [[bench]]
 harness = false
 name = "builder"
+
+[[example]]
+name = "ndarray-candle"
+path = "examples/ndarray_candle.rs"
+required-features = ["candle", "ndarray"]
 
 [dependencies]
 bitflags = { workspace = true }

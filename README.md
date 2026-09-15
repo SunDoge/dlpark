@@ -268,7 +268,7 @@ Runnable examples:
 - [`examples/cuda-python`](./examples/cuda-python/) — local zero-copy DLPack relays between CuPy and Torch through a minimal dynamically loaded CUDA Runtime function table.
 - [`examples/metal-python`](./examples/metal-python/) — local shared-`MTLBuffer` to MLX zero-copy smoke test for Apple silicon.
 - [`examples/dlparkimg`](./examples/dlparkimg/) — a Python extension module (via `pyo3`) transferring `image::RgbImage` to/from Python (e.g. `torch.Tensor`). Run with `uv run main.py`.
-- [`examples/ndarray-candle`](./examples/ndarray-candle/) — a plain binary round-tripping data through DLPack: `ndarray::Array2` → `versioned::Dlpack` → `candle::Tensor` → `versioned::Dlpack` → `ndarray` view, run with `cargo run -p ndarray-candle`.
+- [`examples/ndarray_candle.rs`](./examples/ndarray_candle.rs) — a plain binary round-tripping data through DLPack: `ndarray::Array2` → `versioned::Dlpack` → `candle::Tensor` → `versioned::Dlpack` → `ndarray` view, run with `cargo run --example ndarray-candle --features ndarray,candle`.
 
 `examples/profile_builder.rs` profiles the `metadata::Fixed` / `metadata::Dynamic` allocation paths (`cargo run --release --example profile_builder`); `benches/builder.rs` benchmarks them (`cargo bench --bench builder`).
 
