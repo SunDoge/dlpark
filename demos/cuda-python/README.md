@@ -8,7 +8,8 @@ direction observe the same CUDA device pointer.
 Prerequisites:
 
 - Linux and a CUDA-capable GPU with a working NVIDIA driver
-- a CuPy or Torch build that loads the CUDA Runtime (`libcudart`)
+- a CUDA Runtime (`libcudart`) already loaded by a framework such as Torch,
+  or `DLPARK_CUDART_PATH` set to its library path
 - Python 3.12 and `uv`
 
 Run it with the dependency group matching the installed CUDA major version:
