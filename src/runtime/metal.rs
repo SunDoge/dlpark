@@ -10,35 +10,22 @@ use objc2::{rc::Retained, runtime::ProtocolObject};
 use objc2_metal::{
     MTLBuffer as RawMTLBuffer, MTLCreateSystemDefaultDevice, MTLDevice, MTLResourceOptions,
 };
-use std::{ffi::c_void, fmt, ptr::NonNull, sync::OnceLock};
+use snafu::Snafu;
+use std::{ffi::c_void, ptr::NonNull, sync::OnceLock};
 
 /// An error returned while obtaining a Metal device or allocating a buffer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Snafu)]
 pub enum Error {
     /// No system-default Metal device is available.
+    #[snafu(display("no system-default Metal device"))]
     DeviceUnavailable,
     /// Metal returned `nil` for an allocation request.
+    #[snafu(display("Metal buffer allocation failed for {nbytes} bytes"))]
     Allocation {
         /// Requested logical byte length.
         nbytes: usize,
     },
 }
-
-impl fmt::Display for Error {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::DeviceUnavailable => formatter.write_str("no system-default Metal device"),
-            Self::Allocation { nbytes } => {
-                write!(
-                    formatter,
-                    "Metal buffer allocation failed for {nbytes} bytes"
-                )
-            }
-        }
-    }
-}
-
-impl std::error::Error for Error {}
 
 static DEVICE: OnceLock<Option<DeviceHandle>> = OnceLock::new();
 

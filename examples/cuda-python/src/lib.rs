@@ -107,7 +107,7 @@ impl CudaTensorF32 {
 
         // The import stream already waited for the source producer. This
         // callback transfers that dependency to the destination stream.
-        let prepare_export = move |stream: Option<&Bound<'_, PyAny>>| match stream {
+        let synchronize_export = move |stream: Option<&Bound<'_, PyAny>>| match stream {
             None => {
                 eprintln!(
                     "[dlpark/cuda] destination supplied no stream; synchronizing relay stream on the host"
@@ -149,7 +149,7 @@ impl CudaTensorF32 {
             }
         };
         let producer =
-            unsafe { DlpackProducer::new(managed, prepare_export) }.map_err(runtime_error)?;
+            unsafe { DlpackProducer::new(managed, synchronize_export) }.map_err(runtime_error)?;
 
         Ok(PyClassInitializer::from(producer).add_subclass(Self {
             device_id,

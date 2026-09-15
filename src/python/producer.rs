@@ -10,7 +10,7 @@ use pyo3::{
     prelude::*,
 };
 
-type PrepareExport = dyn for<'py> FnMut(Option<&Bound<'py, PyAny>>) -> PyResult<()> + 'static;
+type SynchronizeExport = dyn for<'py> Fn(Option<&Bound<'py, PyAny>>) -> PyResult<()> + 'static;
 
 /// A reusable, single-consumption Python producer for versioned DLPack tensors.
 ///
@@ -31,7 +31,7 @@ type PrepareExport = dyn for<'py> FnMut(Option<&Bound<'py, PyAny>>) -> PyResult<
 pub struct DlpackProducer {
     tensor: Option<versioned::Dlpack>,
     device: DLDevice,
-    prepare_export: Box<PrepareExport>,
+    synchronization: Option<Box<SynchronizeExport>>,
 }
 
 impl DlpackProducer {
@@ -39,21 +39,21 @@ impl DlpackProducer {
     ///
     /// # Safety
     ///
-    /// `prepare_export` must make the tensor safe for the consumer represented
+    /// `synchronize_export` must make the tensor safe for the consumer represented
     /// by its optional Python stream argument. It must not return success until
     /// the producer's outstanding work is visible to that consumer.
     pub unsafe fn new<F>(
         tensor: versioned::Dlpack,
-        prepare_export: F,
+        synchronize_export: F,
     ) -> Result<Self, crate::tensor::Error>
     where
-        F: for<'py> FnMut(Option<&Bound<'py, PyAny>>) -> PyResult<()> + 'static,
+        F: for<'py> Fn(Option<&Bound<'py, PyAny>>) -> PyResult<()> + 'static,
     {
         let device = tensor.validate()?.device();
         Ok(Self {
             tensor: Some(tensor),
             device,
-            prepare_export: Box::new(prepare_export),
+            synchronization: Some(Box::new(synchronize_export)),
         })
     }
 
@@ -64,17 +64,12 @@ impl DlpackProducer {
     /// The tensor must already be ready for consumption without stream
     /// synchronization and remain so until ownership is transferred.
     pub unsafe fn without_stream(tensor: versioned::Dlpack) -> Result<Self, crate::tensor::Error> {
-        unsafe {
-            Self::new(tensor, |stream| {
-                if stream.is_some() {
-                    Err(PyValueError::new_err(
-                        "this DLPack producer does not accept a stream argument",
-                    ))
-                } else {
-                    Ok(())
-                }
-            })
-        }
+        let device = tensor.validate()?.device();
+        Ok(Self {
+            tensor: Some(tensor),
+            device,
+            synchronization: None,
+        })
     }
 
     /// Returns whether ownership has already been transferred to a consumer.
@@ -132,7 +127,13 @@ impl DlpackProducer {
             ));
         }
 
-        (self.prepare_export)(stream)?;
+        if let Some(synchronize) = &self.synchronization {
+            synchronize(stream)?;
+        } else if stream.is_some() {
+            return Err(PyValueError::new_err(
+                "this DLPack producer does not accept a stream argument",
+            ));
+        }
         Ok(self
             .tensor
             .take()

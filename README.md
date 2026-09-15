@@ -200,10 +200,10 @@ The `pyo3` feature supports the standard Python DLPack capsule protocol:
 
 - `legacy::Dlpack` consumes or produces legacy `"dltensor"` capsules.
 - `versioned::Dlpack` consumes or produces `"dltensor_versioned"` capsules.
-- `python::dlpack_device(obj)` calls and validates `obj.__dlpack_device__()`, returning a Rust `DLDevice`.
+- `python::consumer` contains the Python-to-Rust negotiation helpers. `python::dlpack_device(obj)` calls and validates `obj.__dlpack_device__()`, while `DlpackStream` maps a native consumer stream to Python's `stream` argument.
 - When extracting a versioned tensor from a Python object, dlpark first checks the object's type for a `__dlpack_c_exchange_api__` PyCapsule named `"dlpack_exchange_api"`. If present, it walks the `prev_api` chain for a compatible major version and uses the DLPack C Exchange API no-sync function table (`managed_tensor_from_py_object_no_sync`). Otherwise it calls `obj.__dlpack__(max_version=(1, 3))` and consumes the returned capsule. Producers that only implement the legacy no-argument protocol must be extracted as `legacy::Dlpack`, because they return the incompatible `"dltensor"` capsule ABI.
 - Capsule consumption is single-use: extracting renames the capsule to `"..._used"`; a second extraction raises `PyValueError("DLPack capsule has already been consumed")`.
-- Consumers can call `versioned::Dlpack::extract_with_options(obj, stream, copy)` to pass an optional stream and tri-state copy request to `__dlpack__`; `extract_with_stream(obj, stream, copy)` is the typed convenience path for GPU consumers. Both `runtime::cuda::CudaStream` and the `cudarc` adapter implement `DlpackStream`; other backends can implement the unsafe trait for their native stream or queue.
+- Consumers can call `versioned::Dlpack::extract_with_options(obj, stream, copy)` to pass an optional stream and tri-state copy request to `__dlpack__`; `extract_with_stream(obj, stream, copy)` is the typed convenience path for GPU consumers. `runtime::cuda::CudaStream` implements `DlpackStream`; other backends can implement the unsafe trait for their native stream or queue.
 - PyO3 producers can subclass `python::DlpackProducer`. The base class owns the versioned tensor, implements `__dlpack__` and `__dlpack_device__`, requires DLPack 1.x negotiation through `max_version`, enforces one-time consumption and zero-copy/device requests, and delegates only stream synchronization to a Rust callback. The CUDA and Metal Python examples use this path.
 
 The C Exchange API is intended for extension/library use where the consumer borrows tensors and coordinates work on the producer's current stream. It is not a replacement for the normal `__dlpack__` ingestion path.
@@ -244,7 +244,7 @@ Zero-copy in both directions between a [cudarc] `CudaSlice<T>` and a DLPack tens
 
 `allocation::device::from_device_allocation` exports an owned backend allocation without binding it to a tensor container. Implement `DeviceAllocation` with the value required in `DLTensor.data` and its `DLDevice`; pass that owner boxed so dlpark can store it in `manager_ctx` and copy the supplied shape and strides. For CUDA the data value is a raw device pointer. For Metal it is the opaque `id<MTLBuffer>` object, not the buffer's host-visible `contents` address.
 
-The optional `runtime::cuda` module supplies dynamically loaded CUDA Runtime stream/event synchronization on Linux and Windows without owning the device allocation. The optional `runtime::metal` module supplies shared `MTLBuffer` allocation on Apple silicon, including separate accessors for the CPU-visible contents and the Objective-C buffer handle required by DLPack.
+The optional `runtime::cuda` module supplies dynamically loaded CUDA Runtime stream/event synchronization on Linux and Windows without owning the device allocation. It normally attaches to the runtime already loaded by the producer framework; set `DLPARK_CUDART_PATH` to force a specific runtime library. The optional `runtime::metal` module supplies shared `MTLBuffer` allocation on Apple silicon, including separate accessors for the CPU-visible contents and the Objective-C buffer handle required by DLPack.
 
 ## Features
 

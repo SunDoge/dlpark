@@ -1,3 +1,5 @@
+//! Consumer stream encoding for Python's `__dlpack__` protocol.
+
 use pyo3::{Bound, IntoPyObject, Py, PyAny, Python, exceptions::PyValueError};
 use std::ffi::c_void;
 

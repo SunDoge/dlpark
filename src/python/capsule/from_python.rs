@@ -1,8 +1,10 @@
+//! Converts Python capsules and DLPack producers into owning Rust tensors.
+
 use super::{DLTENSOR, DLTENSOR_VERSIONED, USED_DLTENSOR, USED_DLTENSOR_VERSIONED};
 use crate::{
     DlpackFlags, Managed,
     ffi::{DLManagedTensor, DLManagedTensorVersioned},
-    python::{DlpackStream, device::dlpack_device, exchange::DlpackExchangeApiRef},
+    python::{DlpackStream, dlpack_device, exchange::DlpackExchangeApiRef},
 };
 use pyo3::{
     Borrowed, Bound, PyAny, PyErr,
