@@ -21,6 +21,10 @@ type PrepareExport = dyn for<'py> FnMut(Option<&Bound<'py, PyAny>>) -> PyResult<
 /// arguments, invokes the backend synchronization callback, and transfers the
 /// managed tensor exactly once.
 ///
+/// Consumers must request DLPack 1.x through `max_version`; calls without
+/// version negotiation receive `BufferError` rather than an incorrectly named
+/// versioned capsule.
+///
 /// The callback receives Python's optional `stream` argument. It must make the
 /// exported tensor safe for work submitted to that stream before returning.
 #[pyclass(subclass, unsendable)]
@@ -115,9 +119,9 @@ impl DlpackProducer {
                 "this DLPack producer only supports zero-copy export",
             ));
         }
-        if max_version.is_some_and(|(major, _)| major < DLPACK_MAJOR_VERSION) {
+        if !max_version.is_some_and(|(major, _)| major >= DLPACK_MAJOR_VERSION) {
             return Err(PyBufferError::new_err(
-                "this DLPack producer exports the versioned ABI",
+                "this DLPack producer requires max_version >= (1, 0)",
             ));
         }
         if let Some((device_type, device_id)) = dl_device
@@ -192,11 +196,18 @@ mod tests {
                     .extract::<(u32, i32)>()?,
                 (DLDeviceType::CUDA.0, 2)
             );
-            let capsule = producer.bind(py).call_method0("__dlpack__")?;
+            let kwargs = pyo3::types::PyDict::new(py);
+            kwargs.set_item("max_version", (1, 0))?;
+            let capsule = producer
+                .bind(py)
+                .call_method("__dlpack__", (), Some(&kwargs))?;
             let _managed = versioned::Dlpack::extract(capsule.as_borrowed())?;
             assert_eq!(calls.get(), 1);
 
-            let error = producer.bind(py).call_method0("__dlpack__").unwrap_err();
+            let error = producer
+                .bind(py)
+                .call_method("__dlpack__", (), Some(&kwargs))
+                .unwrap_err();
             assert!(error.is_instance_of::<PyBufferError>(py));
             assert_eq!(calls.get(), 1);
             Ok(())
@@ -212,7 +223,12 @@ mod tests {
                 py,
                 unsafe { DlpackProducer::without_stream(tensor()) }.unwrap(),
             )?;
+
+            let error = producer.bind(py).call_method0("__dlpack__").unwrap_err();
+            assert!(error.is_instance_of::<PyBufferError>(py));
+
             let kwargs = pyo3::types::PyDict::new(py);
+            kwargs.set_item("max_version", (1, 0))?;
             kwargs.set_item("copy", true)?;
             let error = producer
                 .bind(py)
@@ -220,7 +236,10 @@ mod tests {
                 .unwrap_err();
             assert!(error.is_instance_of::<PyBufferError>(py));
 
-            let capsule = producer.bind(py).call_method0("__dlpack__")?;
+            kwargs.set_item("copy", false)?;
+            let capsule = producer
+                .bind(py)
+                .call_method("__dlpack__", (), Some(&kwargs))?;
             let _managed = versioned::Dlpack::extract(capsule.as_borrowed())?;
             Ok(())
         })
