@@ -4,6 +4,29 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## 0.9.0-beta.2 - 2026-09-15
+
+### 🚀 Features
+
+- Add safetensors interop
+
+
+- Add native CUDA and Metal runtimes
+
+
+- Add bidirectional CUDA Python interop example
+
+
+
+### 🌀 Miscellaneous
+
+- Remove redundant readme manifest field
+
+
+
+**Full Changelog**: <https://github.com/SunDoge/dlpark/compare/v0.9.0-beta.1...v0.9.0-beta.2>
+
+---
 ## 0.9.0-beta.1 - 2026-09-14
 
 ### 🧪 Dependencies
