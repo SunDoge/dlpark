@@ -19,22 +19,22 @@ fn runtime_error(error: impl std::fmt::Display) -> PyErr {
     PyRuntimeError::new_err(error.to_string())
 }
 
-struct CudaAllocation {
-    _owner: versioned::Dlpack,
-    data: *mut c_void,
-    device: DLDevice,
+struct SourceLease {
+    _managed: versioned::Dlpack,
 }
 
 // DLPack requires a producer's managed-tensor deleter to be callable from an
-// arbitrary thread. This descriptor is immutable, and Rust never dereferences
-// the CUDA device pointer.
-unsafe impl Send for CudaAllocation {}
-unsafe impl Sync for CudaAllocation {}
+// arbitrary thread. The imported managed-tensor header is kept immutable, and
+// Rust never dereferences its CUDA device pointer.
+unsafe impl Send for SourceLease {}
+unsafe impl Sync for SourceLease {}
 
 /// A reusable CUDA tensor object implementing Python's DLPack protocol.
 #[pyclass(unsendable)]
 struct CudaTensor {
-    allocation: Arc<CudaAllocation>,
+    source: Arc<SourceLease>,
+    data: *mut c_void,
+    device: DLDevice,
     shape: Vec<i64>,
     strides: Vec<i64>,
     flags: DlpackFlags,
@@ -54,14 +54,14 @@ impl CudaTensor {
         )
         .prepare::<M>()
         .map_err(runtime_error)?;
-        let mut initialized = prepared.initialize(Arc::clone(&self.allocation));
+        let mut initialized = prepared.initialize(Arc::clone(&self.source));
         initialized
-            .set_data(self.allocation.data)
-            .set_device(self.allocation.device)
+            .set_data(self.data)
+            .set_device(self.device)
             .set_dtype(DLDataType::F32);
         initialized.set_flags(self.flags).map_err(runtime_error)?;
-        // SAFETY: the descriptor points into `self.allocation`, retained by
-        // the managed tensor's `Arc` context.
+        // SAFETY: the descriptor points into storage retained by the imported
+        // managed tensor inside this export's `Arc<SourceLease>` context.
         Ok(unsafe { initialized.finish() })
     }
 
@@ -183,11 +183,9 @@ impl CudaTensor {
         // producer's claim that this export is a consumer-owned copy.
         let flags = source_flags.difference(DlpackFlags::IS_COPIED);
         Ok(Self {
-            allocation: Arc::new(CudaAllocation {
-                _owner: managed,
-                data,
-                device,
-            }),
+            source: Arc::new(SourceLease { _managed: managed }),
+            data,
+            device,
             shape,
             strides,
             flags,
@@ -198,7 +196,7 @@ impl CudaTensor {
     }
 
     fn __dlpack_device__(&self) -> (u32, i32) {
-        let device = self.allocation.device;
+        let device = self.device;
         (device.device_type.0, device.device_id)
     }
 
@@ -217,11 +215,7 @@ impl CudaTensor {
             ));
         }
         if let Some(requested) = dl_device
-            && requested
-                != (
-                    self.allocation.device.device_type.0,
-                    self.allocation.device.device_id,
-                )
+            && requested != (self.device.device_type.0, self.device.device_id)
         {
             return Err(PyBufferError::new_err(
                 "cross-device copies are not supported",
@@ -251,7 +245,7 @@ impl CudaTensor {
 
     #[getter]
     fn device_id(&self) -> usize {
-        self.allocation.device.device_id as usize
+        self.device.device_id as usize
     }
 
     #[getter]
