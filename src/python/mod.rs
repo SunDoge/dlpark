@@ -7,8 +7,10 @@ mod cudarc;
 pub mod device;
 /// DLPack 1.3 C exchange API integration.
 pub mod exchange;
+mod producer;
 /// Python stream argument encoding.
 pub mod stream;
 
 pub use device::dlpack_device;
+pub use producer::DlpackProducer;
 pub use stream::{DlpackStream, StreamArg};
