@@ -1,4 +1,4 @@
-use bindgen::callbacks::ParseCallbacks;
+use bindgen::callbacks::{DeriveInfo, ParseCallbacks};
 use snafu::{ResultExt, Whatever, whatever};
 use std::path::Path;
 
@@ -72,6 +72,15 @@ fn replace_required(input: String, from: &str, to: &str) -> Result<String, Whate
 struct DlpackCallbacks;
 
 impl ParseCallbacks for DlpackCallbacks {
+    fn add_derives(&self, info: &DeriveInfo<'_>) -> Vec<String> {
+        match info.name {
+            "DLDataType" | "DLDevice" | "DLPackVersion" => {
+                vec!["PartialEq".into(), "Eq".into(), "Hash".into()]
+            }
+            _ => Vec::new(),
+        }
+    }
+
     fn enum_variant_name(
         &self,
         _enum_name: Option<&str>,

@@ -362,34 +362,31 @@ fn dtype_alignment(dtype: Dtype) -> usize {
 }
 
 fn safetensors_dtype(dtype: DLDataType) -> Result<Dtype, Error> {
-    let known = [
-        (DLDataType::BOOL, Dtype::BOOL),
-        (DLDataType::F4E2M1FN, Dtype::F4),
-        (DLDataType::F6E2M3FN, Dtype::F6_E2M3),
-        (DLDataType::F6E3M2FN, Dtype::F6_E3M2),
-        (DLDataType::U8, Dtype::U8),
-        (DLDataType::I8, Dtype::I8),
-        (DLDataType::F8E5M2, Dtype::F8_E5M2),
-        (DLDataType::F8E4M3FN, Dtype::F8_E4M3),
-        (DLDataType::F8E8M0FNU, Dtype::F8_E8M0),
-        (DLDataType::F8E4M3FNUZ, Dtype::F8_E4M3FNUZ),
-        (DLDataType::F8E5M2FNUZ, Dtype::F8_E5M2FNUZ),
-        (DLDataType::I16, Dtype::I16),
-        (DLDataType::U16, Dtype::U16),
-        (DLDataType::F16, Dtype::F16),
-        (DLDataType::BF16, Dtype::BF16),
-        (DLDataType::I32, Dtype::I32),
-        (DLDataType::U32, Dtype::U32),
-        (DLDataType::F32, Dtype::F32),
-        (DLDataType::C64, Dtype::C64),
-        (DLDataType::F64, Dtype::F64),
-        (DLDataType::I64, Dtype::I64),
-        (DLDataType::U64, Dtype::U64),
-    ];
-    known
-        .into_iter()
-        .find_map(|(dlpack, safetensors)| dlpack.matches(dtype).then_some(safetensors))
-        .ok_or(Error::UnsupportedDlpackDtype { dtype })
+    Ok(match dtype {
+        DLDataType::BOOL => Dtype::BOOL,
+        DLDataType::F4E2M1FN => Dtype::F4,
+        DLDataType::F6E2M3FN => Dtype::F6_E2M3,
+        DLDataType::F6E3M2FN => Dtype::F6_E3M2,
+        DLDataType::U8 => Dtype::U8,
+        DLDataType::I8 => Dtype::I8,
+        DLDataType::F8E5M2 => Dtype::F8_E5M2,
+        DLDataType::F8E4M3FN => Dtype::F8_E4M3,
+        DLDataType::F8E8M0FNU => Dtype::F8_E8M0,
+        DLDataType::F8E4M3FNUZ => Dtype::F8_E4M3FNUZ,
+        DLDataType::F8E5M2FNUZ => Dtype::F8_E5M2FNUZ,
+        DLDataType::I16 => Dtype::I16,
+        DLDataType::U16 => Dtype::U16,
+        DLDataType::F16 => Dtype::F16,
+        DLDataType::BF16 => Dtype::BF16,
+        DLDataType::I32 => Dtype::I32,
+        DLDataType::U32 => Dtype::U32,
+        DLDataType::F32 => Dtype::F32,
+        DLDataType::C64 => Dtype::C64,
+        DLDataType::F64 => Dtype::F64,
+        DLDataType::I64 => Dtype::I64,
+        DLDataType::U64 => Dtype::U64,
+        _ => return Err(Error::UnsupportedDlpackDtype { dtype }),
+    })
 }
 
 #[cfg(test)]

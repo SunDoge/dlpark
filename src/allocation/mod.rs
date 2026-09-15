@@ -96,9 +96,13 @@ impl<M: crate::ManagedTensorBase, Storage> Initialized<M, Storage> {
 
     /// Sets flags verbatim, including `IS_COPIED`.
     ///
-    /// If `flags` includes `IS_COPIED`, the caller must ensure the producer
-    /// actually created a copy for this export.
-    pub fn set_flags_unchecked(&mut self, flags: crate::DlpackFlags) -> &mut Self {
+    /// # Safety
+    ///
+    /// The caller must preserve every guarantee represented by `flags`.
+    /// In particular, `IS_COPIED` requires a producer-created allocation
+    /// solely owned by the consumer, clearing `READ_ONLY` requires writable
+    /// storage, and `IS_SUBBYTE_TYPE_PADDED` must match the element layout.
+    pub unsafe fn set_flags_unchecked(&mut self, flags: crate::DlpackFlags) -> &mut Self {
         unsafe { (&mut *self.managed.as_ptr()).set_flags_unchecked(flags) };
         self
     }

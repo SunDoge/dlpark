@@ -1,3 +1,5 @@
+//! DLPack 1.3 C Exchange API discovery and invocation.
+
 use pyo3::exceptions::{PyAttributeError, PyBufferError, PyRuntimeError};
 use pyo3::{Borrowed, Bound, PyAny, PyErr, PyTypeInfo, Python};
 use std::ffi::CStr;
@@ -90,8 +92,6 @@ impl DlpackExchangeApiRef {
             .map_err(|error| PyRuntimeError::new_err(error.to_string()))
     }
 
-    /// Transfers an owning managed tensor directly into a Python tensor
-    /// without creating an intermediate DLPack capsule.
     /// Transfers an owning tensor directly into a Python object.
     ///
     /// Ownership is passed to the producer's exchange function without an

@@ -1,7 +1,7 @@
 [project]
 name = "dlparkimg"
 version = "0.1.0"
-description = "Add your description here"
+description = "Image and Torch DLPack interop example for dlpark"
 readme = "README.md"
 authors = [
     { name = "SunDoge", email = "triplez0@outlook.com" }

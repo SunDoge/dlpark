@@ -8,13 +8,14 @@
 #[cfg(feature = "pyo3")]
 use crate::ffi::{DLDevice, DLDeviceType};
 #[cfg(feature = "pyo3")]
-use crate::python::{DlpackStream, StreamArg, stream};
+use crate::python::{DlpackStream, StreamArg, consumer::stream};
 use libloading::Library;
 #[cfg(feature = "pyo3")]
 use pyo3::{PyResult, Python, exceptions::PyValueError};
+use snafu::{ResultExt, Snafu};
 use std::{
     ffi::{CStr, c_char, c_int, c_uint, c_void},
-    fmt,
+    path::PathBuf,
     ptr::{self, NonNull},
     sync::OnceLock,
 };
@@ -26,18 +27,64 @@ type CudaError = c_int;
 const CUDA_SUCCESS: CudaError = 0;
 const CUDA_EVENT_DISABLE_TIMING: c_uint = 2;
 const CUDA_STREAM_NON_BLOCKING: c_uint = 1;
+const CUDART_PATH_ENV: &str = "DLPARK_CUDART_PATH";
 
 /// An error returned by the dynamically loaded CUDA Runtime.
-#[derive(Debug)]
-pub struct Error(String);
+#[derive(Debug, Snafu)]
+pub enum Error {
+    /// No CUDA Runtime has been loaded by the producer framework.
+    #[snafu(display(
+        "CUDA Runtime is not loaded; initialize CUDA in the producer framework first or set DLPARK_CUDART_PATH"
+    ))]
+    RuntimeNotLoaded,
 
-impl fmt::Display for Error {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.0)
-    }
+    /// The runtime selected through `DLPARK_CUDART_PATH` could not be loaded.
+    #[snafu(display("failed to load CUDA Runtime from DLPARK_CUDART_PATH={path:?}: {source}"))]
+    LoadCudart {
+        /// Requested runtime library path.
+        path: PathBuf,
+        /// Dynamic-loader error.
+        source: libloading::Error,
+    },
+
+    /// A required CUDA Runtime symbol could not be resolved.
+    #[snafu(display("failed to load CUDA Runtime symbol {symbol}: {source}"))]
+    LoadSymbol {
+        /// Required symbol name.
+        symbol: &'static str,
+        /// Dynamic-loader error.
+        source: libloading::Error,
+    },
+
+    /// A CUDA Runtime operation returned an error code.
+    #[snafu(display("{operation} failed ({code}): {message}"))]
+    CudaCall {
+        /// CUDA operation name.
+        operation: &'static str,
+        /// CUDA Runtime error code.
+        code: CudaError,
+        /// Message returned by `cudaGetErrorString`.
+        message: String,
+    },
+
+    /// A successful CUDA operation returned a null resource handle.
+    #[snafu(display("{operation} succeeded but returned a null handle"))]
+    NullHandle {
+        /// CUDA operation name.
+        operation: &'static str,
+    },
+
+    /// Stream synchronization was requested across CUDA devices.
+    #[snafu(display(
+        "cannot synchronize CUDA streams on devices {consumer_device} and {producer_device}"
+    ))]
+    StreamDeviceMismatch {
+        /// Consumer stream device.
+        consumer_device: c_int,
+        /// Producer stream device.
+        producer_device: c_int,
+    },
 }
-
-impl std::error::Error for Error {}
 
 macro_rules! cuda_fns {
     ($($field:ident => $symbol:literal: fn($($arg:ty),*) -> $result:ty;)+) => {
@@ -50,12 +97,12 @@ macro_rules! cuda_fns {
 
         impl CudaApi {
             unsafe fn load() -> Result<Self, Error> {
-                let library = unsafe { load_cudart()? };
+                let library = unsafe { open_cudart_library()? };
                 Ok(Self {
                     $($field: unsafe {
                         *library
                             .get::<unsafe extern "C" fn($($arg),*) -> $result>(concat!($symbol, "\0").as_bytes())
-                            .map_err(|source| Error(format!("failed to load {}: {source}", $symbol)))?
+                            .context(LoadSymbolSnafu { symbol: $symbol })?
                     },)+
                     _library: library,
                 })
@@ -92,7 +139,7 @@ fn api() -> Result<&'static CudaApi, Error> {
 }
 
 impl CudaApi {
-    fn check(&self, operation: &str, result: CudaError) -> Result<(), Error> {
+    fn check(&self, operation: &'static str, result: CudaError) -> Result<(), Error> {
         if result == CUDA_SUCCESS {
             return Ok(());
         }
@@ -104,7 +151,11 @@ impl CudaApi {
                 CStr::from_ptr(pointer).to_string_lossy().into_owned()
             }
         };
-        Err(Error(format!("{operation} failed ({result}): {message}")))
+        Err(Error::CudaCall {
+            operation,
+            code: result,
+            message,
+        })
     }
 
     fn with_device<T>(
@@ -157,10 +208,11 @@ pub struct CudaStream {
 impl CudaStream {
     /// Creates a non-blocking stream on `device`.
     ///
-    /// On Linux, dlpark first attaches to a `libcudart` already loaded by a
-    /// framework, then tries common CUDA Runtime sonames. On Windows it tries
-    /// the CUDA 11–13 runtime DLL names. A failed lookup is not cached, so
-    /// construction may be retried after a framework initializes CUDA.
+    /// By default, dlpark attaches to the CUDA Runtime already loaded by the
+    /// producer framework so both sides use the same runtime instance. Set
+    /// `DLPARK_CUDART_PATH` to force a specific runtime library. A failed
+    /// lookup is not cached, so construction may be retried after the
+    /// framework initializes CUDA.
     pub fn new(device: c_int) -> Result<Self, Error> {
         let api = api()?;
         let raw = api.with_device(device, |api| {
@@ -168,8 +220,8 @@ impl CudaStream {
             api.check("cudaStreamCreateWithFlags", unsafe {
                 (api.stream_create_with_flags)(&mut stream, CUDA_STREAM_NON_BLOCKING)
             })?;
-            NonNull::new(stream).ok_or_else(|| {
-                Error("cudaStreamCreateWithFlags succeeded but returned a null stream".into())
+            NonNull::new(stream).ok_or(Error::NullHandle {
+                operation: "cudaStreamCreateWithFlags",
             })
         })?;
         Ok(Self { api, raw, device })
@@ -206,8 +258,8 @@ impl CudaStream {
             })?;
             let event = Event {
                 api,
-                raw: NonNull::new(event).ok_or_else(|| {
-                    Error("cudaEventCreateWithFlags succeeded but returned a null event".into())
+                raw: NonNull::new(event).ok_or(Error::NullHandle {
+                    operation: "cudaEventCreateWithFlags",
                 })?,
             };
             api.check("cudaEventRecord", unsafe {
@@ -222,10 +274,10 @@ impl CudaStream {
     /// Orders this stream after the work already queued on `producer`.
     pub fn wait_for(&self, producer: &Self) -> Result<(), Error> {
         if self.device != producer.device {
-            return Err(Error(format!(
-                "cannot synchronize CUDA streams on devices {} and {}",
-                self.device, producer.device
-            )));
+            return Err(Error::StreamDeviceMismatch {
+                consumer_device: self.device,
+                producer_device: producer.device,
+            });
         }
         unsafe { producer.hand_off_to_raw(self.raw.as_ptr()) }
     }
@@ -268,7 +320,7 @@ impl Drop for Event {
 }
 
 #[cfg(target_os = "linux")]
-unsafe fn loaded_cudart() -> Option<Library> {
+unsafe fn attach_to_loaded_cudart() -> Option<Library> {
     unsafe extern "C" fn find(
         info: *mut libc::dl_phdr_info,
         _size: usize,
@@ -302,26 +354,23 @@ unsafe fn loaded_cudart() -> Option<Library> {
     })
 }
 
-unsafe fn load_cudart() -> Result<Library, Error> {
-    #[cfg(target_os = "linux")]
-    if let Some(library) = unsafe { loaded_cudart() } {
-        return Ok(library);
-    }
+#[cfg(target_os = "windows")]
+unsafe fn attach_to_loaded_cudart() -> Option<Library> {
+    const CANDIDATE_NAMES: &[&str] = &["cudart64_13.dll", "cudart64_12.dll", "cudart64_110.dll"];
 
-    #[cfg(target_os = "linux")]
-    const NAMES: &[&str] = &["libcudart.so", "libcudart.so.13", "libcudart.so.12"];
-    #[cfg(target_os = "windows")]
-    const NAMES: &[&str] = &["cudart64_13.dll", "cudart64_12.dll", "cudart64_110.dll"];
-
-    let mut errors = Vec::new();
-    for name in NAMES {
-        match unsafe { Library::new(name) } {
-            Ok(library) => return Ok(library),
-            Err(error) => errors.push(format!("{name}: {error}")),
+    for name in CANDIDATE_NAMES {
+        if let Ok(library) = libloading::os::windows::Library::open_already_loaded(name) {
+            return Some(library.into());
         }
     }
-    Err(Error(format!(
-        "failed to load CUDA Runtime; tried {}",
-        errors.join(", ")
-    )))
+    None
+}
+
+unsafe fn open_cudart_library() -> Result<Library, Error> {
+    if let Some(path) = std::env::var_os(CUDART_PATH_ENV) {
+        let path = PathBuf::from(path);
+        return unsafe { Library::new(&path) }.context(LoadCudartSnafu { path });
+    }
+
+    unsafe { attach_to_loaded_cudart() }.ok_or(Error::RuntimeNotLoaded)
 }

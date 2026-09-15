@@ -97,7 +97,7 @@ mod tests {
         M: ManagedTensorBase,
     {
         let mut initialized: dynamic::Initialized<M> = Box::new(array).try_into().unwrap();
-        initialized.set_flags_unchecked(flags);
+        unsafe { initialized.set_flags_unchecked(flags) };
         unsafe { initialized.finish() }
     }
 

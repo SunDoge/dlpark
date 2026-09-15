@@ -44,18 +44,3 @@ impl DLPackVersion {
         self.major == required.major && self.minor >= required.minor
     }
 }
-
-impl PartialEq for DLPackVersion {
-    fn eq(&self, other: &Self) -> bool {
-        self.major == other.major && self.minor == other.minor
-    }
-}
-
-impl Eq for DLPackVersion {}
-
-impl std::hash::Hash for DLPackVersion {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        std::hash::Hash::hash(&self.major, state);
-        std::hash::Hash::hash(&self.minor, state);
-    }
-}

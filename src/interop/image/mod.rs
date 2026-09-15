@@ -122,7 +122,7 @@ mod tests {
         flags: DlpackFlags,
     ) -> Managed<M> {
         let mut initialized: fixed::Initialized<M, 3> = Box::new(img).try_into().unwrap();
-        initialized.set_flags_unchecked(flags);
+        unsafe { initialized.set_flags_unchecked(flags) };
         unsafe { initialized.finish() }
     }
 

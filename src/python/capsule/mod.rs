@@ -1,3 +1,5 @@
+//! PyO3 conversions for owning DLPack capsules.
+
 use std::ffi::CStr;
 
 const DLTENSOR: &CStr = c"dltensor";
@@ -5,8 +7,8 @@ const USED_DLTENSOR: &CStr = c"used_dltensor";
 const DLTENSOR_VERSIONED: &CStr = c"dltensor_versioned";
 const USED_DLTENSOR_VERSIONED: &CStr = c"used_dltensor_versioned";
 
-mod export;
-mod import;
+mod from_python;
+mod into_python;
 
 #[cfg(test)]
 use crate::{
@@ -39,7 +41,7 @@ mod tests {
         ) -> pyo3::PyResult<crate::python::StreamArg> {
             assert_eq!(device.device_type, DLDeviceType::CUDA);
             assert_eq!(device.device_id, 3);
-            Ok(crate::python::stream::cuda(
+            Ok(crate::python::consumer::stream::cuda(
                 std::ptr::without_provenance_mut(42),
             ))
         }

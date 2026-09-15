@@ -1,3 +1,5 @@
+//! Converts owning Rust tensors into Python DLPack capsules.
+
 use super::{DLTENSOR, DLTENSOR_VERSIONED, USED_DLTENSOR, USED_DLTENSOR_VERSIONED};
 use crate::{
     Managed,

@@ -1,12 +1,12 @@
 use dlpark::{
     allocation::device::from_device_allocation,
     ffi::{DLDeviceType, DLManagedTensorVersioned},
+    python::DlpackProducer,
     runtime::metal::MetalBuffer,
-    versioned,
 };
 use pyo3::{
-    Bound, PyAny, PyResult,
-    exceptions::{PyBufferError, PyRuntimeError, PyValueError},
+    Bound, PyClassInitializer, PyResult,
+    exceptions::{PyRuntimeError, PyValueError},
     prelude::*,
 };
 
@@ -15,9 +15,8 @@ fn runtime_error(error: impl std::fmt::Display) -> PyErr {
 }
 
 /// A host-filled shared Metal buffer exported through DLPack.
-#[pyclass(unsendable)]
+#[pyclass(extends = DlpackProducer, unsendable)]
 struct MetalTensorF32 {
-    inner: Option<versioned::Dlpack>,
     metal_buffer: u64,
     contents_pointer: u64,
 }
@@ -25,7 +24,7 @@ struct MetalTensorF32 {
 #[pymethods]
 impl MetalTensorF32 {
     #[new]
-    fn new(values: Vec<f32>, rows: usize, columns: usize) -> PyResult<Self> {
+    fn new(values: Vec<f32>, rows: usize, columns: usize) -> PyResult<PyClassInitializer<Self>> {
         let length = rows
             .checked_mul(columns)
             .ok_or_else(|| PyValueError::new_err("shape element count overflows usize"))?;
@@ -58,6 +57,9 @@ impl MetalTensorF32 {
         )
         .map_err(runtime_error)?;
         let inner = unsafe { initialized.finish() };
+        // The shared buffer was filled by the host and no Metal command queue
+        // has outstanding work against it.
+        let producer = unsafe { DlpackProducer::without_stream(inner) }.map_err(runtime_error)?;
 
         eprintln!("[dlpark/metal] created shared MTLBuffer");
         eprintln!(
@@ -68,11 +70,10 @@ impl MetalTensorF32 {
             "[dlpark/metal] metal_buffer=0x{metal_buffer:x} contents_pointer=0x{contents_pointer:x} storage=shared"
         );
 
-        Ok(Self {
-            inner: Some(inner),
+        Ok(PyClassInitializer::from(producer).add_subclass(Self {
             metal_buffer,
             contents_pointer,
-        })
+        }))
     }
 
     #[getter]
@@ -84,54 +85,11 @@ impl MetalTensorF32 {
     fn contents_pointer(&self) -> u64 {
         self.contents_pointer
     }
-
-    fn __dlpack_device__(&self) -> (u32, i32) {
-        (DLDeviceType::METAL.0, 0)
-    }
-
-    #[pyo3(signature = (stream=None, *, max_version=None, dl_device=None, copy=None))]
-    fn __dlpack__(
-        &mut self,
-        stream: Option<&Bound<'_, PyAny>>,
-        max_version: Option<(u32, u32)>,
-        dl_device: Option<(u32, i32)>,
-        copy: Option<bool>,
-    ) -> PyResult<versioned::Dlpack> {
-        if self.inner.is_none() {
-            return Err(PyBufferError::new_err(
-                "MetalTensorF32 was already consumed",
-            ));
-        }
-        if stream.is_some() {
-            return Err(PyValueError::new_err(
-                "MetalTensorF32 does not accept a stream argument",
-            ));
-        }
-        if matches!(max_version, Some((0, _))) {
-            return Err(PyBufferError::new_err(
-                "MetalTensorF32 exports the versioned DLPack ABI",
-            ));
-        }
-        if dl_device.is_some_and(|device| device != (DLDeviceType::METAL.0, 0)) {
-            return Err(PyBufferError::new_err(
-                "cross-device copies are not supported",
-            ));
-        }
-        if copy == Some(true) {
-            return Err(PyBufferError::new_err(
-                "MetalTensorF32 only supports zero-copy export",
-            ));
-        }
-
-        eprintln!("[dlpark/metal] exporting shared MTLBuffer to MLX");
-        self.inner
-            .take()
-            .ok_or_else(|| PyBufferError::new_err("MetalTensorF32 was already consumed"))
-    }
 }
 
 #[pymodule]
 fn _core(module: &Bound<'_, PyModule>) -> PyResult<()> {
+    module.add_class::<DlpackProducer>()?;
     module.add_class::<MetalTensorF32>()?;
     Ok(())
 }

@@ -1,3 +1,5 @@
+//! Device negotiation for Python DLPack consumers.
+
 use pyo3::{
     Borrowed, PyAny,
     exceptions::PyValueError,
