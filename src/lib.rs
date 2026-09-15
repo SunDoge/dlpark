@@ -56,6 +56,8 @@ pub mod versioned;
 
 /// Shape and stride metadata composed with managed tensor allocations.
 pub mod metadata;
+/// Native device runtime resources used during DLPack exchange.
+pub mod runtime;
 
 pub use borrowed::Borrowed;
 pub use context::OpaqueContext;

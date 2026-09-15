@@ -20,11 +20,11 @@ include = [
 
 [package.metadata.docs.rs]
 no-default-features = true
-features = ["candle", "half", "image", "ndarray"]
+features = ["candle", "cuda", "half", "image", "ndarray"]
 
 [workspace]
 resolver = "3"
-exclude = ["examples/cuda-python"]
+exclude = ["examples/cuda-python", "examples/metal-python"]
 members = [
   "examples/dlparkimg",
   "examples/ndarray-candle",
@@ -40,6 +40,7 @@ dlpark = { path = ".", default-features = false }  # Add dlpark as a workspace d
 half = "2.7"
 image = { version = "0.25", default-features = false }
 ndarray = { version = "0.17", default-features = false, features = ["std"] }
+libloading = "0.8"
 pyo3 = "0.29"
 snafu = "0.9"
 
@@ -59,6 +60,7 @@ half = { workspace = true, optional = true }
 image = { workspace = true, optional = true }
 ndarray = { workspace = true, optional = true }
 pyo3 = { workspace = true, optional = true }
+libloading = { workspace = true, optional = true }
 
 [dev-dependencies]
 criterion = "0.8.2"
@@ -75,16 +77,23 @@ image = ["dep:image"]
 ndarray = ["dep:ndarray"]
 
 candle = ["dep:candle-core"]
+cuda = ["dep:libc", "dep:libloading"]
+metal = ["dep:objc2", "dep:objc2-metal"]
+cudarc = ["cuda", "cudarc/cuda-version-from-build-system", "cudarc/fallback-latest", "dep:cudarc"]
 
-# CPU-only interop surface for regular tests. This intentionally excludes
-# `cudarc` (CUDA runtime).
+# CPU-testable interop features for regular tests.
 cpu-all = ["candle", "half", "image", "ndarray", "pyo3"]
 
 # Feature set suitable for Miri. This intentionally excludes `pyo3`, whose
 # tests call the Python C API.
 miri = ["candle", "half", "image", "ndarray"]
 
-cudarc = ["cudarc/cuda-version-from-build-system", "cudarc/fallback-latest", "dep:cudarc"]
+[target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dependencies]
+objc2 = { version = "0.6", optional = true }
+objc2-metal = { version = "0.3", optional = true, features = ["MTLDevice", "MTLBuffer", "MTLResource"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = { version = "0.2", optional = true }
 
 # Not supported yet — needs a CUDA toolchain to verify against candle's real (non-dummy) cuda backend
 # candle-cuda = ["candle", "candle-core/cuda"]

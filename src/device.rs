@@ -14,6 +14,14 @@ impl DLDevice {
             device_id,
         }
     }
+
+    /// Constructs a Metal device descriptor with the given registry index.
+    pub fn metal(device_id: i32) -> Self {
+        Self {
+            device_type: DLDeviceType::METAL,
+            device_id,
+        }
+    }
 }
 
 impl DLDeviceType {
