@@ -17,13 +17,16 @@ This crate focuses on transferring tensors between Rust and Python, and between 
 ```bash
 cargo add dlpark --features "ndarray half"          # Rust-only
 cargo add dlpark --features "pyo3 image"             # Python extension
-cargo add dlpark --features "cudarc"                 # CUDA (needs a CUDA toolchain)
+cargo add dlpark --features "cuda pyo3"              # Linux/Windows CUDA stream exchange
+cargo add dlpark --features "cudarc"                  # CudaSlice container adapter + CUDA runtime
+cargo add dlpark --features "metal"                   # Apple-silicon shared MTLBuffer
+cargo add dlpark --features "safetensors"             # Read-only file/mmap interoperability
 ```
 
 Feature groups for testing:
 
-- `cpu-all` — every CPU-testable backend (`candle`, `half`, `image`, `ndarray`, `pyo3`) in one go. Used by the `cargo test` and `cargo clippy` CI jobs.
-- `miri` — `candle`, `half`, `image`, `ndarray` (no `pyo3`, whose tests call the Python C API). Used by the Miri job.
+- `cpu-all` — every CPU-testable backend (`candle`, `half`, `image`, `ndarray`, `pyo3`, `safetensors`) in one go. Used by the `cargo test` and `cargo clippy` CI jobs.
+- `miri` — `candle`, `half`, `image`, `ndarray`, `safetensors` (no `pyo3`, whose tests call the Python C API). Used by the Miri job.
 
 ## Mental model
 
@@ -200,7 +203,7 @@ The `pyo3` feature supports the standard Python DLPack capsule protocol:
 - `python::dlpack_device(obj)` calls and validates `obj.__dlpack_device__()`, returning a Rust `DLDevice`.
 - When extracting a versioned tensor from a Python object, dlpark first checks the object's type for a `__dlpack_c_exchange_api__` PyCapsule named `"dlpack_exchange_api"`. If present, it walks the `prev_api` chain for a compatible major version and uses the DLPack C Exchange API no-sync function table (`managed_tensor_from_py_object_no_sync`). Otherwise it calls `obj.__dlpack__(max_version=(1, 3))` and consumes the returned capsule. Producers that only implement the legacy no-argument protocol must be extracted as `legacy::Dlpack`, because they return the incompatible `"dltensor"` capsule ABI.
 - Capsule consumption is single-use: extracting renames the capsule to `"..._used"`; a second extraction raises `PyValueError("DLPack capsule has already been consumed")`.
-- Consumers can call `versioned::Dlpack::extract_with_options(obj, stream, copy)` to pass an optional stream and tri-state copy request to `__dlpack__`; `extract_with_stream(obj, stream, copy)` is the typed convenience path for GPU consumers. The `cudarc` feature implements `python::DlpackStream` for `cudarc::driver::CudaStream` (and `Arc<CudaStream>`); other backends can implement the unsafe `DlpackStream` trait.
+- Consumers can call `versioned::Dlpack::extract_with_options(obj, stream, copy)` to pass an optional stream and tri-state copy request to `__dlpack__`; `extract_with_stream(obj, stream, copy)` is the typed convenience path for GPU consumers. Both `runtime::cuda::CudaStream` and the `cudarc` adapter implement `DlpackStream`; other backends can implement the unsafe trait for their native stream or queue.
 
 The C Exchange API is intended for extension/library use where the consumer borrows tensors and coordinates work on the producer's current stream. It is not a replacement for the normal `__dlpack__` ingestion path.
 
@@ -212,6 +215,7 @@ The C Exchange API is intended for extension/library use where the consumer borr
 | `ndarray` | boxed owned array | `ArrayViewD` / `ArrayViewMutD` | zero-copy |
 | `candle` | boxed CPU `Tensor` | owned CPU `Tensor` | export is zero-copy; import copies |
 | `cudarc` | boxed `CudaSlice` | owning CUDA slice view | zero-copy |
+| `safetensors` | owned bytes or read-only mmap | borrowed serialization view | zero-copy |
 
 Producer conversions require a `Box` because the container itself becomes the stable, type-erased DLPack `manager_ctx`; the library does not implicitly allocate that box. The `half` feature adds `DlpackElement` impls for the [half] crate's 16-bit floating-point types, independent of these adapters.
 
@@ -229,7 +233,17 @@ Zero-copy from `candle::Tensor` to DLPack (the boxed tensor's `Arc`-refcounted s
 
 ### cudarc
 
-Zero-copy in both directions between a [cudarc] `CudaSlice<T>` and a DLPack tensor. The 1-D `TryFrom` producer returns a contiguous default layout (`shape = [len]`, `strides = [1]`) and leaves `IS_COPIED` unset; use `interop::cudarc::from_cuda_slice` for higher-rank tensors. The reverse direction consumes the managed tensor through `TryFrom<Managed<M>> for BorrowedCudaSlice<M, T>`, keeping the tensor alive for as long as the CUDA view exists — the view's destructor calls `CudaSlice::leak` before the managed tensor drops, so `cudaFree` is not called on a DLPack-owned allocation.
+Zero-copy in both directions between a [cudarc] `CudaSlice<T>` and a DLPack tensor. The 1-D `TryFrom` producer returns a contiguous default layout (`shape = [len]`, `strides = [1]`) and leaves `IS_COPIED` unset; use `interop::cudarc::from_cuda_slice` for higher-rank tensors. The reverse direction consumes the managed tensor through `TryFromDlpack` for `BorrowedCudaSlice<M, T>`, which retains the managed DLPack owner for the CUDA view's lifetime.
+
+### safetensors
+
+`interop::safetensors::SafeTensorFile` parses owned bytes or opens a read-only mmap and exports named tensors without copying. Each result uses the versioned DLPack ABI, carries `READ_ONLY`, and retains shared ownership of the whole file independently of the reader. In-memory data whose address does not satisfy its dtype's natural alignment is rejected; ordinary mmap files are page-aligned. In the other direction, unsafe `DlpackView::from_dlpack` borrows a compact CPU tensor as a [safetensors] `View`; the caller must establish the allocation bounds because DLPack does not report them. All safetensors 0.8 dtypes, including packed F4/F6 and FP8 formats, have exact DLPack mappings. Zero-copy exchange is rejected on big-endian targets because safetensors stores little-endian data while DLPack uses native endianness.
+
+### Device allocations and native runtimes
+
+`allocation::device::from_device_allocation` exports an owned backend allocation without binding it to a tensor container. Implement `DeviceAllocation` with the value required in `DLTensor.data` and its `DLDevice`; pass that owner boxed so dlpark can store it in `manager_ctx` and copy the supplied shape and strides. For CUDA the data value is a raw device pointer. For Metal it is the opaque `id<MTLBuffer>` object, not the buffer's host-visible `contents` address.
+
+The optional `runtime::cuda` module supplies dynamically loaded CUDA Runtime stream/event synchronization on Linux and Windows without owning the device allocation. The optional `runtime::metal` module supplies shared `MTLBuffer` allocation on Apple silicon, including separate accessors for the CPU-visible contents and the Objective-C buffer handle required by DLPack.
 
 ## Features
 
@@ -242,13 +256,17 @@ No features are enabled by default — enable the backends you need (see [Instal
 | `ndarray` | Zero-copy conversion with [ndarray] arrays/views | ✅ |
 | `half` | `f16`/`bf16` element type support (via [half]) | ✅ |
 | `candle` | Conversion with [candle] `Tensor` — CPU only; candle's CUDA backend needs separate integration work | ✅ |
-| `cudarc` | Zero-copy conversion with [cudarc] `CudaSlice<T>` — no automated tests here, needs a CUDA-capable device to exercise | ✅ |
+| `cuda` | Minimal dynamically loaded CUDA Runtime stream/event API on Linux and Windows | ✅ |
+| `cudarc` | Zero-copy `CudaSlice<T>` container adapter; implies `cuda` | ✅ |
+| `metal` | Shared `MTLBuffer` allocation for zero-copy export on Apple silicon | ✅ |
+| `safetensors` | Read-only zero-copy file/mmap export and compact CPU serialization views | ✅ |
 
 ## Quick start
 
 Runnable examples:
 
-- [`examples/cuda-python`](./examples/cuda-python/) — local zero-copy DLPack relays between CuPy and Torch through `cudarc`.
+- [`examples/cuda-python`](./examples/cuda-python/) — local zero-copy DLPack relays between CuPy and Torch through a minimal dynamically loaded CUDA Runtime function table.
+- [`examples/metal-python`](./examples/metal-python/) — local shared-`MTLBuffer` to MLX zero-copy smoke test for Apple silicon.
 - [`examples/dlparkimg`](./examples/dlparkimg/) — a Python extension module (via `pyo3`) transferring `image::RgbImage` to/from Python (e.g. `torch.Tensor`). Run with `uv run main.py`.
 - [`examples/ndarray-candle`](./examples/ndarray-candle/) — a plain binary round-tripping data through DLPack: `ndarray::Array2` → `versioned::Dlpack` → `candle::Tensor` → `versioned::Dlpack` → `ndarray` view, run with `cargo run -p ndarray-candle`.
 
@@ -342,32 +360,78 @@ initialized.set_flags(DlpackFlags::READ_ONLY)?;
 let dlpack: versioned::Dlpack = unsafe { initialized.finish() };
 ```
 
+### Device allocation
+
+Export an owned device allocation without depending on a particular runtime wrapper:
+
+```rust
+use dlpark::{
+    allocation::device::{DeviceAllocation, from_device_allocation},
+    ffi::{DLDevice, DLManagedTensorVersioned},
+    versioned,
+};
+use std::ffi::c_void;
+
+struct MyCudaBuffer {
+    pointer: *mut c_void,
+    device_id: i32,
+    // Drop releases the CUDA allocation.
+}
+
+unsafe impl Send for MyCudaBuffer {}
+unsafe impl DeviceAllocation for MyCudaBuffer {
+    fn dlpack_data(&self) -> *mut c_void { self.pointer }
+    fn device(&self) -> DLDevice { DLDevice::cuda(self.device_id) }
+}
+
+let initialized = from_device_allocation::<f32, DLManagedTensorVersioned, _>(
+    Box::new(cuda_buffer),
+    &[2, 3],
+    &[3, 1],
+)?;
+let dlpack: versioned::Dlpack = unsafe { initialized.finish() };
+```
+
 ### cudarc
 
-Zero-copy in both directions between a [cudarc] `CudaSlice<T>` and a DLPack tensor.
+Use the optional container adapter when application code already owns a `CudaSlice<T>`:
 
 ```rust
 use dlpark::{
     TryFromDlpack,
-    allocation::{dynamic, fixed},
     ffi::DLManagedTensorVersioned,
     interop::cudarc::{BorrowedCudaSlice, from_cuda_slice},
     versioned,
 };
 
-// 1-D default layout (shape = [len], strides = [1]):
-let initialized: fixed::Initialized<DLManagedTensorVersioned, 1> =
-    Box::new(cuda_slice).try_into()?;
+let (initialized, producer_stream) =
+    from_cuda_slice::<f32, DLManagedTensorVersioned>(
+        Box::new(cuda_slice),
+        &[2, 3],
+        &[3, 1],
+    )?;
 let dlpack: versioned::Dlpack = unsafe { initialized.finish() };
 
-// Higher-rank:
-let initialized: dynamic::Initialized<DLManagedTensorVersioned> =
-    from_cuda_slice::<_, DLManagedTensorVersioned>(Box::new(cuda_slice), &[2, 3], &[3, 1])?;
-let dlpack: versioned::Dlpack = unsafe { initialized.finish() };
+let borrowed = unsafe {
+    BorrowedCudaSlice::<DLManagedTensorVersioned, f32>::try_from_dlpack(
+        dlpack,
+        producer_stream,
+    )?
+};
+```
 
-// Reverse direction keeps the managed tensor alive for the CUDA view's lifetime:
-let borrowed =
-    unsafe { BorrowedCudaSlice::<DLManagedTensorVersioned, f32>::try_from_dlpack(dlpack)? };
+### safetensors
+
+Export a named tensor from a file, or serialize a compact CPU DLPack tensor:
+
+```rust
+use dlpark::interop::safetensors::{DlpackView, SafeTensorFile};
+
+let file = SafeTensorFile::open("model.safetensors")?;
+let weight = file.tensor("model.weight")?;
+
+let view = unsafe { DlpackView::from_dlpack(&weight)? };
+let bytes = safetensors::serialize([("model.weight", view)], None)?;
 ```
 
 ## Development
@@ -416,3 +480,4 @@ to resolve to that commit and GitHub to report a valid commit signature.
 [half]: https://crates.io/crates/half
 [candle]: https://github.com/huggingface/candle
 [cudarc]: https://crates.io/crates/cudarc
+[safetensors]: https://crates.io/crates/safetensors

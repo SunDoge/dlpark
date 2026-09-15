@@ -1,3 +1,3 @@
-from dlpark_cuda._core import CudarcTensorF32
+from dlpark_cuda._core import CudaTensorF32
 
-__all__ = ["CudarcTensorF32"]
+__all__ = ["CudaTensorF32"]

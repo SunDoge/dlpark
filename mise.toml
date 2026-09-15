@@ -16,7 +16,7 @@ run = "cargo xtask vendor-dlpack"
 run = "cargo miri test"
 
 [tasks.doc]
-run = "cargo doc --open --no-default-features --features candle,half,image,ndarray"
+run = "cargo doc --open --no-default-features --features candle,half,image,ndarray,safetensors"
 
 [tasks."commit:check"]
 run = "cog check origin/main..HEAD"

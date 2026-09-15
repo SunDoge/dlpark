@@ -1,7 +1,7 @@
 [project]
 name = "dlpark-cuda-python"
 version = "0.1.0"
-description = "Local CuPy and Torch DLPack smoke tests for dlpark's cudarc backend"
+description = "Local CuPy and Torch DLPack smoke tests for dlpark's minimal CUDA FFI"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

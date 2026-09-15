@@ -11,7 +11,7 @@
 /// The `S` parameter carries the producer's stream handle so device-tensor
 /// consumers can synchronize without a blocking host call: implementations
 /// record a wait on their own stream for the producer's outstanding work
-/// (e.g. `consumer_stream.join(producer_stream)` for cudarc). It is *not* the
+/// (for example, by inserting a device event wait). It is *not* the
 /// consumer's own stream — the consumer creates that internally — and it is
 /// *not* the Python `__dlpack__(stream=)` argument, which flows the other
 /// direction and is handled by the crate's optional Python interop layer.

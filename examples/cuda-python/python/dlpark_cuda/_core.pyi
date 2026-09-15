@@ -1,7 +1,7 @@
 from typing import Any
 
 
-class CudarcTensorF32:
+class CudaTensorF32:
     def __init__(self, tensor: Any) -> None: ...
     @property
     def device_id(self) -> int: ...
