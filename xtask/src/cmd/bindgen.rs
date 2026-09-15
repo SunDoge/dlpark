@@ -74,7 +74,9 @@ struct DlpackCallbacks;
 impl ParseCallbacks for DlpackCallbacks {
     fn add_derives(&self, info: &DeriveInfo<'_>) -> Vec<String> {
         match info.name {
-            "DLDataType" => vec!["PartialEq".into(), "Eq".into()],
+            "DLDataType" | "DLDevice" | "DLPackVersion" => {
+                vec!["PartialEq".into(), "Eq".into(), "Hash".into()]
+            }
             _ => Vec::new(),
         }
     }
