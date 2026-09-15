@@ -4,6 +4,47 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## 0.9.0-beta.3 - 2026-09-15
+
+### 🚀 Features
+
+- Add reusable Python DLPack producer
+
+
+
+### 🐛 Fixes
+
+- Require versioned Python negotiation
+
+
+- Require unsafe unchecked flag writes
+
+
+
+### 🌀 Miscellaneous
+
+- Merge pull request #82 from SunDoge/chore/clean-example-workspaces
+
+
+- Derive equality for DLPack value types
+
+
+- Match DLPack dtypes directly
+
+
+- Clarify Python and runtime interop
+
+
+- Keep published crate contents minimal
+
+
+- Simplify example workspace layout
+
+
+
+**Full Changelog**: <https://github.com/SunDoge/dlpark/compare/v0.9.0-beta.2...v0.9.0-beta.3>
+
+---
 ## 0.9.0-beta.2 - 2026-09-15
 
 ### 🚀 Features
