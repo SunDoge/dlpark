@@ -123,7 +123,7 @@ impl DLDataTypeCode {
 pub struct DLDataTypeCode(pub u8);
 #[doc = " The data type the tensor can hold. The data type is assumed to follow the\n native endian-ness. An explicit error message should be raised when attempting to\n export an array with non-native endianness\n\n  Examples\n   - float: type_code = 2, bits = 32, lanes = 1\n   - float4(vectorized 4 float): type_code = 2, bits = 32, lanes = 4\n   - int8: type_code = 0, bits = 8, lanes = 1\n   - std::complex<float>: type_code = 5, bits = 64, lanes = 1\n   - bool: type_code = 6, bits = 8, lanes = 1 (as per common array library convention, the underlying storage size of bool is 8 bits)\n   - float8_e4m3: type_code = 8, bits = 8, lanes = 1 (packed in memory)\n   - float6_e3m2fn: type_code = 16, bits = 6, lanes = 1 (packed in memory)\n   - float4_e2m1fn: type_code = 17, bits = 4, lanes = 1 (packed in memory)\n\n  When a sub-byte type is packed, DLPack requires the data to be in little bit-endian, i.e.,\n  for a packed data set D ((D >> (i * bits)) && bit_mask) stores the i-th element."]
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct DLDataType {
     #[doc = " Type code of base types.\n We keep it uint8_t instead of DLDataTypeCode for minimal memory\n footprint, but the value should be one of DLDataTypeCode enum values."]
     pub code: DLDataTypeCode,

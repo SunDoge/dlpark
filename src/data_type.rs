@@ -91,7 +91,7 @@ impl DLDataType {
 
     /// Returns whether code, bit width, and lane count all match.
     pub fn matches(&self, other: Self) -> bool {
-        self.code == other.code && self.bits == other.bits && self.lanes == other.lanes
+        *self == other
     }
 
     /// Returns whether this descriptor exactly represents `T`.
