@@ -1,11 +1,12 @@
 use dlpark::{
-    Managed, ManagedTensorBase,
+    DlpackFlags, Managed, ManagedTensorBase,
     ffi::{
         DLDataType, DLDevice, DLDeviceType, DLManagedTensor, DLManagedTensorVersioned,
         DLPACK_MAJOR_VERSION,
     },
     metadata::{Copied, Dynamic},
     runtime::metal::MetalBuffer,
+    versioned,
 };
 use pyo3::{
     Bound, IntoPyObject, Py, PyAny, PyResult, Python,
@@ -21,10 +22,7 @@ fn runtime_error(error: impl std::fmt::Display) -> PyErr {
 /// A reusable Metal tensor object implementing Python's DLPack protocol.
 #[pyclass(unsendable)]
 struct MetalTensor {
-    buffer: Arc<MetalBuffer>,
-    shape: [i64; 2],
-    strides: [i64; 2],
-    metal_buffer: u64,
+    dlpack: Arc<versioned::Dlpack>,
     contents_pointer: u64,
 }
 
@@ -33,19 +31,23 @@ impl MetalTensor {
     where
         M: ManagedTensorBase,
     {
+        let descriptor = self.dlpack.validate().map_err(runtime_error)?;
         let prepared = Dynamic::new(
-            Copied(self.shape.as_slice()),
-            Copied(self.strides.as_slice()),
+            Copied(descriptor.shape().to_vec()),
+            Copied(descriptor.strides().unwrap_or(&[]).to_vec()),
         )
         .prepare::<M>()
         .map_err(runtime_error)?;
-        let mut initialized = prepared.initialize(Arc::clone(&self.buffer));
+        let mut initialized = prepared.initialize(Arc::clone(&self.dlpack));
         initialized
-            .set_data(self.buffer.as_metal_id())
-            .set_device(DLDevice::metal(0))
-            .set_dtype(DLDataType::F32);
-        // SAFETY: the descriptor points at the shared MTLBuffer retained by
-        // the managed tensor's `Arc` context.
+            .set_data(descriptor.data_ptr().cast_mut())
+            .set_device(descriptor.device())
+            .set_dtype(descriptor.dtype())
+            .set_byte_offset(descriptor.byte_offset());
+        let flags = self.dlpack.flags().difference(DlpackFlags::IS_COPIED);
+        initialized.set_flags(flags).map_err(runtime_error)?;
+        // SAFETY: this fresh header copies the source descriptor and retains
+        // `Arc<versioned::Dlpack>` in its manager context.
         Ok(unsafe { initialized.finish() })
     }
 }
@@ -79,6 +81,18 @@ impl MetalTensor {
         }
         let metal_buffer = buffer.as_metal_id() as usize as u64;
         let contents_pointer = buffer.contents_ptr() as usize as u64;
+        let prepared = Dynamic::new(Copied(vec![rows, columns]), Copied(vec![columns, 1]))
+            .prepare::<DLManagedTensorVersioned>()
+            .map_err(runtime_error)?;
+        let mut initialized = prepared.initialize(Box::new(buffer));
+        initialized
+            .set_data(metal_buffer as usize as *mut std::ffi::c_void)
+            .set_device(DLDevice::metal(0))
+            .set_dtype(DLDataType::F32);
+        // SAFETY: the descriptor points at the MTLBuffer owned by its boxed
+        // manager context, and its shape and strides are copied into the
+        // managed allocation.
+        let dlpack = unsafe { initialized.finish() };
 
         eprintln!("[dlpark/metal] created shared MTLBuffer");
         eprintln!(
@@ -90,16 +104,14 @@ impl MetalTensor {
         );
 
         Ok(Self {
-            buffer: Arc::new(buffer),
-            shape: [rows, columns],
-            strides: [columns, 1],
-            metal_buffer,
+            dlpack: Arc::new(dlpack),
             contents_pointer,
         })
     }
 
-    fn __dlpack_device__(&self) -> (u32, i32) {
-        (DLDeviceType::METAL.0, 0)
+    fn __dlpack_device__(&self) -> PyResult<(u32, i32)> {
+        let device = self.dlpack.validate().map_err(runtime_error)?.device();
+        Ok((device.device_type.0, device.device_id))
     }
 
     #[pyo3(signature = (stream=None, *, max_version=None, dl_device=None, copy=None))]
@@ -121,15 +133,29 @@ impl MetalTensor {
                 "MetalTensor only supports zero-copy export",
             ));
         }
+        let descriptor = self.dlpack.validate().map_err(runtime_error)?;
+        let device = descriptor.device();
         if let Some(requested) = dl_device
-            && requested != (DLDeviceType::METAL.0, 0)
+            && requested != (device.device_type.0, device.device_id)
         {
             return Err(PyBufferError::new_err(
                 "cross-device copies are not supported",
             ));
         }
 
-        if max_version.is_some_and(|(major, _)| major >= DLPACK_MAJOR_VERSION) {
+        let versioned = max_version.is_some_and(|(major, _)| major >= DLPACK_MAJOR_VERSION);
+        if !versioned
+            && self
+                .dlpack
+                .flags()
+                .contains(DlpackFlags::IS_SUBBYTE_TYPE_PADDED)
+        {
+            return Err(PyBufferError::new_err(
+                "the legacy DLPack ABI cannot describe padded sub-byte elements",
+            ));
+        }
+
+        if versioned {
             Ok(self
                 .export::<DLManagedTensorVersioned>()?
                 .into_pyobject(py)?
@@ -143,8 +169,8 @@ impl MetalTensor {
     }
 
     #[getter]
-    fn metal_buffer(&self) -> u64 {
-        self.metal_buffer
+    fn metal_buffer(&self) -> PyResult<u64> {
+        Ok(self.dlpack.validate().map_err(runtime_error)?.data_ptr() as usize as u64)
     }
 
     #[getter]
