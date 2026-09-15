@@ -1,0 +1,28 @@
+[project]
+name = "dlpark-image-python"
+version = "0.1.0"
+description = "Image and Torch DLPack interop demo for dlpark"
+readme = "README.md"
+authors = [
+    { name = "SunDoge", email = "triplez0@outlook.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "loguru>=0.7.3",
+    "numpy>=2.2.6",
+    "torch>=2.7.0",
+]
+
+[tool.maturin]
+module-name = "dlpark_image._core"
+python-packages = ["dlpark_image"]
+python-source = "python"
+
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[dependency-groups]
+dev = [
+    "maturin>=1.8.6",
+]

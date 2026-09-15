@@ -22,8 +22,6 @@
 use snafu::Snafu;
 use std::{alloc::Layout, ptr::NonNull};
 
-/// Backend-neutral device allocation export.
-pub mod device;
 pub mod dynamic;
 pub mod fixed;
 

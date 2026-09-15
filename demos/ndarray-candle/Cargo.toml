@@ -1,0 +1,14 @@
+[package]
+name = "dlpark-ndarray-candle"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.87"
+publish = false
+
+[workspace]
+
+[dependencies]
+candle-core = "0.11"
+dlpark = { path = "../..", default-features = false, features = ["candle", "ndarray"] }
+ndarray = { version = "0.17", default-features = false, features = ["std"] }
+snafu = "0.9"

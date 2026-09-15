@@ -160,7 +160,7 @@ The element type's DLPack descriptor is provided by the `DlpackElement` trait, i
 
 ### Performance of metadata copy
 
-In the included length-64 microbenchmark, the `i64` fast path takes approximately 11.7 ns, while allocating temporary `Vec<i64>` storage and then calling `copy_nonoverlapping` takes approximately 54.9 ns on the development machine. Reproduce it with:
+In the repository's length-64 microbenchmark, the `i64` fast path takes approximately 11.7 ns, while allocating temporary `Vec<i64>` storage and then calling `copy_nonoverlapping` takes approximately 54.9 ns on the development machine. Reproduce it from a source checkout with:
 
 ```bash
 cargo bench --bench builder -- generic_metadata_copy
@@ -204,7 +204,7 @@ The `pyo3` feature supports the standard Python DLPack capsule protocol:
 - When extracting a versioned tensor from a Python object, dlpark first checks the object's type for a `__dlpack_c_exchange_api__` PyCapsule named `"dlpack_exchange_api"`. If present, it walks the `prev_api` chain for a compatible major version and uses the DLPack C Exchange API no-sync function table (`managed_tensor_from_py_object_no_sync`). Otherwise it calls `obj.__dlpack__(max_version=(1, 3))` and consumes the returned capsule. Producers that only implement the legacy no-argument protocol must be extracted as `legacy::Dlpack`, because they return the incompatible `"dltensor"` capsule ABI.
 - Capsule consumption is single-use: extracting renames the capsule to `"..._used"`; a second extraction raises `PyValueError("DLPack capsule has already been consumed")`.
 - Consumers can call `versioned::Dlpack::extract_with_options(obj, stream, copy)` to pass an optional stream and tri-state copy request to `__dlpack__`; `extract_with_stream(obj, stream, copy)` is the typed convenience path for GPU consumers. `runtime::cuda::CudaStream` implements `DlpackStream`; other backends can implement the unsafe trait for their native stream or queue.
-- PyO3 producers can subclass `python::DlpackProducer`. The base class owns the versioned tensor, implements `__dlpack__` and `__dlpack_device__`, requires DLPack 1.x negotiation through `max_version`, enforces one-time consumption and zero-copy/device requests, and delegates only stream synchronization to a Rust callback. The CUDA and Metal Python examples use this path.
+- A Python producer should be an application-owned class which keeps its buffer alive. Each `__dlpack__` call handles `stream`, `dl_device`, and `copy`, then creates a fresh managed tensor: use the versioned ABI when the consumer supplies a compatible `max_version`, and the legacy ABI when it omits `max_version` or advertises only DLPack 0.x. Only the returned capsule is single-use; the producer object remains reusable. The CUDA and Metal Python demos show this pattern.
 
 The C Exchange API is intended for extension/library use where the consumer borrows tensors and coordinates work on the producer's current stream. It is not a replacement for the normal `__dlpack__` ingestion path.
 
@@ -240,9 +240,7 @@ Zero-copy in both directions between a [cudarc] `CudaSlice<T>` and a DLPack tens
 
 `interop::safetensors::SafeTensorFile` parses owned bytes or opens a read-only mmap and exports named tensors without copying. Each result uses the versioned DLPack ABI, carries `READ_ONLY`, and retains shared ownership of the whole file independently of the reader. In-memory data whose address does not satisfy its dtype's natural alignment is rejected; ordinary mmap files are page-aligned. In the other direction, unsafe `DlpackView::from_dlpack` borrows a compact CPU tensor as a [safetensors] `View`; the caller must establish the allocation bounds because DLPack does not report them. All safetensors 0.8 dtypes, including packed F4/F6 and FP8 formats, have exact DLPack mappings. Zero-copy exchange is rejected on big-endian targets because safetensors stores little-endian data while DLPack uses native endianness.
 
-### Device allocations and native runtimes
-
-`allocation::device::from_device_allocation` exports an owned backend allocation without binding it to a tensor container. Implement `DeviceAllocation` with the value required in `DLTensor.data` and its `DLDevice`; pass that owner boxed so dlpark can store it in `manager_ctx` and copy the supplied shape and strides. For CUDA the data value is a raw device pointer. For Metal it is the opaque `id<MTLBuffer>` object, not the buffer's host-visible `contents` address.
+### Native runtimes
 
 The optional `runtime::cuda` module supplies dynamically loaded CUDA Runtime stream/event synchronization on Linux and Windows without owning the device allocation. It normally attaches to the runtime already loaded by the producer framework; set `DLPARK_CUDART_PATH` to force a specific runtime library. The optional `runtime::metal` module supplies shared `MTLBuffer` allocation on Apple silicon, including separate accessors for the CPU-visible contents and the Objective-C buffer handle required by DLPack.
 
@@ -264,14 +262,14 @@ No features are enabled by default — enable the backends you need (see [Instal
 
 ## Quick start
 
-Runnable examples:
+Runnable demos:
 
-- [`examples/cuda-python`](./examples/cuda-python/) — local zero-copy DLPack relays between CuPy and Torch through a minimal dynamically loaded CUDA Runtime function table.
-- [`examples/metal-python`](./examples/metal-python/) — local shared-`MTLBuffer` to MLX zero-copy smoke test for Apple silicon.
-- [`examples/dlparkimg`](./examples/dlparkimg/) — a Python extension module (via `pyo3`) transferring `image::RgbImage` to/from Python (e.g. `torch.Tensor`). Run with `uv run main.py`.
-- [`examples/ndarray_candle.rs`](./examples/ndarray_candle.rs) — a plain binary round-tripping data through DLPack: `ndarray::Array2` → `versioned::Dlpack` → `candle::Tensor` → `versioned::Dlpack` → `ndarray` view, run with `cargo run --example ndarray-candle --features ndarray,candle`.
+- [`demos/cuda-python`](./demos/cuda-python/) — local zero-copy DLPack relays between CuPy and Torch through a minimal dynamically loaded CUDA Runtime function table.
+- [`demos/metal-python`](./demos/metal-python/) — local shared-`MTLBuffer` to MLX zero-copy smoke test for Apple silicon.
+- [`demos/image-python`](./demos/image-python/) — a Python extension module transferring `image::RgbImage` to and from Torch through DLPack.
+- [`demos/ndarray-candle`](./demos/ndarray-candle/) — a Rust binary round-tripping data through `ndarray → DLPack → candle → DLPack → ndarray`.
 
-`examples/profile_builder.rs` profiles the `metadata::Fixed` / `metadata::Dynamic` allocation paths (`cargo run --release --example profile_builder`); `benches/builder.rs` benchmarks them (`cargo bench --bench builder`).
+The Criterion metadata benchmarks live under [`benches`](./benches/).
 
 ## Usage examples
 
@@ -358,38 +356,6 @@ let tensor = Tensor::new(&[1_f32, 2., 3., 4.], &candle_core::Device::Cpu)?;
 let mut initialized: dynamic::Initialized<DLManagedTensorVersioned> =
     Box::new(tensor).try_into()?;
 initialized.set_flags(DlpackFlags::READ_ONLY)?;
-let dlpack: versioned::Dlpack = unsafe { initialized.finish() };
-```
-
-### Device allocation
-
-Export an owned device allocation without depending on a particular runtime wrapper:
-
-```rust
-use dlpark::{
-    allocation::device::{DeviceAllocation, from_device_allocation},
-    ffi::{DLDevice, DLManagedTensorVersioned},
-    versioned,
-};
-use std::ffi::c_void;
-
-struct MyCudaBuffer {
-    pointer: *mut c_void,
-    device_id: i32,
-    // Drop releases the CUDA allocation.
-}
-
-unsafe impl Send for MyCudaBuffer {}
-unsafe impl DeviceAllocation for MyCudaBuffer {
-    fn dlpack_data(&self) -> *mut c_void { self.pointer }
-    fn device(&self) -> DLDevice { DLDevice::cuda(self.device_id) }
-}
-
-let initialized = from_device_allocation::<f32, DLManagedTensorVersioned, _>(
-    Box::new(cuda_buffer),
-    &[2, 3],
-    &[3, 1],
-)?;
 let dlpack: versioned::Dlpack = unsafe { initialized.finish() };
 ```
 

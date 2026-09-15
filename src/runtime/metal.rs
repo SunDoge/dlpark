@@ -5,7 +5,6 @@
 //! `DLTensor.data`; [`MetalBuffer::contents_ptr`](crate::runtime::metal::MetalBuffer::contents_ptr)
 //! is only the CPU mapping.
 
-use crate::{allocation::device::DeviceAllocation, ffi::DLDevice};
 use objc2::{rc::Retained, runtime::ProtocolObject};
 use objc2_metal::{
     MTLBuffer as RawMTLBuffer, MTLCreateSystemDefaultDevice, MTLDevice, MTLResourceOptions,
@@ -96,15 +95,5 @@ impl MetalBuffer {
         (&*self.buffer as *const ProtocolObject<dyn RawMTLBuffer>)
             .cast_mut()
             .cast()
-    }
-}
-
-unsafe impl DeviceAllocation for MetalBuffer {
-    fn dlpack_data(&self) -> *mut c_void {
-        self.as_metal_id()
-    }
-
-    fn device(&self) -> DLDevice {
-        DLDevice::metal(0)
     }
 }
