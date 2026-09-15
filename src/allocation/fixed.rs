@@ -243,7 +243,7 @@ where
     initialized.set_data(data);
     initialized.set_dtype(dtype);
     initialized.set_device(device);
-    initialized.set_flags_unchecked(flags);
+    unsafe { initialized.set_flags_unchecked(flags) };
     unsafe { initialized.finish() }
 }
 
