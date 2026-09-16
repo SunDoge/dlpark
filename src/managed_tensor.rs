@@ -39,8 +39,10 @@ impl DlpackFlags {
 /// Implementations must use a stable C-compatible layout for which
 /// [`Self::from_parts`] fully initializes a valid managed tensor. Accessors
 /// must return fields from that same value, and `deleter` must be safe to call
-/// exactly once with the original pointer. The type must have nonzero size and
-/// an alignment accepted by Rust's global allocator.
+/// exactly once with the original pointer from any thread. Tensor metadata
+/// reachable through the managed value must remain immutable for its owned
+/// lifetime unless the caller has exclusive access. The type must have nonzero
+/// size and an alignment accepted by Rust's global allocator.
 pub unsafe trait ManagedTensorBase {
     /// Constructs a managed tensor from its embedded tensor and ownership
     /// fields.

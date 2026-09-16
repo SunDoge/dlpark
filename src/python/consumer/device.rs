@@ -1,28 +1,65 @@
 //! Device negotiation for Python DLPack consumers.
 
 use pyo3::{
-    Borrowed, PyAny,
-    exceptions::PyValueError,
+    Borrowed, Bound, PyAny,
+    exceptions::{PyAttributeError, PyValueError},
     types::{PyAnyMethods, PyString},
 };
 
+use super::exchange::DlpackExchangeApiRef;
 use crate::ffi::{DLDevice, DLDeviceType};
 
-/// Calls `array.__dlpack_device__()` and validates its DLPack device tuple.
+/// Queries and validates a producer's DLPack device.
+///
+/// The DLPack C Exchange API borrowed view is preferred when available;
+/// otherwise this calls `array.__dlpack_device__()`.
+///
+/// When the device is needed in order to construct a stream for an immediate
+/// import, prefer [`super::ImportRequest`]. It caches this discovery so the
+/// subsequent import does not query the producer a second time.
 pub fn dlpack_device(array: Borrowed<'_, '_, PyAny>) -> pyo3::PyResult<DLDevice> {
-    let (device_type, device_id): (u32, i32) = array
-        .call_method0(PyString::intern(array.py(), "__dlpack_device__"))?
-        .extract()?;
-    if device_id < 0 {
-        return Err(PyValueError::new_err(format!(
-            "DLPack device ID must be non-negative, got {device_id}"
-        )));
+    if let Some(api) = DlpackExchangeApiRef::from_object(array)?
+        && api.supports_dltensor_view()
+    {
+        let device = api.with_dltensor_view_no_sync(array, |tensor| tensor.device)?;
+        return validate_device(device);
     }
 
-    Ok(DLDevice {
+    standard_dlpack_device(array)
+}
+
+pub(crate) fn standard_dlpack_device(array: Borrowed<'_, '_, PyAny>) -> pyo3::PyResult<DLDevice> {
+    let method = array.getattr(PyString::intern(array.py(), "__dlpack_device__"))?;
+    device_from_method(method)
+}
+
+pub(crate) fn optional_standard_dlpack_device(
+    array: Borrowed<'_, '_, PyAny>,
+) -> pyo3::PyResult<Option<DLDevice>> {
+    let method = match array.getattr(PyString::intern(array.py(), "__dlpack_device__")) {
+        Ok(method) => method,
+        Err(error) if error.is_instance_of::<PyAttributeError>(array.py()) => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    device_from_method(method).map(Some)
+}
+
+fn device_from_method(method: Bound<'_, PyAny>) -> pyo3::PyResult<DLDevice> {
+    let (device_type, device_id): (u32, i32) = method.call0()?.extract()?;
+    validate_device(DLDevice {
         device_type: DLDeviceType(device_type),
         device_id,
     })
+}
+
+pub(crate) fn validate_device(device: DLDevice) -> pyo3::PyResult<DLDevice> {
+    if device.device_id < 0 {
+        return Err(PyValueError::new_err(format!(
+            "DLPack device ID must be non-negative, got {}",
+            device.device_id
+        )));
+    }
+    Ok(device)
 }
 
 #[cfg(test)]

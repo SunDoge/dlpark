@@ -2,8 +2,6 @@
 //!
 //! - [`crate::python::consumer`] contains device and stream negotiation used while importing
 //!   a Python tensor into Rust.
-//! - [`crate::python::DlpackProducer`] turns an owning Rust tensor into a Python object that
-//!   implements `__dlpack__` and `__dlpack_device__`.
 //! - [`crate::python::exchange`] implements the optional DLPack 1.3 C Exchange API fast path.
 //!
 //! Conversion between [`crate::Managed`] tensors and Python DLPack capsules is
@@ -12,12 +10,16 @@
 mod capsule;
 /// Helpers for importing Python DLPack producers into Rust.
 pub mod consumer;
-/// DLPack 1.3 C exchange API integration.
-pub mod exchange;
-mod producer;
-
-pub use consumer::{DlpackStream, StreamArg, dlpack_device};
-pub use producer::DlpackProducer;
+/// Helpers for implementing Python DLPack producers.
+pub mod producer;
+/// DLPack 1.3 C Exchange API discovery and invocation.
+pub use consumer::exchange;
+pub use consumer::{
+    DlpackStream, ImportRequest, ImportedDlpack, StreamArg, dlpack_device, from_dlpack,
+};
+pub use producer::{
+    CudaStreamRequest, DlpackExchangeProducer, ExportAbi, ExportRequest, install_exchange_api,
+};
 
 // Keep the former module paths working while presenting `consumer` as the
 // documented organization.

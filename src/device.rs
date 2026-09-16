@@ -46,9 +46,26 @@ impl Default for DLDevice {
     }
 }
 
+impl From<DLDevice> for (u32, i32) {
+    fn from(device: DLDevice) -> Self {
+        (device.device_type.0, device.device_id)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn device_converts_to_python_protocol_tuple() {
+        for (device, expected) in [
+            (DLDevice::CPU, (DLDeviceType::CPU.0, 0)),
+            (DLDevice::cuda(3), (DLDeviceType::CUDA.0, 3)),
+            (DLDevice::metal(7), (DLDeviceType::METAL.0, 7)),
+        ] {
+            assert_eq!(<(u32, i32)>::from(device), expected);
+        }
+    }
 
     #[test]
     fn device_type_knownness_tracks_bundled_header() {

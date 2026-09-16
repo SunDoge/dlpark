@@ -7,7 +7,7 @@
     "rust-analyzer": {
       "initialization_options": {
         "cargo": {
-          "features": ["image", "ndarray", "pyo3", "cudarc", "candle"],
+          "features": ["cpu-all"],
         },
       },
     },

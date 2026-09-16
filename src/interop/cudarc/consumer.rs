@@ -18,7 +18,7 @@ use std::{mem::ManuallyDrop, ops::Deref, sync::Arc};
 /// normal destructor, and is then dropped before the `Managed`. This avoids
 /// calling `cudaFree` directly while allowing the DLPack deleter to release the
 /// allocation through its original owner.
-pub struct BorrowedCudaSlice<M: ManagedTensorBase, T> {
+pub struct ManagedCudaSlice<M: ManagedTensorBase, T> {
     inner: Borrowed<Managed<M>, CudaSliceView<T>>,
 }
 
@@ -39,7 +39,7 @@ impl<T> Deref for CudaSliceView<T> {
     }
 }
 
-impl<M: ManagedTensorBase, T> BorrowedCudaSlice<M, T> {
+impl<M: ManagedTensorBase, T> ManagedCudaSlice<M, T> {
     /// Returns the managed tensor that owns the CUDA allocation.
     pub fn dlpack(&self) -> &Managed<M> {
         self.inner.owner()
@@ -51,7 +51,7 @@ impl<M: ManagedTensorBase, T> BorrowedCudaSlice<M, T> {
     }
 }
 
-impl<M: ManagedTensorBase, T> Deref for BorrowedCudaSlice<M, T> {
+impl<M: ManagedTensorBase, T> Deref for ManagedCudaSlice<M, T> {
     type Target = CudaSlice<T>;
 
     fn deref(&self) -> &CudaSlice<T> {
@@ -65,7 +65,7 @@ impl<M: ManagedTensorBase, T> Deref for BorrowedCudaSlice<M, T> {
 /// then uses `CudaDevice::upgrade_device_ptr` to construct a `CudaSlice<T>` over the
 /// tensor's raw device pointer without taking ownership of the allocation.
 ///
-/// The returned [`BorrowedCudaSlice`] implements `Deref<Target = CudaSlice<T>>`,
+/// The returned [`ManagedCudaSlice`] implements `Deref<Target = CudaSlice<T>>`,
 /// so it can be passed to any cudarc API. It retains ownership of the input
 /// [`Managed`] and releases it only after disabling the `CudaSlice`
 /// destructor with [`CudaSlice::leak`].
@@ -85,7 +85,7 @@ impl<M: ManagedTensorBase, T> Deref for BorrowedCudaSlice<M, T> {
 /// A fresh `CudaContext`/stream is created for the device. If the DLPack
 /// producer used a different stream, the caller must synchronize explicitly
 /// (e.g. via `cudaDeviceSynchronize`) before submitting GPU work.
-impl<T, M> TryFromDlpack<Managed<M>, ()> for BorrowedCudaSlice<M, T>
+impl<T, M> TryFromDlpack<Managed<M>, ()> for ManagedCudaSlice<M, T>
 where
     T: DlpackElement,
     M: ManagedTensorBase,
@@ -108,7 +108,7 @@ where
 /// This is the `S = Arc<CudaStream>` path: the consumer's default stream
 /// [`CudaStream::join`]s the producer's stream, recording a non-blocking wait
 /// for the producer's outstanding work before the slice is exposed.
-impl<T, M> TryFromDlpack<Managed<M>, Arc<CudaStream>> for BorrowedCudaSlice<M, T>
+impl<T, M> TryFromDlpack<Managed<M>, Arc<CudaStream>> for ManagedCudaSlice<M, T>
 where
     T: DlpackElement,
     M: ManagedTensorBase,
@@ -126,7 +126,7 @@ where
 fn build<T, M>(
     dlpack: Managed<M>,
     producer_stream: Option<&CudaStream>,
-) -> Result<BorrowedCudaSlice<M, T>, Error>
+) -> Result<ManagedCudaSlice<M, T>, Error>
 where
     T: DlpackElement,
     M: ManagedTensorBase,
@@ -152,7 +152,7 @@ where
     let view = CudaSliceView(ManuallyDrop::new(slice));
     let inner = unsafe { Borrowed::new_unchecked(dlpack, view) };
 
-    Ok(BorrowedCudaSlice { inner })
+    Ok(ManagedCudaSlice { inner })
 }
 
 // ---------------------------------------------------------------------------
