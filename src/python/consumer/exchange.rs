@@ -229,7 +229,7 @@ mod tests {
         ManagedTensorBase,
         allocation::fixed::make_test_tensor,
         ffi::{DLDataType, DLDevice, DLDeviceType, DLPACK_MINOR_VERSION, DLPackVersion},
-        python::{ImportedDlpack, from_dlpack},
+        python::{ImportRequest, ImportedDlpack, from_dlpack},
     };
     use pyo3::types::{PyAnyMethods, PyModule};
     use std::ffi::c_void;
@@ -438,8 +438,9 @@ mod tests {
             let capsule = unsafe { pyo3::Bound::from_owned_ptr(py, capsule) };
             cls.setattr("__dlpack_c_exchange_api__", capsule)?;
 
-            let ImportedDlpack::Versioned(tensor) = from_dlpack(obj.as_borrowed(), None, None)?
-            else {
+            let request = ImportRequest::new(obj.as_borrowed())?;
+            assert_eq!(request.device()?, DLDevice::CPU);
+            let ImportedDlpack::Versioned(tensor) = request.import(None, None)? else {
                 panic!("C Exchange API returned a legacy tensor");
             };
             assert_eq!(tensor.validate().unwrap().shape(), &[3]);

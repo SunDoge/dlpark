@@ -24,10 +24,12 @@ For CUDA 13, replace `cuda12` with `cuda13`. All Python dependencies are declare
 `pyproject.toml` and locked by `uv.lock`. This example requires GPU hardware and is
 intentionally excluded from GitHub Actions.
 
-`CudaTensor.from_dlpack(obj)` consumes the incoming managed tensor and creates a
-zero-copy `CudaBuffer`. The buffer stores the adjusted CUDA device pointer and a
-custom deleter that invokes the original DLPack deleter exactly once. Tensor metadata
-is then owned independently by `CudaTensor`; it does not retain a `Managed` wrapper.
+`CudaTensor.from_dlpack(obj)` first creates an `ImportRequest`, uses its cached
+device to select the Rust relay stream, then consumes the incoming managed tensor
+into a zero-copy `CudaBuffer`. The buffer stores the adjusted CUDA device pointer
+and a custom deleter that invokes the original DLPack deleter exactly once. Tensor
+metadata is then owned independently by `CudaTensor`; it does not retain a `Managed`
+wrapper.
 Every `__dlpack__` call constructs a fresh legacy or versioned managed tensor, and
 the class also exposes DLPack 1.3's C Exchange API.
 

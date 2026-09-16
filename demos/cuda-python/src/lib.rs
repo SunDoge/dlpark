@@ -8,7 +8,7 @@ use dlpark::{
     },
     metadata::{Copied, Dynamic},
     python::{
-        CudaStreamRequest, DlpackExchangeProducer, ExportRequest, ImportedDlpack, from_dlpack,
+        CudaStreamRequest, DlpackExchangeProducer, ExportRequest, ImportRequest, ImportedDlpack,
         install_exchange_api,
     },
 };
@@ -162,7 +162,8 @@ impl CudaTensor {
 
     #[classmethod]
     fn from_dlpack(_class: &Bound<'_, PyType>, tensor: &Bound<'_, PyAny>) -> PyResult<Self> {
-        let device = dlpark::python::dlpack_device(tensor.as_borrowed())?;
+        let request = ImportRequest::new(tensor.as_borrowed())?;
+        let device = request.device()?;
         if device.device_type != DLDeviceType::CUDA {
             return Err(PyValueError::new_err(format!(
                 "expected a CUDA tensor, got {:?}",
@@ -171,7 +172,7 @@ impl CudaTensor {
         }
 
         let stream = CudaStream::for_device(device.device_id).map_err(runtime_error)?;
-        let managed = from_dlpack(tensor.as_borrowed(), Some(stream.as_ref()), None)?;
+        let managed = request.import(Some(stream.as_ref()), None)?;
         let abi = match &managed {
             ImportedDlpack::Legacy(_) => "legacy".to_owned(),
             ImportedDlpack::Versioned(tensor) => {

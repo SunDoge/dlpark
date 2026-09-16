@@ -71,13 +71,20 @@ mod tests {
     }
 
     fn versioned_tensor_with_flags(flags: DlpackFlags) -> Managed<DLManagedTensorVersioned> {
+        versioned_tensor_with_flags_on(flags, DLDevice::CPU)
+    }
+
+    fn versioned_tensor_with_flags_on(
+        flags: DlpackFlags,
+        device: DLDevice,
+    ) -> Managed<DLManagedTensorVersioned> {
         let data = Box::new(vec![4i32, 5, 6]);
         let data_ptr = data.as_ptr() as *mut c_void;
         make_test_tensor(
             data,
             data_ptr,
             DLDataType::of::<i32>(),
-            DLDevice::CPU,
+            device,
             [3],
             [1],
             flags,
@@ -255,7 +262,8 @@ mod tests {
     fn from_dlpack_maps_device_and_passes_stream() {
         pyo3::Python::initialize();
         pyo3::Python::attach(|py| -> pyo3::PyResult<()> {
-            let capsule = versioned_tensor().into_pyobject(py)?;
+            let capsule = versioned_tensor_with_flags_on(DlpackFlags::empty(), DLDevice::cuda(3))
+                .into_pyobject(py)?;
             let module = PyModule::from_code(
                 py,
                 cr#"class Producer:

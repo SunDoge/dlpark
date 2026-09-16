@@ -14,7 +14,9 @@ pub mod consumer;
 pub mod producer;
 /// DLPack 1.3 C Exchange API discovery and invocation.
 pub use consumer::exchange;
-pub use consumer::{DlpackStream, ImportedDlpack, StreamArg, dlpack_device, from_dlpack};
+pub use consumer::{
+    DlpackStream, ImportRequest, ImportedDlpack, StreamArg, dlpack_device, from_dlpack,
+};
 pub use producer::{
     CudaStreamRequest, DlpackExchangeProducer, ExportAbi, ExportRequest, install_exchange_api,
 };

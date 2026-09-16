@@ -21,6 +21,10 @@ pub fn dlpack_device(array: Borrowed<'_, '_, PyAny>) -> pyo3::PyResult<DLDevice>
         return validate_device(device);
     }
 
+    standard_dlpack_device(array)
+}
+
+pub(crate) fn standard_dlpack_device(array: Borrowed<'_, '_, PyAny>) -> pyo3::PyResult<DLDevice> {
     let (device_type, device_id): (u32, i32) = array
         .call_method0(PyString::intern(array.py(), "__dlpack_device__"))?
         .extract()?;
@@ -30,7 +34,7 @@ pub fn dlpack_device(array: Borrowed<'_, '_, PyAny>) -> pyo3::PyResult<DLDevice>
     })
 }
 
-fn validate_device(device: DLDevice) -> pyo3::PyResult<DLDevice> {
+pub(crate) fn validate_device(device: DLDevice) -> pyo3::PyResult<DLDevice> {
     if device.device_id < 0 {
         return Err(PyValueError::new_err(format!(
             "DLPack device ID must be non-negative, got {}",
