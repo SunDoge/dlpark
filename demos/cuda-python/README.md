@@ -31,6 +31,11 @@ is then owned independently by `CudaTensor`; it does not retain a `Managed` wrap
 Every `__dlpack__` call constructs a fresh legacy or versioned managed tensor, and
 the class also exposes DLPack 1.3's C Exchange API.
 
+`CudaTensor.empty(shape, device_id=0)` exercises the other allocation path:
+`CudaBuffer::allocate` obtains memory with `cudaMalloc` and installs `cudaFree` as
+its deleter. Imported and locally allocated buffers therefore use the same tensor
+and export implementation.
+
 The extension does not link a CUDA SDK. It uses a macro to generate its small CUDA
 Runtime function table and resolves it from the `libcudart` already loaded by CuPy or
 Torch. This loading design follows

@@ -5,6 +5,19 @@ from torch.utils.dlpack import from_dlpack
 import dlpark_cuda
 
 
+print("=== Rust-owned CUDA buffer → Torch → CuPy ===", flush=True)
+owned = dlpark_cuda.CudaTensor.empty([2, 3])
+torch_owned = from_dlpack(owned)
+torch_owned.fill_(7.0)
+# Work submitted through a previous consumer is outside the producer's relay
+# stream, so make that mutation complete before exporting the owner again.
+torch.cuda.synchronize()
+cupy_owned = cp.from_dlpack(owned)
+
+assert owned.device_pointer == torch_owned.data_ptr() == cupy_owned.data.ptr
+assert cupy_owned.get().tolist() == [[7.0, 7.0, 7.0], [7.0, 7.0, 7.0]]
+print("passed", flush=True)
+
 print("=== CuPy → Rust CUDA FFI → Torch ===", flush=True)
 cupy_source = cp.asarray([[0.0, 1.0, 2.0], [3.0, 4.0, 5.0]], dtype=cp.float32)
 producer = dlpark_cuda.CudaTensor.from_dlpack(cupy_source)

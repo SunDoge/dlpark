@@ -1,4 +1,4 @@
-mod cuda;
+pub mod cuda;
 
 use cuda::{CudaBuffer, CudaStream};
 use dlpark::{
@@ -127,6 +127,58 @@ fn imported_deleter(tensor: ImportedDlpack) -> Box<dyn FnOnce() + Send> {
 
 #[pymethods]
 impl CudaTensor {
+    #[classmethod]
+    #[pyo3(signature = (shape, device_id=0))]
+    fn empty(_class: &Bound<'_, PyType>, shape: Vec<usize>, device_id: i32) -> PyResult<Self> {
+        if device_id < 0 {
+            return Err(PyValueError::new_err(format!(
+                "CUDA device ID must be non-negative, got {device_id}"
+            )));
+        }
+        let length = shape
+            .iter()
+            .try_fold(1_usize, |length, &dimension| length.checked_mul(dimension));
+        let length =
+            length.ok_or_else(|| PyValueError::new_err("shape element count overflows"))?;
+        let byte_len = length
+            .checked_mul(std::mem::size_of::<f32>())
+            .ok_or_else(|| PyValueError::new_err("buffer byte length overflows"))?;
+        let shape = shape
+            .into_iter()
+            .map(|dimension| {
+                i64::try_from(dimension)
+                    .map_err(|_| PyValueError::new_err("shape dimension does not fit i64"))
+            })
+            .collect::<PyResult<Vec<_>>>()?;
+        let mut strides = vec![0_i64; shape.len()];
+        let mut stride = 1_i64;
+        for (dimension, output) in shape.iter().zip(&mut strides).rev() {
+            *output = stride;
+            stride = stride
+                .checked_mul(*dimension)
+                .ok_or_else(|| PyValueError::new_err("compact stride overflows i64"))?;
+        }
+        let buffer = Arc::new(CudaBuffer::allocate(byte_len, device_id).map_err(runtime_error)?);
+        let stream = CudaStream::for_device(device_id).map_err(runtime_error)?;
+
+        eprintln!("[dlpark/cuda] allocated CUDA buffer");
+        eprintln!(
+            "[dlpark/cuda] device=CUDA({}):{device_id} shape={shape:?} strides={strides:?} dtype=float32 bytes={byte_len} buffer_pointer={:p}",
+            DLDeviceType::CUDA.0,
+            buffer.as_raw(),
+        );
+
+        Ok(Self {
+            buffer,
+            shape,
+            strides,
+            dtype: DLDataType::F32,
+            flags: DlpackFlags::empty(),
+            length,
+            stream,
+        })
+    }
+
     #[classmethod]
     fn from_dlpack(_class: &Bound<'_, PyType>, tensor: &Bound<'_, PyAny>) -> PyResult<Self> {
         let device = dlpark::python::dlpack_device(tensor.as_borrowed())?;
@@ -296,10 +348,7 @@ unsafe impl DlpackExchangeProducer for CudaTensor {
         Ok(self.tensor_view())
     }
 
-    fn current_work_stream(
-        _py: Python<'_>,
-        device: DLDevice,
-    ) -> PyResult<*mut c_void> {
+    fn current_work_stream(_py: Python<'_>, device: DLDevice) -> PyResult<*mut c_void> {
         if device.device_type != DLDeviceType::CUDA {
             return Err(PyValueError::new_err(format!(
                 "expected a CUDA device, got {:?}",

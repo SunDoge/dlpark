@@ -71,7 +71,6 @@ pub enum Error {
         /// CUDA operation name.
         operation: &'static str,
     },
-
 }
 
 macro_rules! cuda_fns {
@@ -103,6 +102,8 @@ cuda_fns! {
     get_error_string => "cudaGetErrorString": fn(CudaError) -> *const c_char;
     get_device => "cudaGetDevice": fn(*mut c_int) -> CudaError;
     set_device => "cudaSetDevice": fn(c_int) -> CudaError;
+    malloc => "cudaMalloc": fn(*mut *mut c_void, usize) -> CudaError;
+    free => "cudaFree": fn(*mut c_void) -> CudaError;
     stream_create_with_flags => "cudaStreamCreateWithFlags": fn(*mut RawStream, c_uint) -> CudaError;
     stream_destroy => "cudaStreamDestroy": fn(RawStream) -> CudaError;
     stream_synchronize => "cudaStreamSynchronize": fn(RawStream) -> CudaError;
@@ -212,6 +213,34 @@ pub struct CudaBuffer {
 }
 
 impl CudaBuffer {
+    /// Allocates `byte_len` bytes on `device` with `cudaMalloc`.
+    ///
+    /// The returned buffer owns the allocation and releases it with
+    /// `cudaFree`. An empty allocation uses a null address and needs no CUDA
+    /// allocation or deallocation call.
+    pub fn allocate(byte_len: usize, device: c_int) -> Result<Self, Error> {
+        if byte_len == 0 {
+            return Ok(unsafe { Self::from_external(0, 0, device, || {}) });
+        }
+
+        let api = api()?;
+        let raw = api.with_device(device, |api| {
+            let mut raw = ptr::null_mut();
+            api.check("cudaMalloc", unsafe { (api.malloc)(&mut raw, byte_len) })?;
+            NonNull::new(raw).ok_or(Error::NullHandle {
+                operation: "cudaMalloc",
+            })
+        })?;
+        let address = raw.as_ptr() as usize;
+        Ok(unsafe {
+            Self::from_external(address, byte_len, device, move || {
+                let _ = api.with_device(device, |api| {
+                    api.check("cudaFree", (api.free)(address as *mut c_void))
+                });
+            })
+        })
+    }
+
     /// Creates a zero-copy view over an externally owned CUDA allocation.
     ///
     /// # Safety
@@ -357,7 +386,6 @@ impl CudaStream {
             })
         })
     }
-
 }
 
 impl Drop for CudaStream {
