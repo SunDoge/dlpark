@@ -1,13 +1,13 @@
 //! Ordered import of Python DLPack producers.
 
 use super::{
-    device::{standard_dlpack_device, validate_device},
+    device::{optional_standard_dlpack_device, validate_device},
     exchange::DlpackExchangeApiRef,
     stream::DlpackStream,
 };
 use crate::{
     AllocationDeleter, DlpackFlags, Managed,
-    ffi::{DLManagedTensor, DLManagedTensorVersioned},
+    ffi::{DLDevice, DLManagedTensor, DLManagedTensorVersioned},
     python::capsule::{
         call_dlpack, consume_legacy_capsule, consume_versioned_capsule, is_legacy_capsule,
         is_versioned_capsule, validate_copy_result,
@@ -16,7 +16,7 @@ use crate::{
 };
 use pyo3::{
     Borrowed, Bound, PyAny, PyErr,
-    exceptions::{PyAttributeError, PyRuntimeError, PyTypeError, PyValueError},
+    exceptions::{PyAttributeError, PyTypeError, PyValueError},
     types::PyAnyMethods,
 };
 
@@ -38,9 +38,20 @@ use pyo3::{
 /// constructing a request and immediately importing it.
 pub struct ImportRequest<'py> {
     object: Bound<'py, PyAny>,
-    exchange: Option<DlpackExchangeApiRef>,
-    exchange_tensor: Option<Managed<DLManagedTensorVersioned>>,
-    device: Option<crate::ffi::DLDevice>,
+    source: ImportSource,
+}
+
+enum ImportSource {
+    Capsule,
+    Exchange {
+        api: DlpackExchangeApiRef,
+        cached_tensor: Option<Managed<DLManagedTensorVersioned>>,
+        device: DLDevice,
+    },
+    Standard {
+        device: DLDevice,
+    },
+    Legacy,
 }
 
 impl<'py> ImportRequest<'py> {
@@ -58,38 +69,34 @@ impl<'py> ImportRequest<'py> {
         if is_versioned_capsule(object.as_borrowed()) || is_legacy_capsule(object.as_borrowed()) {
             return Ok(Self {
                 object,
-                exchange: None,
-                exchange_tensor: None,
-                device: None,
+                source: ImportSource::Capsule,
             });
         }
 
-        let exchange = DlpackExchangeApiRef::from_object(object.as_borrowed())?;
-        let mut exchange_tensor = None;
-        let device = if let Some(api) = &exchange
-            && api.supports_dltensor_view()
-        {
-            Some(validate_device(api.with_dltensor_view_no_sync(
-                object.as_borrowed(),
-                |tensor| tensor.device,
-            )?)?)
-        } else if has_attribute(object.as_borrowed(), "__dlpack_device__")? {
-            Some(standard_dlpack_device(object.as_borrowed())?)
-        } else if let Some(api) = &exchange {
-            let tensor = api.managed_tensor_from_py_object_no_sync(object.as_borrowed())?;
-            let device = validate_device(imported_device(&tensor)?)?;
-            exchange_tensor = Some(tensor);
-            Some(device)
+        let source = if let Some(api) = DlpackExchangeApiRef::from_object(object.as_borrowed())? {
+            let (device, cached_tensor) = if api.supports_dltensor_view() {
+                let device =
+                    api.with_dltensor_view_no_sync(object.as_borrowed(), |tensor| tensor.device)?;
+                (validate_device(device)?, None)
+            } else if let Some(device) = optional_standard_dlpack_device(object.as_borrowed())? {
+                (device, None)
+            } else {
+                let tensor = api.managed_tensor_from_py_object_no_sync(object.as_borrowed())?;
+                let device = validate_device(imported_device(&tensor)?)?;
+                (device, Some(tensor))
+            };
+            ImportSource::Exchange {
+                api,
+                cached_tensor,
+                device,
+            }
+        } else if let Some(device) = optional_standard_dlpack_device(object.as_borrowed())? {
+            ImportSource::Standard { device }
         } else {
-            None
+            ImportSource::Legacy
         };
 
-        Ok(Self {
-            object,
-            exchange,
-            exchange_tensor,
-            device,
-        })
+        Ok(Self { object, source })
     }
 
     /// Returns the producer device discovered while creating this request.
@@ -102,12 +109,15 @@ impl<'py> ImportRequest<'py> {
     ///
     /// Returns `AttributeError` when the input has no pre-import device query,
     /// such as an existing capsule or a legacy-only producer.
-    pub fn device(&self) -> pyo3::PyResult<crate::ffi::DLDevice> {
-        self.device.ok_or_else(|| {
-            PyAttributeError::new_err(
+    pub fn device(&self) -> pyo3::PyResult<DLDevice> {
+        match &self.source {
+            ImportSource::Exchange { device, .. } | ImportSource::Standard { device } => {
+                Ok(*device)
+            }
+            ImportSource::Capsule | ImportSource::Legacy => Err(PyAttributeError::new_err(
                 "this DLPack input does not expose a device before it is imported",
-            )
-        })
+            )),
+        }
     }
 
     /// Completes the import using the already discovered protocol and device.
@@ -135,65 +145,35 @@ impl<'py> ImportRequest<'py> {
         stream: Option<&dyn DlpackStream>,
         copy: Option<bool>,
     ) -> pyo3::PyResult<ImportedDlpack> {
-        let Self {
-            object,
-            exchange,
-            exchange_tensor,
-            device,
-        } = self;
+        let Self { object, source } = self;
         let object = object.as_borrowed();
-        if is_versioned_capsule(object) || is_legacy_capsule(object) {
-            if stream.is_some() || copy.is_some() {
-                return Err(PyValueError::new_err(
-                    "an existing DLPack capsule cannot negotiate stream or copy options",
-                ));
+        match source {
+            ImportSource::Capsule => {
+                if stream.is_some() || copy.is_some() {
+                    return Err(PyValueError::new_err(
+                        "an existing DLPack capsule cannot negotiate stream or copy options",
+                    ));
+                }
+                consume_capsule(object)
             }
-            return consume_capsule(object);
+            ImportSource::Exchange {
+                api,
+                cached_tensor,
+                device,
+            } => {
+                if copy != Some(true)
+                    && let Some(tensor) =
+                        import_from_exchange_api(&api, object, cached_tensor, device, stream)?
+                {
+                    return Ok(ImportedDlpack::Versioned(validate_copy_result(
+                        tensor, copy,
+                    )?));
+                }
+                import_standard(object, device, stream, copy)
+            }
+            ImportSource::Standard { device } => import_standard(object, device, stream, copy),
+            ImportSource::Legacy => import_legacy(object, stream, copy),
         }
-
-        if copy != Some(true)
-            && let Some(api) = &exchange
-            && let Some(tensor) =
-                import_from_exchange_api(api, object, exchange_tensor, device, stream)?
-        {
-            return Ok(ImportedDlpack::Versioned(validate_copy_result(
-                tensor, copy,
-            )?));
-        }
-
-        if let Some(device) = device {
-            let stream_arg = match stream {
-                Some(stream) => stream
-                    .as_python_arg(object.py(), device)?
-                    .into_python(object.py())?,
-                None => None,
-            };
-            let capsule = call_dlpack(
-                object,
-                Some((
-                    crate::ffi::DLPACK_MAJOR_VERSION,
-                    crate::ffi::DLPACK_MINOR_VERSION,
-                )),
-                stream_arg.as_ref(),
-                copy,
-            )?;
-            let imported = validate_copy(consume_capsule(capsule.as_borrowed())?, copy)?;
-            validate_imported_device(&imported, device)?;
-            return Ok(imported);
-        }
-
-        if !has_attribute(object, "__dlpack__")? {
-            return Err(PyTypeError::new_err(
-                "object does not support the DLPack protocol",
-            ));
-        }
-        if stream.is_some() || copy.is_some() {
-            return Err(PyValueError::new_err(
-                "a legacy __dlpack__ producer cannot negotiate stream or copy options",
-            ));
-        }
-        let capsule = call_dlpack(object, None, None, None)?;
-        consume_capsule(capsule.as_borrowed())
     }
 }
 
@@ -256,23 +236,20 @@ fn import_from_exchange_api(
     api: &DlpackExchangeApiRef,
     object: Borrowed<'_, '_, PyAny>,
     cached_tensor: Option<Managed<DLManagedTensorVersioned>>,
-    expected_device: Option<crate::ffi::DLDevice>,
+    expected_device: DLDevice,
     stream: Option<&dyn DlpackStream>,
 ) -> pyo3::PyResult<Option<Managed<DLManagedTensorVersioned>>> {
     if api.supports_dltensor_view() {
-        let device = expected_device.ok_or_else(|| {
-            PyRuntimeError::new_err("C Exchange tensor view did not provide a device")
-        })?;
-        if !exchange_stream_is_ready(api, device, stream)? {
+        if !exchange_stream_is_ready(api, expected_device, stream)? {
             return Ok(None);
         }
         let tensor = api.managed_tensor_from_py_object_no_sync(object)?;
         let managed_device = imported_device(&tensor)?;
-        if managed_device != device {
+        if managed_device != expected_device {
             return Err(PyValueError::new_err(format!(
                 "DLPack C Exchange API device changed between borrowed and managed exports: {:?}:{} became {:?}:{}",
-                device.device_type,
-                device.device_id,
+                expected_device.device_type,
+                expected_device.device_id,
                 managed_device.device_type,
                 managed_device.device_id,
             )));
@@ -285,10 +262,8 @@ fn import_from_exchange_api(
         None => api.managed_tensor_from_py_object_no_sync(object)?,
     };
     let device = imported_device(&tensor)?;
-    if let Some(expected) = expected_device
-        && device != expected
-    {
-        return Err(device_changed_error(expected, device));
+    if device != expected_device {
+        return Err(device_changed_error(expected_device, device));
     }
     if exchange_stream_is_ready(api, device, stream)? {
         Ok(Some(tensor))
@@ -297,10 +272,52 @@ fn import_from_exchange_api(
     }
 }
 
-fn validate_imported_device(
-    tensor: &ImportedDlpack,
-    expected: crate::ffi::DLDevice,
-) -> pyo3::PyResult<()> {
+fn import_standard(
+    object: Borrowed<'_, '_, PyAny>,
+    device: DLDevice,
+    stream: Option<&dyn DlpackStream>,
+    copy: Option<bool>,
+) -> pyo3::PyResult<ImportedDlpack> {
+    let stream_arg = match stream {
+        Some(stream) => stream
+            .as_python_arg(object.py(), device)?
+            .into_python(object.py())?,
+        None => None,
+    };
+    let capsule = call_dlpack(
+        object,
+        Some((
+            crate::ffi::DLPACK_MAJOR_VERSION,
+            crate::ffi::DLPACK_MINOR_VERSION,
+        )),
+        stream_arg.as_ref(),
+        copy,
+    )?;
+    let imported = validate_copy(consume_capsule(capsule.as_borrowed())?, copy)?;
+    validate_imported_device(&imported, device)?;
+    Ok(imported)
+}
+
+fn import_legacy(
+    object: Borrowed<'_, '_, PyAny>,
+    stream: Option<&dyn DlpackStream>,
+    copy: Option<bool>,
+) -> pyo3::PyResult<ImportedDlpack> {
+    if !has_attribute(object, "__dlpack__")? {
+        return Err(PyTypeError::new_err(
+            "object does not support the DLPack protocol",
+        ));
+    }
+    if stream.is_some() || copy.is_some() {
+        return Err(PyValueError::new_err(
+            "a legacy __dlpack__ producer cannot negotiate stream or copy options",
+        ));
+    }
+    let capsule = call_dlpack(object, None, None, None)?;
+    consume_capsule(capsule.as_borrowed())
+}
+
+fn validate_imported_device(tensor: &ImportedDlpack, expected: DLDevice) -> pyo3::PyResult<()> {
     let actual = tensor
         .validate()
         .map_err(|error| PyValueError::new_err(error.to_string()))?
@@ -311,16 +328,14 @@ fn validate_imported_device(
     Ok(())
 }
 
-fn device_changed_error(expected: crate::ffi::DLDevice, actual: crate::ffi::DLDevice) -> PyErr {
+fn device_changed_error(expected: DLDevice, actual: DLDevice) -> PyErr {
     PyValueError::new_err(format!(
         "DLPack device changed during import: {:?}:{} became {:?}:{}",
         expected.device_type, expected.device_id, actual.device_type, actual.device_id,
     ))
 }
 
-fn imported_device(
-    tensor: &Managed<DLManagedTensorVersioned>,
-) -> pyo3::PyResult<crate::ffi::DLDevice> {
+fn imported_device(tensor: &Managed<DLManagedTensorVersioned>) -> pyo3::PyResult<DLDevice> {
     tensor
         .validate()
         .map(|tensor| tensor.device())
@@ -329,7 +344,7 @@ fn imported_device(
 
 fn exchange_stream_is_ready(
     api: &DlpackExchangeApiRef,
-    device: crate::ffi::DLDevice,
+    device: DLDevice,
     stream: Option<&dyn DlpackStream>,
 ) -> pyo3::PyResult<bool> {
     if device.device_id < 0 {
@@ -435,10 +450,15 @@ mod tests {
     def __init__(self, capsule):
         self.capsule = capsule
         self.calls = []
+        self.device_lookups = 0
 
+    @property
     def __dlpack_device__(self):
-        self.calls.append("device")
-        return (1, 0)
+        self.device_lookups += 1
+        def device():
+            self.calls.append("device")
+            return (1, 0)
+        return device
 
     def __dlpack__(self, **kwargs):
         self.calls.append(("dlpack", kwargs))
@@ -459,6 +479,7 @@ mod tests {
             assert!(matches!(imported, ImportedDlpack::Versioned(_)));
             let calls = producer.getattr("calls")?;
             assert_eq!(calls.len()?, 2);
+            assert_eq!(producer.getattr("device_lookups")?.extract::<usize>()?, 1);
             assert_eq!(calls.get_item(0)?.extract::<String>()?, "device");
             assert_eq!(
                 producer.getattr("max_version")?.extract::<(u32, u32)>()?,

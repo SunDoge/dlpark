@@ -1,8 +1,8 @@
 //! Device negotiation for Python DLPack consumers.
 
 use pyo3::{
-    Borrowed, PyAny,
-    exceptions::PyValueError,
+    Borrowed, Bound, PyAny,
+    exceptions::{PyAttributeError, PyValueError},
     types::{PyAnyMethods, PyString},
 };
 
@@ -29,9 +29,23 @@ pub fn dlpack_device(array: Borrowed<'_, '_, PyAny>) -> pyo3::PyResult<DLDevice>
 }
 
 pub(crate) fn standard_dlpack_device(array: Borrowed<'_, '_, PyAny>) -> pyo3::PyResult<DLDevice> {
-    let (device_type, device_id): (u32, i32) = array
-        .call_method0(PyString::intern(array.py(), "__dlpack_device__"))?
-        .extract()?;
+    let method = array.getattr(PyString::intern(array.py(), "__dlpack_device__"))?;
+    device_from_method(method)
+}
+
+pub(crate) fn optional_standard_dlpack_device(
+    array: Borrowed<'_, '_, PyAny>,
+) -> pyo3::PyResult<Option<DLDevice>> {
+    let method = match array.getattr(PyString::intern(array.py(), "__dlpack_device__")) {
+        Ok(method) => method,
+        Err(error) if error.is_instance_of::<PyAttributeError>(array.py()) => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    device_from_method(method).map(Some)
+}
+
+fn device_from_method(method: Bound<'_, PyAny>) -> pyo3::PyResult<DLDevice> {
+    let (device_type, device_id): (u32, i32) = method.call0()?.extract()?;
     validate_device(DLDevice {
         device_type: DLDeviceType(device_type),
         device_id,
