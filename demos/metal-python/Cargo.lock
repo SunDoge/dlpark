@@ -13,8 +13,6 @@ name = "dlpark"
 version = "0.9.0-beta.1"
 dependencies = [
  "bitflags",
- "objc2",
- "objc2-metal",
  "pyo3",
  "snafu",
 ]
@@ -24,6 +22,8 @@ name = "dlpark-metal-python"
 version = "0.1.0"
 dependencies = [
  "dlpark",
+ "objc2",
+ "objc2-metal",
  "pyo3",
 ]
 

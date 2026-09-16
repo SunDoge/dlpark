@@ -71,7 +71,6 @@ safetensors = ["dep:memmap2", "dep:safetensors"]
 
 candle = ["dep:candle-core"]
 cuda = ["dep:libc", "dep:libloading"]
-metal = ["dep:objc2", "dep:objc2-metal"]
 cudarc = ["cuda", "cudarc/cuda-version-from-build-system", "cudarc/fallback-latest", "dep:cudarc"]
 
 # CPU-testable interop features for regular tests.
@@ -80,10 +79,6 @@ cpu-all = ["candle", "half", "image", "ndarray", "pyo3", "safetensors"]
 # Feature set suitable for Miri. This intentionally excludes `pyo3`, whose
 # tests call the Python C API.
 miri = ["candle", "half", "image", "ndarray", "safetensors"]
-
-[target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dependencies]
-objc2 = { version = "0.6", optional = true }
-objc2-metal = { version = "0.3", optional = true, default-features = false, features = ["MTLAllocation", "MTLBuffer", "MTLDevice", "MTLResource"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = { version = "0.2", optional = true }

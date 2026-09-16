@@ -5,18 +5,68 @@ use dlpark::{
         DLPACK_MAJOR_VERSION,
     },
     metadata::{Copied, Dynamic},
-    runtime::metal::MetalBuffer,
     versioned,
+};
+use objc2::{rc::Retained, runtime::ProtocolObject};
+use objc2_metal::{
+    MTLBuffer as RawMTLBuffer, MTLCreateSystemDefaultDevice, MTLDevice, MTLResourceOptions,
 };
 use pyo3::{
     Bound, IntoPyObject, Py, PyAny, PyResult, Python,
     exceptions::{PyBufferError, PyRuntimeError, PyValueError},
     prelude::*,
 };
-use std::sync::Arc;
+use std::{ffi::c_void, ptr::NonNull, sync::Arc};
 
 fn runtime_error(error: impl std::fmt::Display) -> PyErr {
     PyRuntimeError::new_err(error.to_string())
+}
+
+/// Demo-owned shared Metal storage. dlpark only owns its resulting DLPack
+/// manager context; allocating device resources belongs to the application.
+struct MetalBuffer {
+    buffer: Retained<ProtocolObject<dyn RawMTLBuffer>>,
+    contents: NonNull<c_void>,
+    nbytes: usize,
+}
+
+// Apple documents MTLBuffer as thread-safe. Mutable host access requires
+// `&mut self` below.
+unsafe impl Send for MetalBuffer {}
+unsafe impl Sync for MetalBuffer {}
+
+impl MetalBuffer {
+    fn allocate(nbytes: usize) -> PyResult<Self> {
+        let device = MTLCreateSystemDefaultDevice()
+            .ok_or_else(|| PyRuntimeError::new_err("no system-default Metal device"))?;
+        let buffer = device
+            .newBufferWithLength_options(nbytes.max(1), MTLResourceOptions::StorageModeShared)
+            .ok_or_else(|| {
+                PyRuntimeError::new_err(format!(
+                    "Metal buffer allocation failed for {nbytes} bytes"
+                ))
+            })?;
+        let contents = buffer.contents();
+        Ok(Self {
+            buffer,
+            contents,
+            nbytes,
+        })
+    }
+
+    fn as_mut_bytes(&mut self) -> &mut [u8] {
+        unsafe { std::slice::from_raw_parts_mut(self.contents.cast().as_ptr(), self.nbytes) }
+    }
+
+    fn contents_ptr(&self) -> *mut c_void {
+        self.contents.as_ptr()
+    }
+
+    fn as_metal_id(&self) -> *mut c_void {
+        (&*self.buffer as *const ProtocolObject<dyn RawMTLBuffer>)
+            .cast_mut()
+            .cast()
+    }
 }
 
 /// A reusable Metal tensor object implementing Python's DLPack protocol.
