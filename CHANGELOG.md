@@ -4,6 +4,89 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## 0.9.0-beta.3 - 2026-09-16
+
+### 🚀 Features
+
+- Convert DLPack devices to protocol tuples
+
+
+- Add staged Python DLPack imports
+
+
+- Add type-erased allocation deleters
+
+
+- Add Python DLPack producer helpers
+
+
+- Allow shared managed tensor ownership
+
+
+- Add reusable Python DLPack producer
+
+
+
+### 🐛 Fixes
+
+- Require versioned Python negotiation
+
+
+- Require unsafe unchecked flag writes
+
+
+
+### 📝 Documentation
+
+- Explain staged DLPack imports
+
+
+
+### 🌀 Miscellaneous
+
+- Merge pull request #84 from SunDoge/chore/clean-example-workspaces
+
+
+- Make DLPack import states explicit
+
+
+- Tighten DLPack ownership APIs
+
+
+- Make from_dlpack the single Python import path
+
+
+- Move CUDA runtime policy to demo
+
+
+- Keep Metal allocation in demo
+
+
+- Unify Python DLPack imports
+
+
+- Simplify Python interop demos
+
+
+- Derive equality for DLPack value types
+
+
+- Match DLPack dtypes directly
+
+
+- Clarify Python and runtime interop
+
+
+- Keep published crate contents minimal
+
+
+- Simplify example workspace layout
+
+
+
+**Full Changelog**: <https://github.com/SunDoge/dlpark/compare/v0.9.0-beta.2...v0.9.0-beta.3>
+
+---
 ## 0.9.0-beta.2 - 2026-09-15
 
 ### 🚀 Features
