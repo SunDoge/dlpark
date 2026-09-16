@@ -505,8 +505,6 @@ dependencies = [
  "cudarc",
  "half",
  "image",
- "libc",
- "libloading 0.8.9",
  "memmap2",
  "ndarray",
  "pyo3",

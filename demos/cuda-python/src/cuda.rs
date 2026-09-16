@@ -5,12 +5,9 @@
 //! loader. It contains only the calls needed to negotiate DLPack stream
 //! ownership without linking a CUDA toolkit at build time.
 
-#[cfg(feature = "pyo3")]
-use crate::ffi::{DLDevice, DLDeviceType};
-#[cfg(feature = "pyo3")]
-use crate::python::{DlpackStream, StreamArg, consumer::stream};
+use dlpark::ffi::{DLDevice, DLDeviceType};
+use dlpark::python::{DlpackStream, StreamArg, consumer::stream};
 use libloading::Library;
-#[cfg(feature = "pyo3")]
 use pyo3::{PyResult, Python, exceptions::PyValueError};
 use snafu::{ResultExt, Snafu};
 use std::{
@@ -74,16 +71,6 @@ pub enum Error {
         operation: &'static str,
     },
 
-    /// Stream synchronization was requested across CUDA devices.
-    #[snafu(display(
-        "cannot synchronize CUDA streams on devices {consumer_device} and {producer_device}"
-    ))]
-    StreamDeviceMismatch {
-        /// Consumer stream device.
-        consumer_device: c_int,
-        /// Producer stream device.
-        producer_device: c_int,
-    },
 }
 
 macro_rules! cuda_fns {
@@ -289,16 +276,6 @@ impl CudaStream {
         })
     }
 
-    /// Orders this stream after the work already queued on `producer`.
-    pub fn wait_for(&self, producer: &Self) -> Result<(), Error> {
-        if self.device != producer.device {
-            return Err(Error::StreamDeviceMismatch {
-                consumer_device: self.device,
-                producer_device: producer.device,
-            });
-        }
-        unsafe { producer.hand_off_to_raw(self.raw.as_ptr()) }
-    }
 }
 
 impl Drop for CudaStream {
@@ -311,7 +288,6 @@ impl Drop for CudaStream {
     }
 }
 
-#[cfg(feature = "pyo3")]
 unsafe impl DlpackStream for CudaStream {
     fn as_python_arg(&self, _py: Python<'_>, device: DLDevice) -> PyResult<StreamArg> {
         if device.device_type != DLDeviceType::CUDA || device.device_id != self.device {

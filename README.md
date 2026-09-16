@@ -201,7 +201,7 @@ The `pyo3` feature supports the standard Python DLPack capsule protocol:
 - `legacy::Dlpack` consumes or produces legacy `"dltensor"` capsules.
 - `versioned::Dlpack` consumes or produces `"dltensor_versioned"` capsules.
 - `python::import_dlpack(obj, stream, copy)` is the common Python-to-Rust entry point. It returns `ImportedDlpack`, which owns either ABI, and tries the DLPack C Exchange API first, then `__dlpack_device__` plus negotiated `__dlpack__`, then the legacy no-argument `__dlpack__` protocol. Existing capsules are consumed directly. `python::dlpack_device(obj)` uses the C Exchange API's borrowed tensor view when available before calling `obj.__dlpack_device__()`.
-- The C Exchange API callbacks do not synchronize. When a producer reports pending work, dlpark only takes this fast path if the supplied `DlpackStream` can order its native consumer stream after the producer stream; otherwise it falls back to Python `__dlpack__`, where the producer performs the standard stream negotiation. `runtime::cuda::CudaStream` implements both forms of synchronization. Other backends can implement the unsafe trait for their native stream or queue.
+- The C Exchange API callbacks do not synchronize. When a producer reports pending work, dlpark only takes this fast path if the supplied `DlpackStream` can order its native consumer stream after the producer stream; otherwise it falls back to Python `__dlpack__`, where the producer performs the standard stream negotiation. Backends implement the unsafe trait for their native stream or queue; the CUDA Python demo contains a complete CUDA Runtime implementation.
 - Capsule consumption is single-use: extracting renames the capsule to `"..._used"`; a second extraction raises `PyValueError("DLPack capsule has already been consumed")`.
 - Consumers that specifically require the versioned ABI can call `versioned::Dlpack::extract_with_options(obj, stream, copy)`; it uses the same ordered importer and rejects a final legacy result. `extract_with_stream(obj, stream, copy)` is the typed convenience form.
 - A Python producer should be an application-owned class which keeps its buffer alive. Each `__dlpack__` call handles `stream`, `dl_device`, and `copy`, then creates a fresh managed tensor: use the versioned ABI when the consumer supplies a compatible `max_version`, and the legacy ABI when it omits `max_version` or advertises only DLPack 0.x. Only the returned capsule is single-use; the producer object remains reusable. The CUDA and Metal Python demos show this pattern.
@@ -240,10 +240,6 @@ Zero-copy in both directions between a [cudarc] `CudaSlice<T>` and a DLPack tens
 
 `interop::safetensors::SafeTensorFile` parses owned bytes or opens a read-only mmap and exports named tensors without copying. Each result uses the versioned DLPack ABI, carries `READ_ONLY`, and retains shared ownership of the whole file independently of the reader. In-memory data whose address does not satisfy its dtype's natural alignment is rejected; ordinary mmap files are page-aligned. In the other direction, unsafe `DlpackView::from_dlpack` borrows a compact CPU tensor as a [safetensors] `View`; the caller must establish the allocation bounds because DLPack does not report them. All safetensors 0.8 dtypes, including packed F4/F6 and FP8 formats, have exact DLPack mappings. Zero-copy exchange is rejected on big-endian targets because safetensors stores little-endian data while DLPack uses native endianness.
 
-### Native runtimes
-
-The optional `runtime::cuda` module supplies dynamically loaded CUDA Runtime stream/event synchronization on Linux and Windows without owning the device allocation. It normally attaches to the runtime already loaded by the producer framework; set `DLPARK_CUDART_PATH` to force a specific runtime library. The optional `runtime::metal` module supplies shared `MTLBuffer` allocation on Apple silicon, including separate accessors for the CPU-visible contents and the Objective-C buffer handle required by DLPack.
-
 ## Features
 
 No features are enabled by default — enable the backends you need (see [Installation](#installation)).
@@ -255,9 +251,7 @@ No features are enabled by default — enable the backends you need (see [Instal
 | `ndarray` | Zero-copy conversion with [ndarray] arrays/views | ✅ |
 | `half` | `f16`/`bf16` element type support (via [half]) | ✅ |
 | `candle` | Conversion with [candle] `Tensor` — CPU only; candle's CUDA backend needs separate integration work | ✅ |
-| `cuda` | Minimal dynamically loaded CUDA Runtime stream/event API on Linux and Windows | ✅ |
-| `cudarc` | Zero-copy `CudaSlice<T>` container adapter; implies `cuda` | ✅ |
-| `metal` | Shared `MTLBuffer` allocation for zero-copy export on Apple silicon | ✅ |
+| `cudarc` | Zero-copy `CudaSlice<T>` container adapter | ✅ |
 | `safetensors` | Read-only zero-copy file/mmap export and compact CPU serialization views | ✅ |
 
 ## Quick start

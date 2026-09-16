@@ -18,7 +18,7 @@ include = [
 
 [package.metadata.docs.rs]
 no-default-features = true
-features = ["candle", "cuda", "half", "image", "ndarray", "safetensors"]
+features = ["candle", "half", "image", "ndarray", "safetensors"]
 
 [workspace]
 resolver = "3"
@@ -32,7 +32,6 @@ half = "2.7"
 image = { version = "0.25", default-features = false }
 memmap2 = "0.9"
 ndarray = { version = "0.17", default-features = false, features = ["std"] }
-libloading = "0.8"
 pyo3 = "0.29"
 safetensors = "0.8"
 snafu = "0.9"
@@ -53,7 +52,6 @@ memmap2 = { workspace = true, optional = true }
 ndarray = { workspace = true, optional = true }
 pyo3 = { workspace = true, optional = true }
 safetensors = { workspace = true, optional = true }
-libloading = { workspace = true, optional = true }
 
 [dev-dependencies]
 criterion = "0.8.2"
@@ -70,8 +68,7 @@ ndarray = ["dep:ndarray"]
 safetensors = ["dep:memmap2", "dep:safetensors"]
 
 candle = ["dep:candle-core"]
-cuda = ["dep:libc", "dep:libloading"]
-cudarc = ["cuda", "cudarc/cuda-version-from-build-system", "cudarc/fallback-latest", "dep:cudarc"]
+cudarc = ["cudarc/cuda-version-from-build-system", "cudarc/fallback-latest", "dep:cudarc"]
 
 # CPU-testable interop features for regular tests.
 cpu-all = ["candle", "half", "image", "ndarray", "pyo3", "safetensors"]
@@ -79,9 +76,6 @@ cpu-all = ["candle", "half", "image", "ndarray", "pyo3", "safetensors"]
 # Feature set suitable for Miri. This intentionally excludes `pyo3`, whose
 # tests call the Python C API.
 miri = ["candle", "half", "image", "ndarray", "safetensors"]
-
-[target.'cfg(target_os = "linux")'.dependencies]
-libc = { version = "0.2", optional = true }
 
 # Not supported yet — needs a CUDA toolchain to verify against candle's real (non-dummy) cuda backend
 # candle-cuda = ["candle", "candle-core/cuda"]

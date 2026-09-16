@@ -1,10 +1,12 @@
+mod cuda;
+
 use dlpark::{
     DlpackFlags, Managed, ManagedTensorBase,
     ffi::{DLDeviceType, DLManagedTensor, DLManagedTensorVersioned, DLPACK_MAJOR_VERSION},
     metadata::{Copied, Dynamic},
     python::{ImportedDlpack, import_dlpack},
-    runtime::cuda::CudaStream,
 };
+use cuda::CudaStream;
 use pyo3::{
     Bound, IntoPyObject, Py, PyAny, PyResult, Python,
     exceptions::{PyBufferError, PyRuntimeError, PyValueError},

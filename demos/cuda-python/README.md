@@ -25,10 +25,10 @@ For CUDA 13, replace `cuda12` with `cuda13`. All Python dependencies are declare
 intentionally excluded from GitHub Actions.
 
 `CudaTensor` is an ordinary PyO3 class that owns the incoming managed DLPack tensor
-and a `dlpark::runtime::cuda::CudaStream`. Every `__dlpack__` call constructs a fresh
+and the demo's `CudaStream`. Every `__dlpack__` call constructs a fresh
 legacy or versioned managed tensor according to the consumer's `max_version`.
 The extension does not link a CUDA SDK or construct a fake owning buffer around foreign
-memory. dlpark uses a macro to generate its small CUDA Runtime function table and
+memory. The demo uses a macro to generate its small CUDA Runtime function table and
 resolves it from the `libcudart` already loaded by CuPy or Torch. This loading design follows
 [safetensors' minimal CUDA engine](https://github.com/huggingface/safetensors/blob/b7c0f38b6ae072c3cc6208933df0c81fbd2ef837/bindings/python/src/engine/cuda.rs).
 

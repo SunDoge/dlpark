@@ -19,8 +19,6 @@ name = "dlpark"
 version = "0.9.0-beta.1"
 dependencies = [
  "bitflags",
- "libc",
- "libloading",
  "pyo3",
  "snafu",
 ]
@@ -30,7 +28,10 @@ name = "dlpark-cuda-python"
 version = "0.1.0"
 dependencies = [
  "dlpark",
+ "libc",
+ "libloading",
  "pyo3",
+ "snafu",
 ]
 
 [[package]]
