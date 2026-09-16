@@ -229,8 +229,8 @@ mod tests {
         ManagedTensorBase,
         allocation::fixed::make_test_tensor,
         ffi::{DLDataType, DLDevice, DLDeviceType, DLPACK_MINOR_VERSION, DLPackVersion},
+        python::{ImportedDlpack, from_dlpack},
     };
-    use pyo3::conversion::FromPyObject;
     use pyo3::types::{PyAnyMethods, PyModule};
     use std::ffi::c_void;
     use std::os::raw::{c_char, c_int};
@@ -396,7 +396,10 @@ mod tests {
                 assert_eq!(unsafe { tensor.num_elements() }.unwrap(), 3);
             })?;
 
-            let dlpack = Managed::<DLManagedTensorVersioned>::extract(obj.as_borrowed())?;
+            let ImportedDlpack::Versioned(dlpack) = from_dlpack(obj.as_borrowed(), None, None)?
+            else {
+                panic!("C Exchange API returned a legacy tensor");
+            };
             let tensor = unsafe { dlpack.tensor() };
             assert_eq!(tensor.ndim, 1);
             assert_eq!(unsafe { tensor.shape() }.unwrap(), &[3]);

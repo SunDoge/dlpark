@@ -7,5 +7,5 @@ mod import;
 pub mod stream;
 
 pub use device::dlpack_device;
-pub use import::{ImportedDlpack, import_dlpack};
+pub use import::{ImportedDlpack, from_dlpack};
 pub use stream::{DlpackStream, StreamArg};

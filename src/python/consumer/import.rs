@@ -5,7 +5,10 @@ use crate::{
     ffi::{DLManagedTensor, DLManagedTensorVersioned},
     python::{
         DlpackStream,
-        capsule::{call_dlpack, is_legacy_capsule, is_versioned_capsule, validate_copy_result},
+        capsule::{
+            call_dlpack, consume_legacy_capsule, consume_versioned_capsule, is_legacy_capsule,
+            is_versioned_capsule, validate_copy_result,
+        },
         dlpack_device,
         exchange::DlpackExchangeApiRef,
     },
@@ -13,7 +16,6 @@ use crate::{
 };
 use pyo3::{
     Borrowed, PyAny,
-    conversion::FromPyObject,
     exceptions::{PyAttributeError, PyTypeError, PyValueError},
     types::PyAnyMethods,
 };
@@ -50,7 +52,7 @@ impl ImportedDlpack {
 /// order: DLPack 1.3 C Exchange API, the standard Python Array API protocol
 /// (`__dlpack_device__` plus `__dlpack__`), then legacy `__dlpack__` without
 /// negotiation arguments.
-pub fn import_dlpack(
+pub fn from_dlpack(
     object: Borrowed<'_, '_, PyAny>,
     stream: Option<&dyn DlpackStream>,
     copy: Option<bool>,
@@ -133,14 +135,12 @@ fn exchange_stream_is_ready(
 
 fn consume_capsule(object: Borrowed<'_, '_, PyAny>) -> pyo3::PyResult<ImportedDlpack> {
     if is_versioned_capsule(object) {
-        return Ok(ImportedDlpack::Versioned(Managed::<
-            DLManagedTensorVersioned,
-        >::extract(object)?));
-    }
-    if is_legacy_capsule(object) {
-        return Ok(ImportedDlpack::Legacy(Managed::<DLManagedTensor>::extract(
+        return Ok(ImportedDlpack::Versioned(consume_versioned_capsule(
             object,
         )?));
+    }
+    if is_legacy_capsule(object) {
+        return Ok(ImportedDlpack::Legacy(consume_legacy_capsule(object)?));
     }
     Err(PyValueError::new_err(
         "__dlpack__ returned a capsule with neither dltensor nor dltensor_versioned ABI",
@@ -236,7 +236,7 @@ mod tests {
             let capsule = versioned_tensor().into_pyobject(py)?;
             let producer = module.getattr("Producer")?.call1((capsule,))?;
 
-            let imported = import_dlpack(producer.as_borrowed(), None, None)?;
+            let imported = from_dlpack(producer.as_borrowed(), None, None)?;
 
             assert!(matches!(imported, ImportedDlpack::Versioned(_)));
             let calls = producer.getattr("calls")?;
@@ -275,7 +275,7 @@ mod tests {
             let capsule = legacy_tensor().into_pyobject(py)?;
             let producer = module.getattr("Producer")?.call1((capsule,))?;
 
-            let imported = import_dlpack(producer.as_borrowed(), None, None)?;
+            let imported = from_dlpack(producer.as_borrowed(), None, None)?;
 
             assert!(matches!(imported, ImportedDlpack::Legacy(_)));
             assert_eq!(producer.getattr("calls")?.extract::<usize>()?, 1);
@@ -289,7 +289,7 @@ mod tests {
         Python::initialize();
         Python::attach(|py| {
             let object = pyo3::types::PyDict::new(py);
-            let error = match import_dlpack(object.as_any().as_borrowed(), None, None) {
+            let error = match from_dlpack(object.as_any().as_borrowed(), None, None) {
                 Ok(_) => panic!("object without a DLPack protocol was accepted"),
                 Err(error) => error,
             };

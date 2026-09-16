@@ -1,14 +1,12 @@
-//! Converts Python capsules and DLPack producers into owning Rust tensors.
+//! Converts Python DLPack capsules into owning Rust tensors.
 
 use super::{DLTENSOR, DLTENSOR_VERSIONED, USED_DLTENSOR, USED_DLTENSOR_VERSIONED};
 use crate::{
     DlpackFlags, Managed,
     ffi::{DLManagedTensor, DLManagedTensorVersioned},
-    python::{DlpackStream, ImportedDlpack, exchange::DlpackExchangeApiRef, import_dlpack},
 };
 use pyo3::{
     Borrowed, Bound, PyAny, PyErr,
-    conversion::FromPyObject,
     exceptions::{PyBufferError, PyRuntimeError, PyValueError},
     types::{PyAnyMethods, PyDict, PyString},
 };
@@ -99,25 +97,12 @@ pub(crate) fn call_dlpack<'py>(
     ob.call_method(PyString::intern(py, "__dlpack__"), (), Some(&kwargs))
 }
 
-impl<'py> FromPyObject<'_, 'py> for Managed<DLManagedTensor> {
-    type Error = PyErr;
-    fn extract(ob: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let owned_capsule;
-        let capsule = if is_dlpack_capsule(ob, DLTENSOR, USED_DLTENSOR) {
-            ob.as_ptr()
-        } else {
-            owned_capsule = call_dlpack(ob, None, None, None)?;
-            owned_capsule.as_ptr()
-        };
-        let ptr = capsule_to_raw_dlpack(capsule, DLTENSOR, USED_DLTENSOR)?;
-        if ptr.is_null() {
-            return Err(PyRuntimeError::new_err(
-                "DLPack capsule pointer is unexpectedly null",
-            ));
-        }
-        unsafe { Self::from_raw(ptr.cast()) }
-            .map_err(|error| PyRuntimeError::new_err(error.to_string()))
-    }
+pub(crate) fn consume_legacy_capsule(
+    capsule: Borrowed<'_, '_, PyAny>,
+) -> pyo3::PyResult<Managed<DLManagedTensor>> {
+    let ptr = capsule_to_raw_dlpack(capsule.as_ptr(), DLTENSOR, USED_DLTENSOR)?;
+    unsafe { Managed::from_raw(ptr.cast()) }
+        .map_err(|error| PyRuntimeError::new_err(error.to_string()))
 }
 
 pub(crate) fn validate_copy_result(
@@ -136,70 +121,14 @@ pub(crate) fn validate_copy_result(
     }
 }
 
-impl<'py> FromPyObject<'_, 'py> for Managed<DLManagedTensorVersioned> {
-    type Error = PyErr;
-    fn extract(ob: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
-        if let Some(api) = DlpackExchangeApiRef::from_object(ob)? {
-            return api.managed_tensor_from_py_object_no_sync(ob);
-        }
-
-        let owned_capsule;
-        let capsule = if is_dlpack_capsule(ob, DLTENSOR_VERSIONED, USED_DLTENSOR_VERSIONED) {
-            ob.as_ptr()
-        } else {
-            owned_capsule = call_dlpack(
-                ob,
-                Some((
-                    crate::ffi::DLPACK_MAJOR_VERSION,
-                    crate::ffi::DLPACK_MINOR_VERSION,
-                )),
-                None,
-                None,
-            )?;
-            owned_capsule.as_ptr()
-        };
-        let ptr = capsule_to_raw_dlpack(capsule, DLTENSOR_VERSIONED, USED_DLTENSOR_VERSIONED)?;
-        if ptr.is_null() {
-            return Err(PyRuntimeError::new_err(
-                "DLPack capsule pointer is unexpectedly null",
-            ));
-        }
-        unsafe { Self::from_raw(ptr.cast()) }
-            .map_err(|error| PyRuntimeError::new_err(error.to_string()))
-    }
-}
-
-impl Managed<DLManagedTensorVersioned> {
-    /// Extracts a versioned DLPack tensor with optional stream and copy
-    /// requests.
-    pub fn extract_with_options(
-        ob: Borrowed<'_, '_, PyAny>,
-        stream: Option<&dyn DlpackStream>,
-        copy: Option<bool>,
-    ) -> pyo3::PyResult<Self> {
-        match import_dlpack(ob, stream, copy)? {
-            ImportedDlpack::Versioned(tensor) => Ok(tensor),
-            ImportedDlpack::Legacy(_) => Err(PyValueError::new_err(
-                "producer returned the legacy DLPack ABI where the versioned ABI was required",
-            )),
-        }
-    }
-
-    /// Extracts a versioned DLPack tensor using an explicit consumer stream.
-    ///
-    /// This follows the Python DLPack consumer protocol: it queries
-    /// `__dlpack_device__()`, maps `stream` for that device, and passes the
-    /// result to `__dlpack__(stream=..., max_version=..., copy=...)`.
-    /// `copy` maps directly to Python's tri-state copy request. The returned
-    /// `IS_COPIED` flag is checked against an explicit `true` or `false` request.
-    pub fn extract_with_stream<'py, S>(
-        ob: Borrowed<'_, 'py, PyAny>,
-        stream: &S,
-        copy: Option<bool>,
-    ) -> pyo3::PyResult<Self>
-    where
-        S: DlpackStream,
-    {
-        Self::extract_with_options(ob, Some(stream), copy)
-    }
+pub(crate) fn consume_versioned_capsule(
+    capsule: Borrowed<'_, '_, PyAny>,
+) -> pyo3::PyResult<Managed<DLManagedTensorVersioned>> {
+    let ptr = capsule_to_raw_dlpack(
+        capsule.as_ptr(),
+        DLTENSOR_VERSIONED,
+        USED_DLTENSOR_VERSIONED,
+    )?;
+    unsafe { Managed::from_raw(ptr.cast()) }
+        .map_err(|error| PyRuntimeError::new_err(error.to_string()))
 }

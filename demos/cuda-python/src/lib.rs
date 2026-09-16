@@ -4,7 +4,7 @@ use dlpark::{
     DlpackFlags, Managed, ManagedTensorBase,
     ffi::{DLDeviceType, DLManagedTensor, DLManagedTensorVersioned, DLPACK_MAJOR_VERSION},
     metadata::{Copied, Dynamic},
-    python::{ImportedDlpack, import_dlpack},
+    python::{ImportedDlpack, from_dlpack},
 };
 use cuda::CudaStream;
 use pyo3::{
@@ -103,7 +103,7 @@ impl CudaTensor {
         }
 
         let stream = CudaStream::new(device.device_id).map_err(runtime_error)?;
-        let managed = import_dlpack(tensor.as_borrowed(), Some(&stream), None)?;
+        let managed = from_dlpack(tensor.as_borrowed(), Some(&stream), None)?;
         let descriptor = managed.validate().map_err(runtime_error)?;
         let abi = match &managed {
             ImportedDlpack::Legacy(_) => "legacy".to_owned(),

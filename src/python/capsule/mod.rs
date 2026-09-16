@@ -11,14 +11,15 @@ mod from_python;
 mod into_python;
 
 pub(crate) use from_python::{
-    call_dlpack, is_legacy_capsule, is_versioned_capsule, validate_copy_result,
+    call_dlpack, consume_legacy_capsule, consume_versioned_capsule, is_legacy_capsule,
+    is_versioned_capsule, validate_copy_result,
 };
 
 #[cfg(test)]
 use crate::{
     Managed,
     ffi::{DLManagedTensor, DLManagedTensorVersioned},
-    python::DlpackStream,
+    python::{DlpackStream, ImportedDlpack, from_dlpack},
 };
 #[cfg(test)]
 mod tests {
@@ -29,7 +30,7 @@ mod tests {
         ffi::{DLDataType, DLDevice, DLDeviceType},
     };
     use pyo3::{
-        conversion::{FromPyObject, IntoPyObject},
+        conversion::IntoPyObject,
         exceptions::PyValueError,
         types::{PyAnyMethods, PyModule},
     };
@@ -99,7 +100,10 @@ mod tests {
                 DlpackFlags::empty(),
             );
             let capsule = tensor.into_pyobject(py)?;
-            let tensor = Managed::<DLManagedTensorVersioned>::extract(capsule.as_borrowed())?;
+            let ImportedDlpack::Versioned(tensor) = from_dlpack(capsule.as_borrowed(), None, None)?
+            else {
+                panic!("versioned capsule was imported as legacy");
+            };
             assert_eq!(
                 unsafe { tensor.tensor().cpu_slice::<i32>() }.unwrap(),
                 &[4, 5, 6]
@@ -115,13 +119,16 @@ mod tests {
         pyo3::Python::attach(|py| -> pyo3::PyResult<()> {
             let capsule = legacy_tensor().into_pyobject(py)?;
 
-            let dlpack = Managed::<DLManagedTensor>::extract(capsule.as_borrowed())?;
+            let ImportedDlpack::Legacy(dlpack) = from_dlpack(capsule.as_borrowed(), None, None)?
+            else {
+                panic!("legacy capsule was imported as versioned");
+            };
             assert_eq!(
                 unsafe { dlpack.tensor().cpu_slice::<i32>() }.unwrap(),
                 &[1, 2, 3]
             );
 
-            let err = match Managed::<DLManagedTensor>::extract(capsule.as_borrowed()) {
+            let err = match from_dlpack(capsule.as_borrowed(), None, None) {
                 Ok(_) => panic!("consuming the same DLPack capsule twice should fail"),
                 Err(err) => err,
             };
@@ -138,13 +145,16 @@ mod tests {
         pyo3::Python::attach(|py| -> pyo3::PyResult<()> {
             let capsule = versioned_tensor().into_pyobject(py)?;
 
-            let dlpack = Managed::<DLManagedTensorVersioned>::extract(capsule.as_borrowed())?;
+            let ImportedDlpack::Versioned(dlpack) = from_dlpack(capsule.as_borrowed(), None, None)?
+            else {
+                panic!("versioned capsule was imported as legacy");
+            };
             assert_eq!(
                 unsafe { dlpack.tensor().cpu_slice::<i32>() }.unwrap(),
                 &[4, 5, 6]
             );
 
-            let err = match Managed::<DLManagedTensorVersioned>::extract(capsule.as_borrowed()) {
+            let err = match from_dlpack(capsule.as_borrowed(), None, None) {
                 Ok(_) => panic!("consuming the same DLPack capsule twice should fail"),
                 Err(err) => err,
             };
@@ -156,7 +166,7 @@ mod tests {
     }
 
     #[test]
-    fn versioned_extract_rejects_copy_result_mismatch() {
+    fn from_dlpack_rejects_copy_result_mismatch() {
         pyo3::Python::initialize();
         pyo3::Python::attach(|py| -> pyo3::PyResult<()> {
             let module = PyModule::from_code(
@@ -181,11 +191,7 @@ mod tests {
             ] {
                 let capsule = versioned_tensor_with_flags(flags).into_pyobject(py)?;
                 let producer = module.getattr("Producer")?.call1((capsule,))?;
-                let error = match Managed::<DLManagedTensorVersioned>::extract_with_options(
-                    producer.as_borrowed(),
-                    None,
-                    Some(requested),
-                ) {
+                let error = match from_dlpack(producer.as_borrowed(), None, Some(requested)) {
                     Ok(_) => panic!("copy result mismatch must be rejected"),
                     Err(error) => error,
                 };
@@ -198,37 +204,7 @@ mod tests {
     }
 
     #[test]
-    fn legacy_extract_calls_dunder_dlpack_fallback() {
-        pyo3::Python::initialize();
-        pyo3::Python::attach(|py| -> pyo3::PyResult<()> {
-            let capsule = legacy_tensor().into_pyobject(py)?;
-            let module = PyModule::from_code(
-                py,
-                cr#"class Producer:
-    def __init__(self, capsule):
-        self.capsule = capsule
-
-    def __dlpack__(self):
-        return self.capsule
-"#,
-                c"producer.py",
-                c"producer",
-            )?;
-            let producer = module.getattr("Producer")?.call1((capsule,))?;
-
-            let dlpack = Managed::<DLManagedTensor>::extract(producer.as_borrowed())?;
-            assert_eq!(
-                unsafe { dlpack.tensor().cpu_slice::<i32>() }.unwrap(),
-                &[1, 2, 3]
-            );
-
-            Ok(())
-        })
-        .unwrap();
-    }
-
-    #[test]
-    fn versioned_extract_calls_dunder_dlpack_with_max_version() {
+    fn from_dlpack_negotiates_versioned_protocol() {
         pyo3::Python::initialize();
         pyo3::Python::attach(|py| -> pyo3::PyResult<()> {
             let capsule = versioned_tensor().into_pyobject(py)?;
@@ -239,6 +215,9 @@ mod tests {
         self.capsule = capsule
         self.seen_max_version = None
 
+    def __dlpack_device__(self):
+        return (1, 0)
+
     def __dlpack__(self, *, max_version=None):
         self.seen_max_version = max_version
         return self.capsule
@@ -248,7 +227,11 @@ mod tests {
             )?;
             let producer = module.getattr("Producer")?.call1((capsule,))?;
 
-            let dlpack = Managed::<DLManagedTensorVersioned>::extract(producer.as_borrowed())?;
+            let ImportedDlpack::Versioned(dlpack) =
+                from_dlpack(producer.as_borrowed(), None, None)?
+            else {
+                panic!("negotiated import returned the legacy ABI");
+            };
             assert_eq!(
                 unsafe { dlpack.tensor().cpu_slice::<i32>() }.unwrap(),
                 &[4, 5, 6]
@@ -269,7 +252,7 @@ mod tests {
     }
 
     #[test]
-    fn versioned_extract_with_stream_maps_device_and_passes_stream() {
+    fn from_dlpack_maps_device_and_passes_stream() {
         pyo3::Python::initialize();
         pyo3::Python::attach(|py| -> pyo3::PyResult<()> {
             let capsule = versioned_tensor().into_pyobject(py)?;
@@ -296,11 +279,7 @@ mod tests {
             )?;
             let producer = module.getattr("Producer")?.call1((capsule,))?;
 
-            let _dlpack = Managed::<DLManagedTensorVersioned>::extract_with_stream(
-                producer.as_borrowed(),
-                &TestStream,
-                Some(false),
-            )?;
+            let _dlpack = from_dlpack(producer.as_borrowed(), Some(&TestStream), Some(false))?;
             assert_eq!(producer.getattr("seen_stream")?.extract::<usize>()?, 42);
             assert!(!producer.getattr("seen_copy")?.extract::<bool>()?);
             assert_eq!(
@@ -319,7 +298,7 @@ mod tests {
     }
 
     #[test]
-    fn versioned_extract_with_options_passes_copy_without_stream() {
+    fn from_dlpack_passes_copy_without_stream() {
         pyo3::Python::initialize();
         pyo3::Python::attach(|py| -> pyo3::PyResult<()> {
             let capsule = versioned_tensor_with_flags(DlpackFlags::IS_COPIED).into_pyobject(py)?;
@@ -342,11 +321,7 @@ mod tests {
             )?;
             let producer = module.getattr("Producer")?.call1((capsule,))?;
 
-            let _dlpack = Managed::<DLManagedTensorVersioned>::extract_with_options(
-                producer.as_borrowed(),
-                None,
-                Some(true),
-            )?;
+            let _dlpack = from_dlpack(producer.as_borrowed(), None, Some(true))?;
             assert!(producer.getattr("seen_copy")?.extract::<bool>()?);
 
             Ok(())
@@ -355,37 +330,7 @@ mod tests {
     }
 
     #[test]
-    fn versioned_extract_rejects_producers_without_version_negotiation() {
-        pyo3::Python::initialize();
-        pyo3::Python::attach(|py| -> pyo3::PyResult<()> {
-            let module = PyModule::from_code(
-                py,
-                cr#"class Producer:
-    def __init__(self):
-        self.calls = 0
-
-    def __dlpack__(self):
-        self.calls += 1
-"#,
-                c"legacy_producer.py",
-                c"legacy_producer",
-            )?;
-            let producer = module.getattr("Producer")?.call0()?;
-
-            let err = match Managed::<DLManagedTensorVersioned>::extract(producer.as_borrowed()) {
-                Ok(_) => panic!("versioned extraction requires max_version support"),
-                Err(err) => err,
-            };
-            assert!(err.is_instance_of::<pyo3::exceptions::PyTypeError>(py));
-            assert_eq!(producer.getattr("calls")?.extract::<u32>()?, 0);
-
-            Ok(())
-        })
-        .unwrap();
-    }
-
-    #[test]
-    fn versioned_extract_does_not_retry_internal_type_error() {
+    fn from_dlpack_does_not_retry_internal_type_error() {
         pyo3::Python::initialize();
         pyo3::Python::attach(|py| -> pyo3::PyResult<()> {
             let module = PyModule::from_code(
@@ -403,7 +348,7 @@ mod tests {
             )?;
             let producer = module.getattr("Producer")?.call0()?;
 
-            let err = match Managed::<DLManagedTensorVersioned>::extract(producer.as_borrowed()) {
+            let err = match from_dlpack(producer.as_borrowed(), None, None) {
                 Ok(_) => panic!("producer TypeError should propagate"),
                 Err(err) => err,
             };
