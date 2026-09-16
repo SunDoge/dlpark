@@ -2,7 +2,8 @@ from typing import Any
 
 
 class CudaTensor:
-    def __init__(self, tensor: Any) -> None: ...
+    @classmethod
+    def from_dlpack(cls, tensor: Any) -> CudaTensor: ...
     @property
     def device_id(self) -> int: ...
     @property

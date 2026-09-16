@@ -11,10 +11,11 @@ use libloading::Library;
 use pyo3::{PyResult, Python, exceptions::PyValueError};
 use snafu::{ResultExt, Snafu};
 use std::{
+    collections::HashMap,
     ffi::{CStr, c_char, c_int, c_uint, c_void},
     path::PathBuf,
     ptr::{self, NonNull},
-    sync::OnceLock,
+    sync::{Arc, Mutex, OnceLock},
 };
 
 type RawStream = *mut c_void;
@@ -112,6 +113,7 @@ cuda_fns! {
 }
 
 static CUDA_API: OnceLock<CudaApi> = OnceLock::new();
+static CUDA_STREAMS: OnceLock<Mutex<HashMap<c_int, Arc<CudaStream>>>> = OnceLock::new();
 
 fn api() -> Result<&'static CudaApi, Error> {
     if let Some(api) = CUDA_API.get() {
@@ -192,15 +194,93 @@ pub struct CudaStream {
     device: c_int,
 }
 
+// CUDA stream handles may be used from different host threads. Every operation
+// first selects the owning device on the calling thread through `with_device`.
+unsafe impl Send for CudaStream {}
+unsafe impl Sync for CudaStream {}
+
+/// A zero-copy CUDA allocation with a custom deleter.
+///
+/// The buffer records the byte-offset-adjusted device address. It does not
+/// assume how the memory was allocated; dropping the last owner invokes the
+/// supplied deleter exactly once.
+pub struct CudaBuffer {
+    address: usize,
+    byte_len: usize,
+    device: c_int,
+    deleter: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+}
+
+impl CudaBuffer {
+    /// Creates a zero-copy view over an externally owned CUDA allocation.
+    ///
+    /// # Safety
+    ///
+    /// `address` must remain valid for `byte_len` bytes on `device` until the
+    /// deleter runs. The deleter must release that ownership without unwinding.
+    /// For a non-empty buffer, `address` must be nonzero.
+    pub unsafe fn from_external<D>(
+        address: usize,
+        byte_len: usize,
+        device: c_int,
+        deleter: D,
+    ) -> Self
+    where
+        D: FnOnce() + Send + 'static,
+    {
+        debug_assert!(byte_len == 0 || address != 0);
+        Self {
+            address,
+            byte_len,
+            device,
+            deleter: Mutex::new(Some(Box::new(deleter))),
+        }
+    }
+
+    /// Returns the byte-offset-adjusted CUDA device pointer.
+    pub fn as_raw(&self) -> *mut c_void {
+        self.address as *mut c_void
+    }
+
+    /// Returns the allocation view length in bytes.
+    pub fn byte_len(&self) -> usize {
+        self.byte_len
+    }
+
+    /// Returns the CUDA device ordinal.
+    pub fn device(&self) -> c_int {
+        self.device
+    }
+}
+
+impl Drop for CudaBuffer {
+    fn drop(&mut self) {
+        let deleter = self
+            .deleter
+            .get_mut()
+            .unwrap_or_else(|error| error.into_inner())
+            .take();
+        if let Some(deleter) = deleter {
+            deleter();
+        }
+    }
+}
+
 impl CudaStream {
-    /// Creates a non-blocking stream on `device`.
+    /// Returns the process-wide relay stream for `device`.
     ///
     /// By default, dlpark attaches to the CUDA Runtime already loaded by the
     /// producer framework so both sides use the same runtime instance. Set
     /// `DLPARK_CUDART_PATH` to force a specific runtime library. A failed
     /// lookup is not cached, so construction may be retried after the
     /// framework initializes CUDA.
-    pub fn new(device: c_int) -> Result<Self, Error> {
+    pub fn for_device(device: c_int) -> Result<Arc<Self>, Error> {
+        let streams = CUDA_STREAMS.get_or_init(|| Mutex::new(HashMap::new()));
+        let mut streams = streams.lock().unwrap_or_else(|error| error.into_inner());
+        if let Some(stream) = streams.get(&device) {
+            return Ok(Arc::clone(stream));
+        }
+
         let api = api()?;
         let raw = api.with_device(device, |api| {
             let mut stream = ptr::null_mut();
@@ -211,7 +291,9 @@ impl CudaStream {
                 operation: "cudaStreamCreateWithFlags",
             })
         })?;
-        Ok(Self { api, raw, device })
+        let stream = Arc::new(Self { api, raw, device });
+        streams.insert(device, Arc::clone(&stream));
+        Ok(stream)
     }
 
     /// Returns the borrowed native `cudaStream_t` handle.

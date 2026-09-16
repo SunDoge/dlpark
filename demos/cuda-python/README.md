@@ -24,15 +24,22 @@ For CUDA 13, replace `cuda12` with `cuda13`. All Python dependencies are declare
 `pyproject.toml` and locked by `uv.lock`. This example requires GPU hardware and is
 intentionally excluded from GitHub Actions.
 
-`CudaTensor` is an ordinary PyO3 class that owns the incoming managed DLPack tensor
-and the demo's `CudaStream`. Every `__dlpack__` call constructs a fresh
-legacy or versioned managed tensor according to the consumer's `max_version`.
-The extension does not link a CUDA SDK or construct a fake owning buffer around foreign
-memory. The demo uses a macro to generate its small CUDA Runtime function table and
-resolves it from the `libcudart` already loaded by CuPy or Torch. This loading design follows
+`CudaTensor.from_dlpack(obj)` consumes the incoming managed tensor and creates a
+zero-copy `CudaBuffer`. The buffer stores the adjusted CUDA device pointer and a
+custom deleter that invokes the original DLPack deleter exactly once. Tensor metadata
+is then owned independently by `CudaTensor`; it does not retain a `Managed` wrapper.
+Every `__dlpack__` call constructs a fresh legacy or versioned managed tensor, and
+the class also exposes DLPack 1.3's C Exchange API.
+
+The extension does not link a CUDA SDK. It uses a macro to generate its small CUDA
+Runtime function table and resolves it from the `libcudart` already loaded by CuPy or
+Torch. This loading design follows
 [safetensors' minimal CUDA engine](https://github.com/huggingface/safetensors/blob/b7c0f38b6ae072c3cc6208933df0c81fbd2ef837/bindings/python/src/engine/cuda.rs).
 
-On import, the Python producer is asked to make its data ready on the Rust stream. On
+One process-wide relay stream is shared per CUDA device, allowing the C Exchange API's
+type-level `current_work_stream(device)` callback to report the actual stream used by
+every `CudaTensor`. On import, the Python producer is asked to make its data ready on
+that Rust stream. On
 each export, Rust records an event there and queues `cudaStreamWaitEvent` on the destination
 stream. A destination that omits its stream gets the protocol's conservative host
 synchronization path. The logs show the negotiated version and flags, device, dtype,
