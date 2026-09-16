@@ -5,9 +5,11 @@ fills it through its CPU-visible mapping, and transfers the same Metal buffer
 to MLX through DLPack. Passing `copy=False` makes MLX reject the input rather
 than silently copy if the buffer cannot be adopted.
 
-`MetalTensor` owns an `Arc<versioned::Dlpack>` whose manager context owns the
-shared buffer. Every `__dlpack__` call clones that `Arc` into a fresh legacy or
-versioned managed tensor according to the consumer's `max_version`.
+`MetalTensor.from_values(...)` and `MetalTensor.empty(...)` allocate shared
+storage through `MetalBuffer::allocate`. `MetalTensor.from_dlpack(obj)` adopts an
+external `id<MTLBuffer>` without copying and stores the original DLPack release
+operation as an `AllocationDeleter`. Tensor metadata and `byte_offset` are owned
+independently by `MetalTensor`; every export creates a fresh managed header.
 
 Run it on an Apple silicon Mac with Python 3.12 and `uv`:
 
