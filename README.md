@@ -207,6 +207,12 @@ The `pyo3` feature supports the standard Python DLPack capsule protocol:
 
 The C Exchange API is intended for extension/library use where the consumer borrows tensors and coordinates work on the producer's current stream. It is not a replacement for the normal `__dlpack__` ingestion path.
 
+After `python::from_dlpack` validates and imports a tensor, containers that own
+their own pointer and metadata can call `ImportedDlpack::into_deleter`. This
+returns an `AllocationDeleter` that invokes the original DLPack deleter exactly
+once, without making the container retain or distinguish the legacy and
+versioned managed-tensor wrappers.
+
 For producers, `python::ExportRequest::parse` turns the four `__dlpack__`
 arguments (`stream`, `max_version`, `dl_device`, and `copy`) into a validated
 Rust value. Its `export_zero_copy` method checks copy and device requests,

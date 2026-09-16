@@ -1,7 +1,7 @@
 //! Ordered import of Python DLPack producers.
 
 use crate::{
-    DlpackFlags, Managed,
+    AllocationDeleter, DlpackFlags, Managed,
     ffi::{DLManagedTensor, DLManagedTensorVersioned},
     python::{
         DlpackStream,
@@ -42,6 +42,17 @@ impl ImportedDlpack {
         match self {
             Self::Legacy(tensor) => tensor.flags(),
             Self::Versioned(tensor) => tensor.flags(),
+        }
+    }
+
+    /// Erases the imported managed tensor into its exactly-once allocation deleter.
+    ///
+    /// Containers can store this alongside their own device pointer and
+    /// metadata without depending on either managed-tensor ABI.
+    pub fn into_deleter(self) -> AllocationDeleter {
+        match self {
+            Self::Legacy(tensor) => tensor.into_deleter(),
+            Self::Versioned(tensor) => tensor.into_deleter(),
         }
     }
 }

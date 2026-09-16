@@ -1,9 +1,9 @@
 //! Owning DLPack managed tensors.
 
-use crate::DlpackFlags;
 use crate::ManagedTensorBase;
 use crate::ffi::{DLManagedTensorVersioned, DLPackVersion};
 use crate::tensor;
+use crate::{AllocationDeleter, DlpackFlags};
 use snafu::Snafu;
 use std::ptr::NonNull;
 
@@ -76,6 +76,24 @@ where
         let ptr = self.0.as_ptr();
         std::mem::forget(self);
         ptr
+    }
+
+    /// Erases the managed-tensor representation into an exactly-once deleter.
+    ///
+    /// This is useful when importing DLPack into a container that stores its
+    /// own pointer and metadata but must preserve the producer's allocation
+    /// lifetime. Dropping the returned value invokes the original DLPack
+    /// deleter without retaining a [`Managed`] wrapper.
+    pub fn into_deleter(self) -> AllocationDeleter {
+        let raw = self.into_raw() as usize;
+        // SAFETY: ManagedTensorBase requires its deleter to be callable exactly
+        // once from any thread without unwinding. Ownership of `raw` moved out
+        // of self and is now held exclusively by this callback.
+        unsafe {
+            AllocationDeleter::new(move || {
+                M::drop_raw(raw as *mut M);
+            })
+        }
     }
 
     /// Returns the managed tensor pointer without transferring ownership.
@@ -156,7 +174,21 @@ mod tests {
         allocation::fixed::make_test_tensor,
         ffi::{DLDevice, DLManagedTensor},
     };
-    use std::ffi::c_void;
+    use std::{
+        ffi::c_void,
+        sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        },
+    };
+
+    struct DropCounter(Arc<AtomicUsize>);
+
+    impl Drop for DropCounter {
+        fn drop(&mut self) {
+            self.0.fetch_add(1, Ordering::Relaxed);
+        }
+    }
 
     /// Builds a `[1, 2, 3]` i32 tensor of type `M` with the given flags.
     ///
@@ -188,6 +220,25 @@ mod tests {
 
         assert_send_sync::<Managed<DLManagedTensor>>();
         assert_send_sync::<Managed<DLManagedTensorVersioned>>();
+    }
+
+    #[test]
+    fn into_deleter_releases_the_managed_tensor_once() {
+        let drops = Arc::new(AtomicUsize::new(0));
+        let tensor = make_test_tensor::<_, DLManagedTensor, 1>(
+            Box::new(DropCounter(Arc::clone(&drops))),
+            std::ptr::null_mut(),
+            crate::ffi::DLDataType::U8,
+            DLDevice::CPU,
+            [0],
+            [1],
+            DlpackFlags::empty(),
+        );
+
+        let deleter = tensor.into_deleter();
+        assert_eq!(drops.load(Ordering::Relaxed), 0);
+        drop(deleter);
+        assert_eq!(drops.load(Ordering::Relaxed), 1);
     }
 
     #[test]

@@ -1,5 +1,41 @@
 use std::ffi::c_void;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+
+/// A type-erased, exactly-once allocation release callback.
+///
+/// This lets a container retain an imported allocation without retaining its
+/// DLPack header representation. Dropping the deleter invokes its callback.
+pub struct AllocationDeleter {
+    callback: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+}
+
+impl AllocationDeleter {
+    /// Creates an allocation deleter from an arbitrary release callback.
+    ///
+    /// # Safety
+    ///
+    /// The callback must be safe to invoke exactly once from any thread and
+    /// must not unwind. Any resources it references must remain valid until it
+    /// runs.
+    pub unsafe fn new(callback: impl FnOnce() + Send + 'static) -> Self {
+        Self {
+            callback: Mutex::new(Some(Box::new(callback))),
+        }
+    }
+}
+
+impl Drop for AllocationDeleter {
+    fn drop(&mut self) {
+        let callback = self
+            .callback
+            .get_mut()
+            .unwrap_or_else(|error| error.into_inner())
+            .take();
+        if let Some(callback) = callback {
+            callback();
+        }
+    }
+}
 
 /// Owns or tracks the opaque context stored in a DLPack managed tensor.
 ///
@@ -57,5 +93,25 @@ unsafe impl<T: Sized + Send + Sync> OpaqueContext for Arc<T> {
                 let _ = Arc::from_raw(raw as *const T);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn allocation_deleter_runs_once_on_drop() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let callback_calls = Arc::clone(&calls);
+        let deleter = unsafe {
+            AllocationDeleter::new(move || {
+                callback_calls.fetch_add(1, Ordering::Relaxed);
+            })
+        };
+
+        drop(deleter);
+        assert_eq!(calls.load(Ordering::Relaxed), 1);
     }
 }

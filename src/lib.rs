@@ -57,7 +57,7 @@ pub mod versioned;
 /// Shape and stride metadata composed with managed tensor allocations.
 pub mod metadata;
 pub use borrowed::Borrowed;
-pub use context::OpaqueContext;
+pub use context::{AllocationDeleter, OpaqueContext};
 pub use convert::TryFromDlpack;
 pub use data_type::DlpackElement;
 pub use dlpack::Managed;

@@ -5,7 +5,10 @@
 //! loader. It contains only the calls needed to negotiate DLPack stream
 //! ownership without linking a CUDA toolkit at build time.
 
-use dlpark::ffi::{DLDevice, DLDeviceType};
+use dlpark::{
+    AllocationDeleter,
+    ffi::{DLDevice, DLDeviceType},
+};
 use dlpark::python::{DlpackStream, StreamArg, consumer::stream};
 use libloading::Library;
 use pyo3::{PyResult, Python, exceptions::PyValueError};
@@ -209,7 +212,7 @@ pub struct CudaBuffer {
     address: usize,
     byte_len: usize,
     device: c_int,
-    deleter: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+    _deleter: AllocationDeleter,
 }
 
 impl CudaBuffer {
@@ -220,7 +223,8 @@ impl CudaBuffer {
     /// allocation or deallocation call.
     pub fn allocate(byte_len: usize, device: c_int) -> Result<Self, Error> {
         if byte_len == 0 {
-            return Ok(unsafe { Self::from_external(0, 0, device, || {}) });
+            let deleter = unsafe { AllocationDeleter::new(|| {}) };
+            return Ok(unsafe { Self::from_external(0, 0, device, deleter) });
         }
 
         let api = api()?;
@@ -232,13 +236,14 @@ impl CudaBuffer {
             })
         })?;
         let address = raw.as_ptr() as usize;
-        Ok(unsafe {
-            Self::from_external(address, byte_len, device, move || {
+        let deleter = unsafe {
+            AllocationDeleter::new(move || {
                 let _ = api.with_device(device, |api| {
                     api.check("cudaFree", (api.free)(address as *mut c_void))
                 });
             })
-        })
+        };
+        Ok(unsafe { Self::from_external(address, byte_len, device, deleter) })
     }
 
     /// Creates a zero-copy view over an externally owned CUDA allocation.
@@ -248,21 +253,18 @@ impl CudaBuffer {
     /// `address` must remain valid for `byte_len` bytes on `device` until the
     /// deleter runs. The deleter must release that ownership without unwinding.
     /// For a non-empty buffer, `address` must be nonzero.
-    pub unsafe fn from_external<D>(
+    pub unsafe fn from_external(
         address: usize,
         byte_len: usize,
         device: c_int,
-        deleter: D,
-    ) -> Self
-    where
-        D: FnOnce() + Send + 'static,
-    {
+        deleter: AllocationDeleter,
+    ) -> Self {
         debug_assert!(byte_len == 0 || address != 0);
         Self {
             address,
             byte_len,
             device,
-            deleter: Mutex::new(Some(Box::new(deleter))),
+            _deleter: deleter,
         }
     }
 
@@ -279,19 +281,6 @@ impl CudaBuffer {
     /// Returns the CUDA device ordinal.
     pub fn device(&self) -> c_int {
         self.device
-    }
-}
-
-impl Drop for CudaBuffer {
-    fn drop(&mut self) {
-        let deleter = self
-            .deleter
-            .get_mut()
-            .unwrap_or_else(|error| error.into_inner())
-            .take();
-        if let Some(deleter) = deleter {
-            deleter();
-        }
     }
 }
 

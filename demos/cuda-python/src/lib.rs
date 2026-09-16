@@ -106,25 +106,6 @@ impl CudaTensor {
     }
 }
 
-fn imported_deleter(tensor: ImportedDlpack) -> Box<dyn FnOnce() + Send> {
-    match tensor {
-        ImportedDlpack::Legacy(tensor) => {
-            let raw = tensor.into_raw() as usize;
-            Box::new(move || unsafe {
-                <DLManagedTensor as ManagedTensorBase>::drop_raw(raw as *mut DLManagedTensor);
-            })
-        }
-        ImportedDlpack::Versioned(tensor) => {
-            let raw = tensor.into_raw() as usize;
-            Box::new(move || unsafe {
-                <DLManagedTensorVersioned as ManagedTensorBase>::drop_raw(
-                    raw as *mut DLManagedTensorVersioned,
-                );
-            })
-        }
-    }
-}
-
 #[pymethods]
 impl CudaTensor {
     #[classmethod]
@@ -256,7 +237,7 @@ impl CudaTensor {
         };
 
         let flags = source_flags.difference(DlpackFlags::IS_COPIED);
-        let deleter = imported_deleter(managed);
+        let deleter = managed.into_deleter();
         // SAFETY: the custom deleter now owns the imported managed tensor's raw
         // pointer. The address and byte length came from that tensor's validated
         // compact descriptor after applying byte_offset.
