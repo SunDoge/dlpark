@@ -10,10 +10,10 @@
 mod capsule;
 /// Helpers for importing Python DLPack producers into Rust.
 pub mod consumer;
-/// DLPack 1.3 C exchange API integration.
-pub mod exchange;
 /// Helpers for implementing Python DLPack producers.
 pub mod producer;
+/// DLPack 1.3 C Exchange API discovery and invocation.
+pub use consumer::exchange;
 pub use consumer::{DlpackStream, ImportedDlpack, StreamArg, dlpack_device, from_dlpack};
 pub use producer::{
     CudaStreamRequest, DlpackExchangeProducer, ExportAbi, ExportRequest, install_exchange_api,

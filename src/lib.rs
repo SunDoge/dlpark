@@ -30,11 +30,12 @@
 pub mod ffi;
 
 pub mod allocation;
+mod allocation_deleter;
 mod borrowed;
-mod context;
 mod convert;
 mod data_type;
 mod device;
+mod opaque_context;
 mod version;
 
 /// Owning managed-tensor handles and data accessors.
@@ -56,11 +57,12 @@ pub mod versioned;
 
 /// Shape and stride metadata composed with managed tensor allocations.
 pub mod metadata;
+pub use allocation_deleter::AllocationDeleter;
 pub use borrowed::Borrowed;
-pub use context::{AllocationDeleter, OpaqueContext};
 pub use convert::TryFromDlpack;
 pub use data_type::DlpackElement;
 pub use dlpack::Managed;
 pub use managed_tensor::{DlpackFlags, ManagedTensorBase};
+pub use opaque_context::OpaqueContext;
 pub use tensor::{TensorMut, TensorRef};
 pub use version::VersionError;

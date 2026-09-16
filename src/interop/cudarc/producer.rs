@@ -70,7 +70,7 @@ pub fn from_cuda_slice<T: DlpackElement, M: ManagedTensorBase>(
 }
 
 // ---------------------------------------------------------------------------
-// Reverse: Managed<M> → BorrowedCudaSlice<M, T>
+// Reverse: Managed<M> → ManagedCudaSlice<M, T>
 // ---------------------------------------------------------------------------
 
 /// Returns the CUDA device pointer of `slice` as a `*mut c_void` and records

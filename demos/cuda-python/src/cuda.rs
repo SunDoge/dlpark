@@ -5,11 +5,11 @@
 //! loader. It contains only the calls needed to negotiate DLPack stream
 //! ownership without linking a CUDA toolkit at build time.
 
+use dlpark::python::{DlpackStream, StreamArg, consumer::stream};
 use dlpark::{
     AllocationDeleter,
     ffi::{DLDevice, DLDeviceType},
 };
-use dlpark::python::{DlpackStream, StreamArg, consumer::stream};
 use libloading::Library;
 use pyo3::{PyResult, Python, exceptions::PyValueError};
 use snafu::{ResultExt, Snafu};
@@ -209,11 +209,17 @@ unsafe impl Sync for CudaStream {}
 /// assume how the memory was allocated; dropping the last owner invokes the
 /// supplied deleter exactly once.
 pub struct CudaBuffer {
-    address: usize,
+    address: Option<NonNull<c_void>>,
     byte_len: usize,
     device: c_int,
     _deleter: AllocationDeleter,
 }
+
+// CUDA device pointers are opaque handles. Their allocation lifetime is owned
+// by the Send + Sync AllocationDeleter and CUDA permits passing them between
+// host threads.
+unsafe impl Send for CudaBuffer {}
+unsafe impl Sync for CudaBuffer {}
 
 impl CudaBuffer {
     /// Allocates `byte_len` bytes on `device` with `cudaMalloc`.
@@ -223,7 +229,7 @@ impl CudaBuffer {
     /// allocation or deallocation call.
     pub fn allocate(byte_len: usize, device: c_int) -> Result<Self, Error> {
         if byte_len == 0 {
-            let deleter = unsafe { AllocationDeleter::new(|| {}) };
+            let deleter = AllocationDeleter::new(|| {});
             return Ok(unsafe { Self::from_external(0, 0, device, deleter) });
         }
 
@@ -236,13 +242,15 @@ impl CudaBuffer {
             })
         })?;
         let address = raw.as_ptr() as usize;
-        let deleter = unsafe {
-            AllocationDeleter::new(move || {
+        let deleter = AllocationDeleter::new(move || {
+            // SAFETY: `address` came from cudaMalloc on this runtime and this
+            // closure owns the only release operation for it.
+            unsafe {
                 let _ = api.with_device(device, |api| {
                     api.check("cudaFree", (api.free)(address as *mut c_void))
                 });
-            })
-        };
+            }
+        });
         Ok(unsafe { Self::from_external(address, byte_len, device, deleter) })
     }
 
@@ -259,7 +267,11 @@ impl CudaBuffer {
         device: c_int,
         deleter: AllocationDeleter,
     ) -> Self {
-        debug_assert!(byte_len == 0 || address != 0);
+        let address = NonNull::new(ptr::without_provenance_mut(address));
+        assert!(
+            byte_len == 0 || address.is_some(),
+            "a non-empty CUDA buffer must have a non-null address"
+        );
         Self {
             address,
             byte_len,
@@ -270,7 +282,7 @@ impl CudaBuffer {
 
     /// Returns the byte-offset-adjusted CUDA device pointer.
     pub fn as_raw(&self) -> *mut c_void {
-        self.address as *mut c_void
+        self.address.map_or(ptr::null_mut(), NonNull::as_ptr)
     }
 
     /// Returns the allocation view length in bytes.

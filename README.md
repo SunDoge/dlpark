@@ -17,11 +17,13 @@ This crate focuses on transferring tensors between Rust and Python, and between 
 ```bash
 cargo add dlpark --features "ndarray half"          # Rust-only
 cargo add dlpark --features "pyo3 image"             # Python extension
-cargo add dlpark --features "cuda pyo3"              # Linux/Windows CUDA stream exchange
-cargo add dlpark --features "cudarc"                  # CudaSlice container adapter + CUDA runtime
-cargo add dlpark --features "metal"                   # Apple-silicon shared MTLBuffer
+cargo add dlpark --features "cudarc"                  # CudaSlice container adapter
 cargo add dlpark --features "safetensors"             # Read-only file/mmap interoperability
 ```
+
+Raw CUDA and Metal runtime integration is application-specific. Enable `pyo3`
+for the protocol helpers and see `demos/cuda-python` and `demos/metal-python`
+for complete native-buffer implementations.
 
 Feature groups for testing:
 
@@ -211,7 +213,9 @@ After `python::from_dlpack` validates and imports a tensor, containers that own
 their own pointer and metadata can call `ImportedDlpack::into_deleter`. This
 returns an `AllocationDeleter` that invokes the original DLPack deleter exactly
 once, without making the container retain or distinguish the legacy and
-versioned managed-tensor wrappers.
+versioned managed-tensor wrappers. `AllocationDeleter::from_raw_parts` also
+adopts an existing context pointer and release function without allocating an
+additional closure.
 
 For producers, `python::ExportRequest::parse` turns the four `__dlpack__`
 arguments (`stream`, `max_version`, `dl_device`, and `copy`) into a validated
@@ -225,7 +229,9 @@ PyO3 classes that support DLPack 1.3's C Exchange API can implement
 `python::install_exchange_api::<T>(py)` during module initialization. dlpark
 then installs the process-lifetime type attribute and supplies the C callbacks,
 including Python exception restoration, ownership transfer, and panic
-containment. The Metal Python demo shows both producer helpers.
+containment. Set `HAS_DLTENSOR_VIEW` and implement `tensor_view_no_sync` only
+when the class can provide the optional borrowed-view callback. The Metal
+Python demo shows both producer helpers.
 
 ## Interop backends
 
@@ -253,7 +259,7 @@ Zero-copy from `candle::Tensor` to DLPack (the boxed tensor's `Arc`-refcounted s
 
 ### cudarc
 
-Zero-copy in both directions between a [cudarc] `CudaSlice<T>` and a DLPack tensor. The 1-D `TryFrom` producer returns a contiguous default layout (`shape = [len]`, `strides = [1]`) and leaves `IS_COPIED` unset; use `interop::cudarc::from_cuda_slice` for higher-rank tensors. The reverse direction consumes the managed tensor through `TryFromDlpack` for `BorrowedCudaSlice<M, T>`, which retains the managed DLPack owner for the CUDA view's lifetime.
+Zero-copy in both directions between a [cudarc] `CudaSlice<T>` and a DLPack tensor. The 1-D `TryFrom` producer returns a contiguous default layout (`shape = [len]`, `strides = [1]`) and leaves `IS_COPIED` unset; use `interop::cudarc::from_cuda_slice` for higher-rank tensors. The reverse direction consumes the managed tensor through `TryFromDlpack` for `ManagedCudaSlice<M, T>`, which retains the managed DLPack owner for the CUDA view's lifetime.
 
 ### safetensors
 
@@ -306,7 +312,7 @@ fn write_image(filename: &str, tensor: versioned::Dlpack) -> PyResult<()> {
     // SAFETY: this extension accepts tensors through the Python DLPack
     // protocol and relies on the producer to provide a valid descriptor.
     let img: ImageBuffer<image::Rgb<u8>, _> =
-        unsafe { ImageBuffer::try_from_dlpack(&tensor) }?;
+        unsafe { ImageBuffer::try_from_dlpack(&tensor, ()) }?;
     img.save(filename)?;
     Ok(())
 }
@@ -322,7 +328,7 @@ let img = ImageBuffer::<Rgb<u8>, _>::from_vec(100, 100, vec![0; 100 * 100 * 3])?
 let initialized: fixed::Initialized<DLManagedTensorVersioned, 3> =
     Box::new(img).try_into()?;
 let tensor: versioned::Dlpack = unsafe { initialized.finish() };
-let img2 = unsafe { ImageBuffer::<Rgb<u8>, _>::try_from_dlpack(&tensor)? };
+let img2 = unsafe { ImageBuffer::<Rgb<u8>, _>::try_from_dlpack(&tensor, ())? };
 ```
 
 ### ndarray
@@ -335,7 +341,7 @@ let array = arr2(&[[1_i32, 2, 3], [4, 5, 6]]);
 let initialized: dynamic::Initialized<DLManagedTensorVersioned> =
     Box::new(array).try_into()?;
 let tensor: versioned::Dlpack = unsafe { initialized.finish() };
-let view = unsafe { ArrayViewD::<i32>::try_from_dlpack(&tensor)? };
+let view = unsafe { ArrayViewD::<i32>::try_from_dlpack(&tensor, ())? };
 
 assert_eq!(view[[1, 2]], 6);
 
@@ -361,7 +367,7 @@ let initialized: dynamic::Initialized<DLManagedTensorVersioned> =
     Box::new(tensor).try_into()?;
 let dlpack: versioned::Dlpack = unsafe { initialized.finish() };
 
-let tensor2 = unsafe { Tensor::try_from_dlpack(&dlpack)? };
+let tensor2 = unsafe { Tensor::try_from_dlpack(&dlpack, ())? };
 assert_eq!(tensor2.to_vec1::<f32>()?, vec![1., 2., 3., 4.]);
 
 // Signal read-only intent before finishing (candle storage is shared via RwLock):
@@ -380,7 +386,7 @@ Use the optional container adapter when application code already owns a `CudaSli
 use dlpark::{
     TryFromDlpack,
     ffi::DLManagedTensorVersioned,
-    interop::cudarc::{BorrowedCudaSlice, from_cuda_slice},
+    interop::cudarc::{ManagedCudaSlice, from_cuda_slice},
     versioned,
 };
 
@@ -393,7 +399,7 @@ let (initialized, producer_stream) =
 let dlpack: versioned::Dlpack = unsafe { initialized.finish() };
 
 let borrowed = unsafe {
-    BorrowedCudaSlice::<DLManagedTensorVersioned, f32>::try_from_dlpack(
+    ManagedCudaSlice::<DLManagedTensorVersioned, f32>::try_from_dlpack(
         dlpack,
         producer_stream,
     )?
@@ -411,7 +417,7 @@ let file = SafeTensorFile::open("model.safetensors")?;
 let weight = file.tensor("model.weight")?;
 
 let view = unsafe { DlpackView::from_dlpack(&weight)? };
-let bytes = safetensors::serialize([("model.weight", view)], None)?;
+let bytes = safetensors::serialize([("model.weight", &view)], None)?;
 ```
 
 ## Development
@@ -426,8 +432,9 @@ cog install-hook commit-msg
 
 Commit messages use the Conventional Commits types `feat`, `fix`, `docs`,
 `refactor`, `perf`, `test`, `build`, `ci`, `chore`, and `revert`. Pull requests
-validate every new commit in CI. Cocogitto only validates commit messages;
-git-cliff and GitHub PR labels remain responsible for changelog generation.
+validate every new commit in CI. Cocogitto validates commit messages, while
+release-plz creates release PRs, updates the changelog, tags releases, and
+publishes the crate.
 
 ### Regenerating FFI bindings
 

@@ -411,6 +411,44 @@ mod tests {
     }
 
     #[test]
+    fn exchange_api_import_does_not_require_optional_tensor_view() {
+        pyo3::Python::initialize();
+        pyo3::Python::attach(|py| -> pyo3::PyResult<()> {
+            let module = PyModule::from_code(
+                py,
+                cr#"class MockTensor:
+    pass
+"#,
+                c"mock_tensor_without_view.py",
+                c"mock_tensor_without_view",
+            )?;
+            let cls = module.getattr("MockTensor")?;
+            let obj = cls.call0()?;
+
+            let mut api = mock_api();
+            api.dltensor_from_py_object_no_sync = None;
+            let api = Box::leak(Box::new(api));
+            let capsule = unsafe {
+                pyo3::ffi::PyCapsule_New(
+                    (api as *mut DLPackExchangeAPI).cast(),
+                    DLPACK_EXCHANGE_API.as_ptr(),
+                    None,
+                )
+            };
+            let capsule = unsafe { pyo3::Bound::from_owned_ptr(py, capsule) };
+            cls.setattr("__dlpack_c_exchange_api__", capsule)?;
+
+            let ImportedDlpack::Versioned(tensor) = from_dlpack(obj.as_borrowed(), None, None)?
+            else {
+                panic!("C Exchange API returned a legacy tensor");
+            };
+            assert_eq!(tensor.validate().unwrap().shape(), &[3]);
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    #[test]
     fn exchange_api_lookup_preserves_non_attribute_errors() {
         pyo3::Python::initialize();
         pyo3::Python::attach(|py| -> pyo3::PyResult<()> {

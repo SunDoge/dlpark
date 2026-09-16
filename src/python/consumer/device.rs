@@ -6,10 +6,8 @@ use pyo3::{
     types::{PyAnyMethods, PyString},
 };
 
-use crate::{
-    ffi::{DLDevice, DLDeviceType},
-    python::exchange::DlpackExchangeApiRef,
-};
+use super::exchange::DlpackExchangeApiRef;
+use crate::ffi::{DLDevice, DLDeviceType};
 
 /// Queries and validates a producer's DLPack device.
 ///

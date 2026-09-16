@@ -12,19 +12,19 @@
 //! deleter fires. Moving the slice transfers ownership without copying the CUDA
 //! allocation, so `IS_COPIED` remains unset.
 //!
-//! # `to_cuda_slice` direction (`Managed` → [`crate::interop::cudarc::BorrowedCudaSlice`])
+//! # `to_cuda_slice` direction (`Managed` → [`crate::interop::cudarc::ManagedCudaSlice`])
 //!
 //! `upgrade_device_ptr` wraps the DLPack tensor's raw device pointer into a
 //! proper `CudaSlice<T>`. Because the DLPack tensor owns that allocation, we
 //! must NOT call `cudaFree` when our `CudaSlice` is done.
-//! [`crate::interop::cudarc::BorrowedCudaSlice`]
+//! [`crate::interop::cudarc::ManagedCudaSlice`]
 //! owns both the managed tensor and the slice view. Its view destructor calls
 //! `CudaSlice::leak`, preventing the double-free, before the managed tensor
 //! is dropped.
 //!
 //! Unlike the forward direction, this conversion takes a single owned
 //! `Managed<M>` and can fail, so it is exposed as
-//! [`crate::TryFromDlpack`] for `BorrowedCudaSlice<M, T>`.
+//! [`crate::TryFromDlpack`] for `ManagedCudaSlice<M, T>`.
 //!
 //! ## Why not return `CudaView<T>`?
 //!
@@ -32,7 +32,7 @@
 //! `read`/`write`/`stream` fields. If those fields are freed (e.g. via
 //! `CudaSlice::leak`, which calls `drop_in_place` on them), those references
 //! become dangling. Calling `view.device_ptr()` would then be UB.
-//! `BorrowedCudaSlice` avoids this by keeping the slice alive.
+//! `ManagedCudaSlice` avoids this by keeping the slice alive.
 //!
 //! In particular, the workaround sometimes shown for older cudarc releases
 //! cannot be used with the current API:
@@ -44,7 +44,7 @@
 //!
 //! Step 4 drops the exact event and stream fields borrowed by the view, so the
 //! returned view contains dangling references. dlpark instead retains the
-//! temporary `CudaSlice` for the whole lifetime of `BorrowedCudaSlice`, calls
+//! temporary `CudaSlice` for the whole lifetime of `ManagedCudaSlice`, calls
 //! `CudaSlice::leak` only when that wrapper is dropped, and then releases the
 //! owning DLPack tensor. This adapter can be simplified if cudarc gains a
 //! public non-owning raw-device-buffer type that does not require this
@@ -67,7 +67,7 @@ use snafu::Snafu;
 mod consumer;
 mod producer;
 
-pub use consumer::BorrowedCudaSlice;
+pub use consumer::ManagedCudaSlice;
 pub use producer::from_cuda_slice;
 
 /// Errors raised during cudarc interop.
@@ -218,7 +218,7 @@ mod tests {
         ));
     }
 
-    /// End-to-end `CudaSlice` → DLPack → `BorrowedCudaSlice` round-trip using the
+    /// End-to-end `CudaSlice` → DLPack → `ManagedCudaSlice` round-trip using the
     /// `S = Arc<CudaStream>` path: the consumer's stream `join`s the producer's
     /// stream, so the data is visible without an explicit host sync.
     #[test]
@@ -243,7 +243,7 @@ mod tests {
 
         let managed: Managed<DLManagedTensorVersioned> = unsafe { initialized.finish() };
 
-        let borrowed: BorrowedCudaSlice<DLManagedTensorVersioned, i32> =
+        let borrowed: ManagedCudaSlice<DLManagedTensorVersioned, i32> =
             unsafe { TryFromDlpack::try_from_dlpack(managed, producer_stream.clone()) }
                 .expect("consumer join");
 
@@ -270,7 +270,7 @@ mod tests {
                 .expect("producer");
         let managed: Managed<DLManagedTensorVersioned> = unsafe { initialized.finish() };
 
-        let borrowed: BorrowedCudaSlice<DLManagedTensorVersioned, i32> =
+        let borrowed: ManagedCudaSlice<DLManagedTensorVersioned, i32> =
             unsafe { TryFromDlpack::try_from_dlpack(managed, ()) }.expect("consumer no-sync");
 
         // `S = ()` leaves sync to the caller; wait on the producer's stream.

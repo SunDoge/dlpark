@@ -5,7 +5,11 @@ use crate::ffi::{DLManagedTensorVersioned, DLPackVersion};
 use crate::tensor;
 use crate::{AllocationDeleter, DlpackFlags};
 use snafu::Snafu;
-use std::ptr::NonNull;
+use std::{ffi::c_void, ptr::NonNull};
+
+unsafe fn drop_managed<M: ManagedTensorBase>(context: *mut c_void) {
+    unsafe { M::drop_raw(context.cast::<M>()) };
+}
 
 /// Errors raised when taking ownership of a raw managed tensor pointer.
 #[derive(Debug, Snafu)]
@@ -82,18 +86,15 @@ where
     ///
     /// This is useful when importing DLPack into a container that stores its
     /// own pointer and metadata but must preserve the producer's allocation
-    /// lifetime. Dropping the returned value invokes the original DLPack
-    /// deleter without retaining a [`Managed`] wrapper.
+    /// lifetime without parameterizing itself over the legacy or versioned
+    /// header type. Dropping the returned value invokes the original DLPack
+    /// deleter; the original header remains alive until then.
     pub fn into_deleter(self) -> AllocationDeleter {
-        let raw = self.into_raw() as usize;
+        let raw = self.into_raw().cast::<c_void>();
         // SAFETY: ManagedTensorBase requires its deleter to be callable exactly
         // once from any thread without unwinding. Ownership of `raw` moved out
-        // of self and is now held exclusively by this callback.
-        unsafe {
-            AllocationDeleter::new(move || {
-                M::drop_raw(raw as *mut M);
-            })
-        }
+        // of self and is now held exclusively by this deleter.
+        unsafe { AllocationDeleter::from_raw_parts(raw, drop_managed::<M>) }
     }
 
     /// Returns the managed tensor pointer without transferring ownership.

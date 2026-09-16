@@ -193,6 +193,15 @@ impl CudaTensor {
             compact,
         ) = {
             let descriptor = managed.validate().map_err(runtime_error)?;
+            if descriptor.device() != device {
+                return Err(PyValueError::new_err(format!(
+                    "DLPack device changed during import: queried {:?}:{}, exported {:?}:{}",
+                    device.device_type,
+                    device.device_id,
+                    descriptor.device().device_type,
+                    descriptor.device().device_id,
+                )));
+            }
             let compact = descriptor.is_compact().map_err(runtime_error)?;
             if !descriptor.dtype().is::<f32>() {
                 return Err(PyValueError::new_err(format!(
@@ -318,6 +327,8 @@ impl CudaTensor {
 // PyClass and a CudaBuffer retained by self. Managed exports retain their own
 // Arc<CudaBuffer>. The process-wide per-device stream stays live in cuda.rs.
 unsafe impl DlpackExchangeProducer for CudaTensor {
+    const HAS_DLTENSOR_VIEW: bool = true;
+
     fn managed_tensor_no_sync(
         &self,
         _py: Python<'_>,

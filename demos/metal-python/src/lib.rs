@@ -5,8 +5,7 @@ use dlpark::{
     },
     metadata::{Copied, Dynamic},
     python::{
-        DlpackExchangeProducer, ExportRequest, ImportedDlpack, from_dlpack,
-        install_exchange_api,
+        DlpackExchangeProducer, ExportRequest, ImportedDlpack, from_dlpack, install_exchange_api,
     },
 };
 use objc2::{
@@ -61,12 +60,10 @@ impl MetalBuffer {
         let contents = buffer.contents().as_ptr() as usize;
         let retained: Retained<AnyObject> = buffer.into();
         let retained = Retained::into_raw(retained) as usize;
-        let deleter = unsafe {
-            AllocationDeleter::new(move || {
-                let retained = Retained::<AnyObject>::from_raw(retained as *mut _);
-                drop(retained);
-            })
-        };
+        let deleter = AllocationDeleter::new(move || unsafe {
+            let retained = Retained::<AnyObject>::from_raw(retained as *mut _);
+            drop(retained);
+        });
         Ok(Self {
             metal_buffer,
             contents: Some(contents),
@@ -82,15 +79,9 @@ impl MetalBuffer {
     ///
     /// `metal_buffer` must be a live object implementing `MTLBuffer`, kept
     /// alive until `deleter` runs. The deleter must own that lifetime.
-    unsafe fn from_external(
-        metal_buffer: usize,
-        device: i32,
-        deleter: AllocationDeleter,
-    ) -> Self {
+    unsafe fn from_external(metal_buffer: usize, device: i32, deleter: AllocationDeleter) -> Self {
         debug_assert_ne!(metal_buffer, 0);
-        let buffer = unsafe {
-            &*(metal_buffer as *const ProtocolObject<dyn RawMTLBuffer>)
-        };
+        let buffer = unsafe { &*(metal_buffer as *const ProtocolObject<dyn RawMTLBuffer>) };
         let contents = match buffer.storageMode() {
             MTLStorageMode::Shared | MTLStorageMode::Managed => {
                 Some(buffer.contents().as_ptr() as usize)
@@ -172,10 +163,11 @@ impl MetalTensor {
     }
 
     fn compact_metadata(shape: Vec<usize>) -> PyResult<(Vec<i64>, Vec<i64>, usize)> {
-        let length = shape.iter().try_fold(1_usize, |length, &dimension| {
-            length.checked_mul(dimension)
-        });
-        let length = length.ok_or_else(|| PyValueError::new_err("shape element count overflows"))?;
+        let length = shape
+            .iter()
+            .try_fold(1_usize, |length, &dimension| length.checked_mul(dimension));
+        let length =
+            length.ok_or_else(|| PyValueError::new_err("shape element count overflows"))?;
         let shape = shape
             .into_iter()
             .map(|dimension| {
@@ -209,7 +201,9 @@ impl MetalTensor {
         eprintln!(
             "[dlpark/metal] metal_buffer={:p} contents_pointer={:p} storage=shared",
             buffer.as_metal_id(),
-            buffer.contents_at(0).expect("shared buffer has host contents")
+            buffer
+                .contents_at(0)
+                .expect("shared buffer has host contents")
         );
 
         Ok(Self {
@@ -228,11 +222,7 @@ impl MetalTensor {
 impl MetalTensor {
     #[classmethod]
     #[pyo3(signature = (shape, device_id=0))]
-    fn empty(
-        _class: &Bound<'_, PyType>,
-        shape: Vec<usize>,
-        device_id: i32,
-    ) -> PyResult<Self> {
+    fn empty(_class: &Bound<'_, PyType>, shape: Vec<usize>, device_id: i32) -> PyResult<Self> {
         Self::empty_inner(shape, device_id)
     }
 
@@ -251,8 +241,8 @@ impl MetalTensor {
                 values.len()
             )));
         }
-        let buffer = Arc::get_mut(&mut tensor.buffer)
-            .expect("a newly allocated Metal buffer has one owner");
+        let buffer =
+            Arc::get_mut(&mut tensor.buffer).expect("a newly allocated Metal buffer has one owner");
         let bytes = buffer.as_mut_bytes();
         for (index, value) in values.into_iter().enumerate() {
             let start = index * size_of::<f32>();
@@ -263,20 +253,6 @@ impl MetalTensor {
 
     #[classmethod]
     fn from_dlpack(_class: &Bound<'_, PyType>, tensor: &Bound<'_, PyAny>) -> PyResult<Self> {
-        let device = dlpark::python::dlpack_device(tensor.as_borrowed())?;
-        if device.device_type != DLDeviceType::METAL {
-            return Err(PyValueError::new_err(format!(
-                "expected a Metal tensor, got {:?}",
-                device.device_type
-            )));
-        }
-        if device.device_id != 0 {
-            return Err(PyValueError::new_err(format!(
-                "expected Metal device 0, got {}",
-                device.device_id
-            )));
-        }
-
         let managed = from_dlpack(tensor.as_borrowed(), None, None)?;
         let abi = match &managed {
             ImportedDlpack::Legacy(_) => "legacy".to_owned(),
@@ -286,8 +262,21 @@ impl MetalTensor {
             }
         };
         let source_flags = managed.flags();
-        let (shape, strides, dtype, length, byte_len, byte_offset, metal_buffer, compact) = {
+        let (device, shape, strides, dtype, length, byte_len, byte_offset, metal_buffer, compact) = {
             let descriptor = managed.validate().map_err(runtime_error)?;
+            let device = descriptor.device();
+            if device.device_type != DLDeviceType::METAL {
+                return Err(PyValueError::new_err(format!(
+                    "expected a Metal tensor, got {:?}",
+                    device.device_type
+                )));
+            }
+            if device.device_id != 0 {
+                return Err(PyValueError::new_err(format!(
+                    "expected Metal device 0, got {}",
+                    device.device_id
+                )));
+            }
             let compact = descriptor.is_compact().map_err(runtime_error)?;
             if !descriptor.dtype().is::<f32>() {
                 return Err(PyValueError::new_err(format!(
@@ -304,6 +293,7 @@ impl MetalTensor {
                 ));
             }
             (
+                device,
                 descriptor.shape().to_vec(),
                 descriptor
                     .strides_or_compact()
@@ -406,6 +396,8 @@ impl MetalTensor {
 // by self. Managed exports retain Arc<MetalBuffer>. This demo submits no Metal
 // command-buffer work, so its type-wide current work stream is null.
 unsafe impl DlpackExchangeProducer for MetalTensor {
+    const HAS_DLTENSOR_VIEW: bool = true;
+
     fn managed_tensor_no_sync(
         &self,
         _py: Python<'_>,
@@ -417,10 +409,7 @@ unsafe impl DlpackExchangeProducer for MetalTensor {
         Ok(self.tensor_view())
     }
 
-    fn current_work_stream(
-        _py: Python<'_>,
-        device: DLDevice,
-    ) -> PyResult<*mut c_void> {
+    fn current_work_stream(_py: Python<'_>, device: DLDevice) -> PyResult<*mut c_void> {
         if device.device_type != DLDeviceType::METAL || device.device_id != 0 {
             return Err(PyValueError::new_err(format!(
                 "MetalTensor uses Metal device 0, requested {:?}:{}",
