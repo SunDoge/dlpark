@@ -1,4 +1,10 @@
-use dlpark::{allocation::fixed, ffi::DLManagedTensorVersioned, versioned, TryFromDlpack};
+use dlpark::{
+    Managed, ManagedTensorBase, TryFromDlpack,
+    allocation::fixed,
+    ffi::DLManagedTensorVersioned,
+    python::{ImportedDlpack, from_dlpack},
+    versioned,
+};
 use image::{ImageBuffer, Rgb};
 use pyo3::exceptions::{PyIOError, PyValueError};
 use pyo3::prelude::*;
@@ -14,7 +20,17 @@ fn read_image(filename: &str) -> PyResult<versioned::Dlpack> {
 }
 
 #[pyfunction]
-fn write_image(filename: &str, tensor: versioned::Dlpack) -> PyResult<()> {
+fn write_image(filename: &str, tensor: &Bound<'_, PyAny>) -> PyResult<()> {
+    match from_dlpack(tensor.as_borrowed(), None, None)? {
+        ImportedDlpack::Legacy(tensor) => write_dlpack_image(filename, tensor),
+        ImportedDlpack::Versioned(tensor) => write_dlpack_image(filename, tensor),
+    }
+}
+
+fn write_dlpack_image<M>(filename: &str, tensor: Managed<M>) -> PyResult<()>
+where
+    M: ManagedTensorBase,
+{
     // SAFETY: this extension accepts tensors through the Python DLPack
     // protocol and relies on the producer to provide a valid descriptor.
     let rgb_img: ImageBuffer<Rgb<u8>, _> = unsafe { ImageBuffer::try_from_dlpack(&tensor, ()) }
