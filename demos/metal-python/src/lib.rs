@@ -346,8 +346,7 @@ impl MetalTensor {
     }
 
     fn __dlpack_device__(&self) -> (u32, i32) {
-        let device = self.device();
-        (device.device_type.0, device.device_id)
+        self.device().into()
     }
 
     #[pyo3(signature = (stream=None, *, max_version=None, dl_device=None, copy=None))]
