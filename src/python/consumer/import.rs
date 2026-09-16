@@ -27,6 +27,15 @@ use pyo3::{
 /// Exchange API table, when present. This is useful for CUDA and ROCm callers
 /// that must know the device ordinal before they can create the stream passed
 /// to [`Self::import`].
+///
+/// The request owns a Python reference to the input for `'py` and is consumed
+/// by [`Self::import`]. It does not consume a standard Python DLPack producer
+/// during discovery. If a C Exchange producer provides neither the optional
+/// borrowed view nor `__dlpack_device__`, discovery obtains one owning managed
+/// tensor and keeps it inside the request for the final import.
+///
+/// Use [`from_dlpack`] for the common one-step case. It is equivalent to
+/// constructing a request and immediately importing it.
 pub struct ImportRequest<'py> {
     object: Bound<'py, PyAny>,
     exchange: Option<DlpackExchangeApiRef>,
@@ -36,6 +45,14 @@ pub struct ImportRequest<'py> {
 
 impl<'py> ImportRequest<'py> {
     /// Discovers the object's preferred DLPack protocol and device.
+    ///
+    /// Discovery follows the same priority as [`from_dlpack`]: C Exchange API,
+    /// standard `__dlpack_device__`/`__dlpack__`, then legacy no-argument
+    /// `__dlpack__`. Existing capsules are recognized but remain unconsumed
+    /// until [`Self::import`].
+    ///
+    /// The returned request keeps `object` alive even if the caller drops its
+    /// original Python reference.
     pub fn new(object: Borrowed<'_, 'py, PyAny>) -> pyo3::PyResult<Self> {
         let object = object.to_owned();
         if is_versioned_capsule(object.as_borrowed()) || is_legacy_capsule(object.as_borrowed()) {
@@ -79,6 +96,12 @@ impl<'py> ImportRequest<'py> {
     ///
     /// Existing capsules and legacy producers that only implement
     /// no-argument `__dlpack__` do not expose a device before import.
+    /// Calling this method does not invoke the producer again.
+    ///
+    /// # Errors
+    ///
+    /// Returns `AttributeError` when the input has no pre-import device query,
+    /// such as an existing capsule or a legacy-only producer.
     pub fn device(&self) -> pyo3::PyResult<crate::ffi::DLDevice> {
         self.device.ok_or_else(|| {
             PyAttributeError::new_err(
@@ -88,6 +111,25 @@ impl<'py> ImportRequest<'py> {
     }
 
     /// Completes the import using the already discovered protocol and device.
+    ///
+    /// `stream` is the consumer stream on which the imported tensor must be
+    /// ready. With C Exchange, dlpark asks [`DlpackStream::wait_for_producer`]
+    /// to order it after the producer stream. If that implementation declines,
+    /// import falls back to standard Python `__dlpack__(stream=...)`.
+    ///
+    /// `copy` has the Python Array API tri-state meaning:
+    ///
+    /// - `None` leaves the choice to the producer;
+    /// - `Some(false)` requires a zero-copy result;
+    /// - `Some(true)` requires a copy and therefore bypasses C Exchange.
+    ///
+    /// The imported descriptor's device is checked against the device cached
+    /// during discovery. This method consumes the request because existing
+    /// capsules are single-use and an import may transfer managed ownership.
+    ///
+    /// Existing capsules accept neither `stream` nor `copy`. Legacy-only
+    /// producers also reject those arguments because they cannot negotiate
+    /// them.
     pub fn import(
         self,
         stream: Option<&dyn DlpackStream>,
@@ -198,6 +240,10 @@ impl ImportedDlpack {
 /// order: DLPack 1.3 C Exchange API, the standard Python Array API protocol
 /// (`__dlpack_device__` plus `__dlpack__`), then legacy `__dlpack__` without
 /// negotiation arguments.
+///
+/// This is the one-step form of [`ImportRequest`]. Callers that need the
+/// producer device before constructing `stream` should use `ImportRequest`
+/// directly to avoid repeating protocol discovery.
 pub fn from_dlpack(
     object: Borrowed<'_, '_, PyAny>,
     stream: Option<&dyn DlpackStream>,

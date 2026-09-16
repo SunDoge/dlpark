@@ -13,6 +13,10 @@ use crate::ffi::{DLDevice, DLDeviceType};
 ///
 /// The DLPack C Exchange API borrowed view is preferred when available;
 /// otherwise this calls `array.__dlpack_device__()`.
+///
+/// When the device is needed in order to construct a stream for an immediate
+/// import, prefer [`super::ImportRequest`]. It caches this discovery so the
+/// subsequent import does not query the producer a second time.
 pub fn dlpack_device(array: Borrowed<'_, '_, PyAny>) -> pyo3::PyResult<DLDevice> {
     if let Some(api) = DlpackExchangeApiRef::from_object(array)?
         && api.supports_dltensor_view()

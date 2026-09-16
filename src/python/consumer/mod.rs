@@ -1,4 +1,14 @@
 //! Import helpers for consuming Python DLPack producers from Rust.
+//!
+//! Use [`from_dlpack`] when the consumer stream is already available. Use
+//! [`ImportRequest`] when the stream must be created for the producer's device:
+//!
+//! ```text
+//! let request = ImportRequest::new(object.as_borrowed())?;
+//! let device = request.device()?;
+//! let stream = backend_stream_for(device)?;
+//! let tensor = request.import(Some(&stream), None)?;
+//! ```
 
 /// Queries and validates a Python producer's DLPack device.
 pub mod device;
