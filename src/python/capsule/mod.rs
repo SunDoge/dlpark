@@ -10,6 +10,10 @@ const USED_DLTENSOR_VERSIONED: &CStr = c"used_dltensor_versioned";
 mod from_python;
 mod into_python;
 
+pub(crate) use from_python::{
+    call_dlpack, is_legacy_capsule, is_versioned_capsule, validate_copy_result,
+};
+
 #[cfg(test)]
 use crate::{
     Managed,
@@ -160,6 +164,9 @@ mod tests {
                 cr#"class Producer:
     def __init__(self, capsule):
         self.capsule = capsule
+
+    def __dlpack_device__(self):
+        return (1, 0)
 
     def __dlpack__(self, *, max_version=None, copy=None):
         return self.capsule
@@ -322,6 +329,9 @@ mod tests {
     def __init__(self, capsule):
         self.capsule = capsule
         self.seen_copy = None
+
+    def __dlpack_device__(self):
+        return (1, 0)
 
     def __dlpack__(self, *, max_version=None, copy=None):
         self.seen_copy = copy

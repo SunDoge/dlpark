@@ -251,6 +251,24 @@ impl CudaStream {
     /// `consumer` must be a live `cudaStream_t` on the same CUDA device. CUDA's
     /// null legacy-default-stream handle and per-thread sentinel are valid.
     pub unsafe fn hand_off_to_raw(&self, consumer: *mut c_void) -> Result<(), Error> {
+        unsafe { self.order_raw_streams(self.raw.as_ptr(), consumer) }
+    }
+
+    /// Orders this stream after work already queued on `producer`.
+    ///
+    /// # Safety
+    ///
+    /// `producer` must be a live `cudaStream_t` on the same CUDA device. CUDA's
+    /// null legacy-default-stream handle and per-thread sentinel are valid.
+    pub unsafe fn wait_for_raw(&self, producer: *mut c_void) -> Result<(), Error> {
+        unsafe { self.order_raw_streams(producer, self.raw.as_ptr()) }
+    }
+
+    unsafe fn order_raw_streams(
+        &self,
+        producer: *mut c_void,
+        consumer: *mut c_void,
+    ) -> Result<(), Error> {
         self.api.with_device(self.device, |api| {
             let mut event = ptr::null_mut();
             api.check("cudaEventCreateWithFlags", unsafe {
@@ -263,7 +281,7 @@ impl CudaStream {
                 })?,
             };
             api.check("cudaEventRecord", unsafe {
-                (api.event_record)(event.raw.as_ptr(), self.raw.as_ptr())
+                (api.event_record)(event.raw.as_ptr(), producer)
             })?;
             api.check("cudaStreamWaitEvent", unsafe {
                 (api.stream_wait_event)(consumer, event.raw.as_ptr(), 0)
@@ -303,6 +321,18 @@ unsafe impl DlpackStream for CudaStream {
             )));
         }
         Ok(stream::cuda(self.raw.as_ptr()))
+    }
+
+    unsafe fn wait_for_producer(&self, device: DLDevice, producer: *mut c_void) -> PyResult<bool> {
+        if device.device_type != DLDeviceType::CUDA || device.device_id != self.device {
+            return Err(PyValueError::new_err(format!(
+                "CUDA stream belongs to device {}, tensor reports {:?}:{}",
+                self.device, device.device_type, device.device_id
+            )));
+        }
+        unsafe { self.wait_for_raw(producer) }
+            .map_err(|error| PyValueError::new_err(error.to_string()))?;
+        Ok(true)
     }
 }
 

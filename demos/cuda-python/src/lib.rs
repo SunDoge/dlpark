@@ -2,8 +2,8 @@ use dlpark::{
     DlpackFlags, Managed, ManagedTensorBase,
     ffi::{DLDeviceType, DLManagedTensor, DLManagedTensorVersioned, DLPACK_MAJOR_VERSION},
     metadata::{Copied, Dynamic},
+    python::{ImportedDlpack, import_dlpack},
     runtime::cuda::CudaStream,
-    versioned,
 };
 use pyo3::{
     Bound, IntoPyObject, Py, PyAny, PyResult, Python,
@@ -19,7 +19,7 @@ fn runtime_error(error: impl std::fmt::Display) -> PyErr {
 /// A reusable CUDA tensor object implementing Python's DLPack protocol.
 #[pyclass(unsendable)]
 struct CudaTensor {
-    dlpack: Arc<versioned::Dlpack>,
+    dlpack: Arc<ImportedDlpack>,
     stream: CudaStream,
 }
 
@@ -43,7 +43,7 @@ impl CudaTensor {
         let flags = self.dlpack.flags().difference(DlpackFlags::IS_COPIED);
         initialized.set_flags(flags).map_err(runtime_error)?;
         // SAFETY: this fresh header copies the source descriptor and retains
-        // `Arc<versioned::Dlpack>` in its manager context.
+        // `Arc<ImportedDlpack>` in its manager context.
         Ok(unsafe { initialized.finish() })
     }
 
@@ -101,9 +101,15 @@ impl CudaTensor {
         }
 
         let stream = CudaStream::new(device.device_id).map_err(runtime_error)?;
-        let managed = versioned::Dlpack::extract_with_stream(tensor.as_borrowed(), &stream, None)?;
+        let managed = import_dlpack(tensor.as_borrowed(), Some(&stream), None)?;
         let descriptor = managed.validate().map_err(runtime_error)?;
-        let version = managed.version();
+        let abi = match &managed {
+            ImportedDlpack::Legacy(_) => "legacy".to_owned(),
+            ImportedDlpack::Versioned(tensor) => {
+                let version = tensor.version();
+                format!("{}.{}", version.major, version.minor)
+            }
+        };
         let source_flags = managed.flags();
         let compact = descriptor.is_compact().map_err(runtime_error)?;
         if !descriptor.dtype().is::<f32>() {
@@ -138,9 +144,7 @@ impl CudaTensor {
 
         eprintln!("[dlpark/cuda] received DLPack tensor");
         eprintln!(
-            "[dlpark/cuda] version={}.{} flags={source_flags:?} read_only={} is_copied={}",
-            version.major,
-            version.minor,
+            "[dlpark/cuda] abi={abi} flags={source_flags:?} read_only={} is_copied={}",
             source_flags.contains(DlpackFlags::READ_ONLY),
             source_flags.contains(DlpackFlags::IS_COPIED)
         );

@@ -12,7 +12,7 @@ mod capsule;
 pub mod consumer;
 /// DLPack 1.3 C exchange API integration.
 pub mod exchange;
-pub use consumer::{DlpackStream, StreamArg, dlpack_device};
+pub use consumer::{DlpackStream, ImportedDlpack, StreamArg, dlpack_device, import_dlpack};
 
 // Keep the former module paths working while presenting `consumer` as the
 // documented organization.

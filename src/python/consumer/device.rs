@@ -6,23 +6,40 @@ use pyo3::{
     types::{PyAnyMethods, PyString},
 };
 
-use crate::ffi::{DLDevice, DLDeviceType};
+use crate::{
+    ffi::{DLDevice, DLDeviceType},
+    python::exchange::DlpackExchangeApiRef,
+};
 
-/// Calls `array.__dlpack_device__()` and validates its DLPack device tuple.
+/// Queries and validates a producer's DLPack device.
+///
+/// The DLPack C Exchange API borrowed view is preferred when available;
+/// otherwise this calls `array.__dlpack_device__()`.
 pub fn dlpack_device(array: Borrowed<'_, '_, PyAny>) -> pyo3::PyResult<DLDevice> {
+    if let Some(api) = DlpackExchangeApiRef::from_object(array)?
+        && api.supports_dltensor_view()
+    {
+        let device = api.with_dltensor_view_no_sync(array, |tensor| tensor.device)?;
+        return validate_device(device);
+    }
+
     let (device_type, device_id): (u32, i32) = array
         .call_method0(PyString::intern(array.py(), "__dlpack_device__"))?
         .extract()?;
-    if device_id < 0 {
-        return Err(PyValueError::new_err(format!(
-            "DLPack device ID must be non-negative, got {device_id}"
-        )));
-    }
-
-    Ok(DLDevice {
+    validate_device(DLDevice {
         device_type: DLDeviceType(device_type),
         device_id,
     })
+}
+
+fn validate_device(device: DLDevice) -> pyo3::PyResult<DLDevice> {
+    if device.device_id < 0 {
+        return Err(PyValueError::new_err(format!(
+            "DLPack device ID must be non-negative, got {}",
+            device.device_id
+        )));
+    }
+    Ok(device)
 }
 
 #[cfg(test)]

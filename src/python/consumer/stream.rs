@@ -56,6 +56,24 @@ impl StreamArg {
 pub unsafe trait DlpackStream {
     /// Returns the stream as a Python argument for the `__dlpack__` call.
     fn as_python_arg(&self, py: Python<'_>, device: DLDevice) -> pyo3::PyResult<StreamArg>;
+
+    /// Orders this consumer stream after a producer stream obtained through
+    /// the DLPack C Exchange API.
+    ///
+    /// Returns `false` when the implementation cannot consume a native
+    /// producer stream, allowing the importer to use the Python protocol.
+    ///
+    /// # Safety
+    ///
+    /// `producer` must be the live native stream returned by the selected
+    /// producer's DLPack C Exchange API for `device`.
+    unsafe fn wait_for_producer(
+        &self,
+        _device: DLDevice,
+        _producer: *mut c_void,
+    ) -> pyo3::PyResult<bool> {
+        Ok(false)
+    }
 }
 
 /// Omits the Python stream argument.

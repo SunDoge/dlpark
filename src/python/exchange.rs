@@ -1,7 +1,8 @@
 //! DLPack 1.3 C Exchange API discovery and invocation.
 
 use pyo3::exceptions::{PyAttributeError, PyBufferError, PyRuntimeError};
-use pyo3::{Borrowed, Bound, PyAny, PyErr, PyTypeInfo, Python};
+use pyo3::types::PyAnyMethods;
+use pyo3::{Borrowed, Bound, PyAny, PyErr, Python};
 use std::ffi::CStr;
 use std::ptr::NonNull;
 
@@ -24,28 +25,28 @@ pub struct DlpackExchangeApiRef {
 }
 
 impl DlpackExchangeApiRef {
+    /// Returns whether the optional borrowed-tensor callback is available.
+    pub fn supports_dltensor_view(&self) -> bool {
+        unsafe { self.api.as_ref() }
+            .dltensor_from_py_object_no_sync
+            .is_some()
+    }
+
     /// Obtains the exchange API from a Python object exposing
     /// `__dlpack_c_exchange_api__`, if present.
     pub fn from_object(obj: Borrowed<'_, '_, PyAny>) -> pyo3::PyResult<Option<Self>> {
-        let capsule = unsafe {
-            let ty = pyo3::ffi::Py_TYPE(obj.as_ptr()) as *mut pyo3::ffi::PyObject;
-            let attr = pyo3::intern!(obj.py(), "__dlpack_c_exchange_api__");
-            let capsule = pyo3::ffi::PyObject_GetAttr(ty, attr.as_ptr());
-            if capsule.is_null() {
-                let attr_error =
-                    PyAttributeError::type_object_raw(pyo3::Python::assume_attached()).cast();
-                if pyo3::ffi::PyErr_ExceptionMatches(attr_error) != 0 {
-                    pyo3::ffi::PyErr_Clear();
-                    return Ok(None);
-                }
-                return Err(fetch_python_error());
-            }
-            capsule
+        let capsule = match obj
+            .get_type()
+            .getattr(pyo3::intern!(obj.py(), "__dlpack_c_exchange_api__"))
+        {
+            Ok(capsule) => capsule,
+            Err(error) if error.is_instance_of::<PyAttributeError>(obj.py()) => return Ok(None),
+            Err(error) => return Err(error),
         };
 
         let api_ptr = unsafe {
-            let ptr = pyo3::ffi::PyCapsule_GetPointer(capsule, DLPACK_EXCHANGE_API.as_ptr());
-            pyo3::ffi::Py_DecRef(capsule);
+            let ptr =
+                pyo3::ffi::PyCapsule_GetPointer(capsule.as_ptr(), DLPACK_EXCHANGE_API.as_ptr());
             if ptr.is_null() {
                 return Err(fetch_python_error());
             }

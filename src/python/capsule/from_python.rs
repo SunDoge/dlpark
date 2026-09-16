@@ -4,7 +4,7 @@ use super::{DLTENSOR, DLTENSOR_VERSIONED, USED_DLTENSOR, USED_DLTENSOR_VERSIONED
 use crate::{
     DlpackFlags, Managed,
     ffi::{DLManagedTensor, DLManagedTensorVersioned},
-    python::{DlpackStream, dlpack_device, exchange::DlpackExchangeApiRef},
+    python::{DlpackStream, ImportedDlpack, exchange::DlpackExchangeApiRef, import_dlpack},
 };
 use pyo3::{
     Borrowed, Bound, PyAny, PyErr,
@@ -56,14 +56,26 @@ fn capsule_to_raw_dlpack(
     }
 }
 
-fn is_dlpack_capsule<'py>(ob: Borrowed<'_, 'py, PyAny>, name: &CStr, used_name: &CStr) -> bool {
+pub(crate) fn is_dlpack_capsule<'py>(
+    ob: Borrowed<'_, 'py, PyAny>,
+    name: &CStr,
+    used_name: &CStr,
+) -> bool {
     unsafe {
         pyo3::ffi::PyCapsule_IsValid(ob.as_ptr(), name.as_ptr()) == 1
             || pyo3::ffi::PyCapsule_IsValid(ob.as_ptr(), used_name.as_ptr()) == 1
     }
 }
 
-fn call_dlpack<'py>(
+pub(crate) fn is_legacy_capsule(ob: Borrowed<'_, '_, PyAny>) -> bool {
+    is_dlpack_capsule(ob, DLTENSOR, USED_DLTENSOR)
+}
+
+pub(crate) fn is_versioned_capsule(ob: Borrowed<'_, '_, PyAny>) -> bool {
+    is_dlpack_capsule(ob, DLTENSOR_VERSIONED, USED_DLTENSOR_VERSIONED)
+}
+
+pub(crate) fn call_dlpack<'py>(
     ob: Borrowed<'_, 'py, PyAny>,
     max_version: Option<(u32, u32)>,
     stream: Option<&Bound<'py, PyAny>>,
@@ -108,7 +120,7 @@ impl<'py> FromPyObject<'_, 'py> for Managed<DLManagedTensor> {
     }
 }
 
-fn validate_copy_result(
+pub(crate) fn validate_copy_result(
     tensor: Managed<DLManagedTensorVersioned>,
     requested: Option<bool>,
 ) -> pyo3::PyResult<Managed<DLManagedTensorVersioned>> {
@@ -165,43 +177,12 @@ impl Managed<DLManagedTensorVersioned> {
         stream: Option<&dyn DlpackStream>,
         copy: Option<bool>,
     ) -> pyo3::PyResult<Self> {
-        if is_dlpack_capsule(ob, DLTENSOR_VERSIONED, USED_DLTENSOR_VERSIONED) {
-            return Err(PyValueError::new_err(
-                "an existing DLPack capsule cannot negotiate stream or copy options",
-            ));
-        }
-
-        let stream = match stream {
-            Some(stream) => {
-                let device = dlpack_device(ob)?;
-                stream
-                    .as_python_arg(ob.py(), device)?
-                    .into_python(ob.py())?
-            }
-            None => None,
-        };
-        let capsule = call_dlpack(
-            ob,
-            Some((
-                crate::ffi::DLPACK_MAJOR_VERSION,
-                crate::ffi::DLPACK_MINOR_VERSION,
+        match import_dlpack(ob, stream, copy)? {
+            ImportedDlpack::Versioned(tensor) => Ok(tensor),
+            ImportedDlpack::Legacy(_) => Err(PyValueError::new_err(
+                "producer returned the legacy DLPack ABI where the versioned ABI was required",
             )),
-            stream.as_ref(),
-            copy,
-        )?;
-        let ptr = capsule_to_raw_dlpack(
-            capsule.as_ptr(),
-            DLTENSOR_VERSIONED,
-            USED_DLTENSOR_VERSIONED,
-        )?;
-        if ptr.is_null() {
-            return Err(PyRuntimeError::new_err(
-                "DLPack capsule pointer is unexpectedly null",
-            ));
         }
-        let tensor = unsafe { Self::from_raw(ptr.cast()) }
-            .map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
-        validate_copy_result(tensor, copy)
     }
 
     /// Extracts a versioned DLPack tensor using an explicit consumer stream.
