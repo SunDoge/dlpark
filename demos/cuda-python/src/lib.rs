@@ -2,14 +2,14 @@ mod cuda;
 
 use dlpark::{
     DlpackFlags, Managed, ManagedTensorBase,
-    ffi::{DLDeviceType, DLManagedTensor, DLManagedTensorVersioned, DLPACK_MAJOR_VERSION},
+    ffi::{DLDeviceType, DLManagedTensor, DLManagedTensorVersioned},
     metadata::{Copied, Dynamic},
-    python::{ImportedDlpack, from_dlpack},
+    python::{CudaStreamRequest, ExportRequest, ImportedDlpack, from_dlpack},
 };
 use cuda::CudaStream;
 use pyo3::{
-    Bound, IntoPyObject, Py, PyAny, PyResult, Python,
-    exceptions::{PyBufferError, PyRuntimeError, PyValueError},
+    Bound, Py, PyAny, PyResult, Python,
+    exceptions::{PyRuntimeError, PyValueError},
     prelude::*,
 };
 use std::{ffi::c_void, sync::Arc};
@@ -49,41 +49,29 @@ impl CudaTensor {
         Ok(unsafe { initialized.finish() })
     }
 
-    fn synchronize(&self, stream: Option<&Bound<'_, PyAny>>) -> PyResult<()> {
-        let Some(value) = stream else {
-            eprintln!(
-                "[dlpark/cuda] destination supplied no stream; synchronizing relay stream on the host"
-            );
-            return self.stream.synchronize().map_err(runtime_error);
-        };
-
-        let raw = value
-            .extract::<isize>()
-            .map_err(|_| PyValueError::new_err("CUDA DLPack stream must be an integer"))?;
-        match raw {
-            -1 => eprintln!(
+    fn synchronize(&self, stream: CudaStreamRequest) -> PyResult<()> {
+        match stream {
+            CudaStreamRequest::Unspecified => {
+                eprintln!(
+                    "[dlpark/cuda] destination supplied no stream; synchronizing relay stream on the host"
+                );
+                return self.stream.synchronize().map_err(runtime_error);
+            }
+            CudaStreamRequest::NoSync => eprintln!(
                 "[dlpark/cuda] destination requested stream=-1; no synchronization inserted"
             ),
-            0 => {
-                return Err(PyValueError::new_err(
-                    "CUDA DLPack stream 0 is ambiguous; use sentinel 1 for the legacy default stream",
-                ));
-            }
-            raw if raw > 0 => {
-                let consumer = match raw {
-                    1 => std::ptr::null_mut(),
-                    _ => raw as usize as *mut c_void,
-                };
+            stream => {
+                let raw = stream
+                    .python_value()
+                    .expect("a concrete CUDA stream has a Python value");
+                let consumer = stream
+                    .as_raw()
+                    .expect("a concrete CUDA stream has a native representation");
                 unsafe { self.stream.hand_off_to_raw(consumer) }.map_err(runtime_error)?;
                 eprintln!(
                     "[dlpark/cuda] event handoff relay_stream={:p} destination_stream_arg={raw:#x} cuda_stream={consumer:p}",
                     self.stream.as_raw(),
                 );
-            }
-            _ => {
-                return Err(PyValueError::new_err(
-                    "CUDA DLPack stream must be -1, 1, 2, or a positive stream pointer",
-                ));
             }
         }
         Ok(())
@@ -187,45 +175,18 @@ impl CudaTensor {
         dl_device: Option<(u32, i32)>,
         copy: Option<bool>,
     ) -> PyResult<Py<PyAny>> {
-        if copy == Some(true) {
-            return Err(PyBufferError::new_err(
-                "CudaTensor only supports zero-copy export",
-            ));
-        }
+        let request = ExportRequest::parse(stream, max_version, dl_device, copy)?;
         let descriptor = self.dlpack.validate().map_err(runtime_error)?;
         let device = descriptor.device();
-        if let Some(requested) = dl_device
-            && requested != (device.device_type.0, device.device_id)
-        {
-            return Err(PyBufferError::new_err(
-                "cross-device copies are not supported",
-            ));
-        }
-
-        let versioned = max_version.is_some_and(|(major, _)| major >= DLPACK_MAJOR_VERSION);
-        if !versioned
-            && self
-                .dlpack
-                .flags()
-                .contains(DlpackFlags::IS_SUBBYTE_TYPE_PADDED)
-        {
-            return Err(PyBufferError::new_err(
-                "the legacy DLPack ABI cannot describe padded sub-byte elements",
-            ));
-        }
-        self.synchronize(stream)?;
-
-        if versioned {
-            Ok(self
-                .export::<DLManagedTensorVersioned>()?
-                .into_pyobject(py)?
-                .unbind())
-        } else {
-            Ok(self
-                .export::<DLManagedTensor>()?
-                .into_pyobject(py)?
-                .unbind())
-        }
+        let flags = self.dlpack.flags();
+        self.synchronize(request.cuda_stream()?)?;
+        request.export_zero_copy(
+            py,
+            device,
+            flags,
+            || self.export::<DLManagedTensor>(),
+            || self.export::<DLManagedTensorVersioned>(),
+        )
     }
 
     #[getter]

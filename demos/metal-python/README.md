@@ -18,3 +18,8 @@ uv run --reinstall-package dlpark-metal-python smoke.py
 The Rust log prints both relevant addresses. `metal_buffer` is the Objective-C
 `id<MTLBuffer>` stored in `DLTensor.data`; `contents_pointer` is only its shared
 CPU mapping. They are intentionally different values.
+
+The PyO3 class uses `ExportRequest` for Python `__dlpack__` negotiation and
+implements `DlpackExchangeProducer`, so DLPack 1.3 consumers can discover its
+`__dlpack_c_exchange_api__` type attribute. Its current-work-stream callback
+returns null because the demo has no outstanding Metal command queue work.

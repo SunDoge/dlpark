@@ -207,6 +207,20 @@ The `pyo3` feature supports the standard Python DLPack capsule protocol:
 
 The C Exchange API is intended for extension/library use where the consumer borrows tensors and coordinates work on the producer's current stream. It is not a replacement for the normal `__dlpack__` ingestion path.
 
+For producers, `python::ExportRequest::parse` turns the four `__dlpack__`
+arguments (`stream`, `max_version`, `dl_device`, and `copy`) into a validated
+Rust value. Its `export_zero_copy` method checks copy and device requests,
+selects the legacy or versioned ABI, rejects padded sub-byte data for the
+legacy ABI, and creates the corresponding capsule from a fresh managed tensor.
+The producer remains responsible for backend-specific stream synchronization.
+
+PyO3 classes that support DLPack 1.3's C Exchange API can implement
+`python::DlpackExchangeProducer` and call
+`python::install_exchange_api::<T>(py)` during module initialization. dlpark
+then installs the process-lifetime type attribute and supplies the C callbacks,
+including Python exception restoration, ownership transfer, and panic
+containment. The Metal Python demo shows both producer helpers.
+
 ## Interop backends
 
 | Feature | Producer | Consumer | Data movement |

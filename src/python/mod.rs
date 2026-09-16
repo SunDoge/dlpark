@@ -12,7 +12,12 @@ mod capsule;
 pub mod consumer;
 /// DLPack 1.3 C exchange API integration.
 pub mod exchange;
+/// Helpers for implementing Python DLPack producers.
+pub mod producer;
 pub use consumer::{DlpackStream, ImportedDlpack, StreamArg, dlpack_device, from_dlpack};
+pub use producer::{
+    CudaStreamRequest, DlpackExchangeProducer, ExportAbi, ExportRequest, install_exchange_api,
+};
 
 // Keep the former module paths working while presenting `consumer` as the
 // documented organization.

@@ -2,9 +2,9 @@ use dlpark::{
     DlpackFlags, Managed, ManagedTensorBase,
     ffi::{
         DLDataType, DLDevice, DLDeviceType, DLManagedTensor, DLManagedTensorVersioned,
-        DLPACK_MAJOR_VERSION,
     },
     metadata::{Copied, Dynamic},
+    python::{DlpackExchangeProducer, ExportRequest, install_exchange_api},
     versioned,
 };
 use objc2::{rc::Retained, runtime::ProtocolObject};
@@ -12,8 +12,8 @@ use objc2_metal::{
     MTLBuffer as RawMTLBuffer, MTLCreateSystemDefaultDevice, MTLDevice, MTLResourceOptions,
 };
 use pyo3::{
-    Bound, IntoPyObject, Py, PyAny, PyResult, Python,
-    exceptions::{PyBufferError, PyRuntimeError, PyValueError},
+    Bound, Py, PyAny, PyResult, Python,
+    exceptions::{PyRuntimeError, PyValueError},
     prelude::*,
 };
 use std::{ffi::c_void, ptr::NonNull, sync::Arc};
@@ -173,49 +173,21 @@ impl MetalTensor {
         dl_device: Option<(u32, i32)>,
         copy: Option<bool>,
     ) -> PyResult<Py<PyAny>> {
-        if stream.is_some() {
+        let request = ExportRequest::parse(stream, max_version, dl_device, copy)?;
+        if request.stream().is_some() {
             return Err(PyValueError::new_err(
                 "MetalTensor does not accept a stream argument",
             ));
         }
-        if copy == Some(true) {
-            return Err(PyBufferError::new_err(
-                "MetalTensor only supports zero-copy export",
-            ));
-        }
         let descriptor = self.dlpack.validate().map_err(runtime_error)?;
         let device = descriptor.device();
-        if let Some(requested) = dl_device
-            && requested != (device.device_type.0, device.device_id)
-        {
-            return Err(PyBufferError::new_err(
-                "cross-device copies are not supported",
-            ));
-        }
-
-        let versioned = max_version.is_some_and(|(major, _)| major >= DLPACK_MAJOR_VERSION);
-        if !versioned
-            && self
-                .dlpack
-                .flags()
-                .contains(DlpackFlags::IS_SUBBYTE_TYPE_PADDED)
-        {
-            return Err(PyBufferError::new_err(
-                "the legacy DLPack ABI cannot describe padded sub-byte elements",
-            ));
-        }
-
-        if versioned {
-            Ok(self
-                .export::<DLManagedTensorVersioned>()?
-                .into_pyobject(py)?
-                .unbind())
-        } else {
-            Ok(self
-                .export::<DLManagedTensor>()?
-                .into_pyobject(py)?
-                .unbind())
-        }
+        request.export_zero_copy(
+            py,
+            device,
+            self.dlpack.flags(),
+            || self.export::<DLManagedTensor>(),
+            || self.export::<DLManagedTensorVersioned>(),
+        )
     }
 
     #[getter]
@@ -229,8 +201,37 @@ impl MetalTensor {
     }
 }
 
+unsafe impl DlpackExchangeProducer for MetalTensor {
+    fn managed_tensor_no_sync(
+        &self,
+        _py: Python<'_>,
+    ) -> PyResult<Managed<DLManagedTensorVersioned>> {
+        self.export()
+    }
+
+    fn tensor_view_no_sync(&self, _py: Python<'_>) -> PyResult<dlpark::ffi::DLTensor> {
+        Ok(*unsafe { self.dlpack.tensor() })
+    }
+
+    fn current_work_stream(
+        _py: Python<'_>,
+        device: DLDevice,
+    ) -> PyResult<*mut c_void> {
+        if device.device_type != DLDeviceType::METAL || device.device_id != 0 {
+            return Err(PyValueError::new_err(format!(
+                "MetalTensor uses Metal device 0, requested {:?}:{}",
+                device.device_type, device.device_id
+            )));
+        }
+        // The demo only exports host-filled shared buffers and has no pending
+        // Metal command queue work.
+        Ok(std::ptr::null_mut())
+    }
+}
+
 #[pymodule]
 fn _core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<MetalTensor>()?;
+    install_exchange_api::<MetalTensor>(module.py())?;
     Ok(())
 }
