@@ -259,7 +259,7 @@ Zero-copy from `candle::Tensor` to DLPack (the boxed tensor's `Arc`-refcounted s
 
 ### cudarc
 
-Zero-copy in both directions between a [cudarc] `CudaSlice<T>` and a DLPack tensor. The 1-D `TryFrom` producer returns a contiguous default layout (`shape = [len]`, `strides = [1]`) and leaves `IS_COPIED` unset; use `interop::cudarc::from_cuda_slice` for higher-rank tensors. The reverse direction consumes the managed tensor through `TryFromDlpack` for `ManagedCudaSlice<M, T>`, which retains the managed DLPack owner for the CUDA view's lifetime.
+Zero-copy in both directions between a [cudarc] `CudaSlice<T>` and a DLPack tensor. Producers return a `CudaDlpackExport` pairing the initialized tensor with its current work stream; use `interop::cudarc::from_cuda_slice` for higher-rank layouts. The reverse direction consumes the managed tensor through `TryFromDlpack` with an explicit `CudaImport::ready_on(stream)`. `ManagedCudaSlice<M, T>` retains the managed DLPack owner and continues work on that stream.
 
 ### safetensors
 
@@ -386,22 +386,22 @@ Use the optional container adapter when application code already owns a `CudaSli
 use dlpark::{
     TryFromDlpack,
     ffi::DLManagedTensorVersioned,
-    interop::cudarc::{ManagedCudaSlice, from_cuda_slice},
+    interop::cudarc::{CudaImport, ManagedCudaSlice, from_cuda_slice},
     versioned,
 };
 
-let (initialized, producer_stream) =
-    from_cuda_slice::<f32, DLManagedTensorVersioned>(
-        Box::new(cuda_slice),
-        &[2, 3],
-        &[3, 1],
-    )?;
+let export = from_cuda_slice::<f32, DLManagedTensorVersioned>(
+    Box::new(cuda_slice),
+    &[2, 3],
+    &[3, 1],
+)?;
+let (initialized, current_stream) = export.into_parts();
 let dlpack: versioned::Dlpack = unsafe { initialized.finish() };
 
 let borrowed = unsafe {
     ManagedCudaSlice::<DLManagedTensorVersioned, f32>::try_from_dlpack(
         dlpack,
-        producer_stream,
+        CudaImport::ready_on(current_stream),
     )?
 };
 ```

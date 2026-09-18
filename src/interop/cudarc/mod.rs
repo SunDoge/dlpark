@@ -5,14 +5,16 @@
 //!
 //! # `CudaSlice<T>` to initialized allocation
 //!
-//! `TryFrom<Box<CudaSlice<T>>>` treats the flat device buffer as a contiguous
-//! 1-D tensor with shape `[slice.len()]` and strides `[1]`. Use
+//! `TryFrom<Box<CudaSlice<T>>>` produces a
+//! [`CudaDlpackExport`](crate::interop::cudarc::CudaDlpackExport) containing a
+//! contiguous 1-D tensor with shape `[slice.len()]`, strides `[1]`, and its
+//! current work stream. Use
 //! [`crate::interop::cudarc::from_cuda_slice`] for a higher-rank layout. The slice is stored as the
 //! `manager_ctx`; the underlying CUDA allocation is freed when the DLPack
 //! deleter fires. Moving the slice transfers ownership without copying the CUDA
 //! allocation, so `IS_COPIED` remains unset.
 //!
-//! # `to_cuda_slice` direction (`Managed` → [`crate::interop::cudarc::ManagedCudaSlice`])
+//! # Import direction (`Managed` → [`crate::interop::cudarc::ManagedCudaSlice`])
 //!
 //! `upgrade_device_ptr` wraps the DLPack tensor's raw device pointer into a
 //! proper `CudaSlice<T>`. Because the DLPack tensor owns that allocation, we
@@ -50,16 +52,15 @@
 //! public non-owning raw-device-buffer type that does not require this
 //! ownership workaround.
 //!
-//! # Stream synchronization
+//! # Stream context
 //!
-//! Converting a `CudaSlice` into an initialized allocation records a read fence on the
-//! slice's stream via
+//! Converting a `CudaSlice` into an initialized allocation records a read fence
+//! on the slice's stream via
 //! `DevicePtr::device_ptr` before capturing the pointer. The consumer must
-//! wait on that stream before reading the data.
-//!
-//! `to_cuda_slice` creates a fresh `CudaContext`/stream for the given device
-//! ordinal. If the producer and consumer are on different streams, the caller
-//! is responsible for explicit synchronization.
+//! either use that stream or establish that the data is ready on another one.
+//! Import takes an explicit [`CudaImport`](crate::interop::cudarc::CudaImport)
+//! and adopts its ready stream without creating another CUDA context or
+//! inserting hidden synchronization.
 
 use crate::ffi::DLDeviceType;
 use snafu::Snafu;
@@ -67,8 +68,8 @@ use snafu::Snafu;
 mod consumer;
 mod producer;
 
-pub use consumer::ManagedCudaSlice;
-pub use producer::from_cuda_slice;
+pub use consumer::{CudaImport, ManagedCudaSlice};
+pub use producer::{CudaDlpackExport, from_cuda_slice};
 
 /// Errors raised during cudarc interop.
 #[derive(Debug, Snafu)]
@@ -125,11 +126,15 @@ pub enum Error {
         actual: crate::ffi::DLDataType,
     },
 
-    /// A cudarc driver error occurred.
-    #[snafu(display("cudarc driver error: {source}"))]
-    Driver {
-        /// The underlying driver error.
-        source: cudarc::driver::DriverError,
+    /// The stream supplied for import belongs to another CUDA device.
+    #[snafu(display(
+        "CUDA import stream is on device {stream_device_id}, but the tensor is on device {tensor_device_id}"
+    ))]
+    StreamDeviceMismatch {
+        /// The tensor's CUDA device ordinal.
+        tensor_device_id: usize,
+        /// The stream's CUDA device ordinal.
+        stream_device_id: usize,
     },
 
     /// The underlying DLPack tensor failed validation.
@@ -218,12 +223,11 @@ mod tests {
         ));
     }
 
-    /// End-to-end `CudaSlice` → DLPack → `ManagedCudaSlice` round-trip using the
-    /// `C = Arc<CudaStream>` path: the consumer's stream `join`s the producer's
-    /// stream, so the data is visible without an explicit host sync.
+    /// End-to-end `CudaSlice` → DLPack → `ManagedCudaSlice` round-trip that
+    /// continues directly on the export's current work stream.
     #[test]
     #[ignore = "requires a CUDA device; run with --ignored"]
-    fn cuda_slice_roundtrips_with_stream_sync() {
+    fn cuda_slice_roundtrips_on_current_work_stream() {
         use crate::{Managed, TryFromDlpack, ffi::DLManagedTensorVersioned};
         use cudarc::driver::{CudaContext, CudaSlice};
         use std::sync::Arc;
@@ -233,30 +237,32 @@ mod tests {
         let data = vec![1i32, 2, 3, 4];
         let slice: CudaSlice<i32> = producer_stream.clone_htod(&data).expect("htod copy");
 
-        let (initialized, stream) =
-            from_cuda_slice::<i32, DLManagedTensorVersioned>(Box::new(slice), &[4], &[1])
-                .expect("producer");
+        let export: CudaDlpackExport<
+            crate::allocation::fixed::Initialized<DLManagedTensorVersioned, 1>,
+        > = Box::new(slice).try_into().expect("producer");
         assert!(
-            Arc::ptr_eq(&stream, &producer_stream),
+            Arc::ptr_eq(export.current_stream(), &producer_stream),
             "producer returns the slice's stream"
         );
 
+        let (initialized, current_stream) = export.into_parts();
         let managed: Managed<DLManagedTensorVersioned> = unsafe { initialized.finish() };
 
-        let borrowed: ManagedCudaSlice<DLManagedTensorVersioned, i32> =
-            unsafe { TryFromDlpack::try_from_dlpack(managed, producer_stream.clone()) }
-                .expect("consumer join");
+        let borrowed: ManagedCudaSlice<DLManagedTensorVersioned, i32> = unsafe {
+            TryFromDlpack::try_from_dlpack(managed, CudaImport::ready_on(current_stream))
+        }
+        .expect("consumer import");
 
-        let consumer_stream = borrowed.stream().clone();
-        let host: Vec<i32> = consumer_stream.clone_dtoh(&*borrowed).expect("dtoh copy");
+        assert!(Arc::ptr_eq(borrowed.stream(), &producer_stream));
+        let host: Vec<i32> = borrowed.stream().clone_dtoh(&*borrowed).expect("dtoh copy");
         assert_eq!(host, data);
     }
 
-    /// Same round-trip via the `C = ()` path: the framework does not sync, so
-    /// the caller must synchronize the producer's stream before reading.
+    /// Same round-trip after the protocol layer bridges producer work to a
+    /// different consumer stream.
     #[test]
     #[ignore = "requires a CUDA device; run with --ignored"]
-    fn cuda_slice_roundtrips_without_sync() {
+    fn cuda_slice_roundtrips_on_preordered_consumer_stream() {
         use crate::{Managed, TryFromDlpack, ffi::DLManagedTensorVersioned};
         use cudarc::driver::{CudaContext, CudaSlice};
 
@@ -265,18 +271,22 @@ mod tests {
         let data = vec![5i32, 6, 7];
         let slice: CudaSlice<i32> = producer_stream.clone_htod(&data).expect("htod copy");
 
-        let (initialized, _stream) =
-            from_cuda_slice::<i32, DLManagedTensorVersioned>(Box::new(slice), &[3], &[1])
-                .expect("producer");
+        let export = from_cuda_slice::<i32, DLManagedTensorVersioned>(Box::new(slice), &[3], &[1])
+            .expect("producer");
+        let consumer_stream = export
+            .current_stream()
+            .fork()
+            .expect("consumer stream ordered after producer");
+        let (initialized, _producer_stream) = export.into_parts();
         let managed: Managed<DLManagedTensorVersioned> = unsafe { initialized.finish() };
 
-        let borrowed: ManagedCudaSlice<DLManagedTensorVersioned, i32> =
-            unsafe { TryFromDlpack::try_from_dlpack(managed, ()) }.expect("consumer no-sync");
+        let borrowed: ManagedCudaSlice<DLManagedTensorVersioned, i32> = unsafe {
+            TryFromDlpack::try_from_dlpack(managed, CudaImport::ready_on(consumer_stream.clone()))
+        }
+        .expect("consumer import");
 
-        // `C = ()` leaves sync to the caller; wait on the producer's stream.
-        producer_stream.synchronize().expect("producer sync");
-        let consumer_stream = borrowed.stream().clone();
-        let host: Vec<i32> = consumer_stream.clone_dtoh(&*borrowed).expect("dtoh copy");
+        assert!(std::sync::Arc::ptr_eq(borrowed.stream(), &consumer_stream));
+        let host: Vec<i32> = borrowed.stream().clone_dtoh(&*borrowed).expect("dtoh copy");
         assert_eq!(host, data);
     }
 }

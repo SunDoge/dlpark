@@ -2,9 +2,32 @@ use super::{DtypeMismatchSnafu, Error, NotCudaSnafu, NullDataSnafu};
 use crate::{
     Borrowed, DlpackElement, Managed, ManagedTensorBase, TryFromDlpack, ffi::DLDeviceType,
 };
-use cudarc::driver::{CudaContext, CudaSlice, CudaStream};
+use cudarc::driver::{CudaSlice, CudaStream};
 use snafu::ensure;
 use std::{mem::ManuallyDrop, ops::Deref, sync::Arc};
+
+/// Runtime context for importing a CUDA DLPack tensor into cudarc.
+///
+/// `ready_on` is the stream on which the caller has established that the
+/// tensor data is ready. For C Exchange this can be the producer's current
+/// work stream. For Python `__dlpack__`, it is the consumer stream previously
+/// passed to the producer.
+#[derive(Clone)]
+pub struct CudaImport {
+    ready_on: Arc<CudaStream>,
+}
+
+impl CudaImport {
+    /// Uses `stream` as the execution context on which the tensor is ready.
+    pub fn ready_on(stream: Arc<CudaStream>) -> Self {
+        Self { ready_on: stream }
+    }
+
+    /// Returns the stream on which the imported tensor is ready.
+    pub fn stream(&self) -> &Arc<CudaStream> {
+        &self.ready_on
+    }
+}
 
 /// A `CudaSlice<T>` view that also owns the backing [`Managed`] tensor.
 ///
@@ -61,9 +84,9 @@ impl<M: ManagedTensorBase, T> Deref for ManagedCudaSlice<M, T> {
 
 /// Converts a [`Managed`] tensor into an owning CUDA slice view.
 ///
-/// Creates a new [`CudaContext`] and default stream for the tensor's device,
-/// then uses `CudaDevice::upgrade_device_ptr` to construct a `CudaSlice<T>` over the
-/// tensor's raw device pointer without taking ownership of the allocation.
+/// Uses the stream supplied by [`CudaImport`] to construct a `CudaSlice<T>`
+/// over the tensor's raw device pointer without taking ownership of the
+/// allocation.
 ///
 /// The returned [`ManagedCudaSlice`] implements `Deref<Target = CudaSlice<T>>`,
 /// so it can be passed to any cudarc API. It retains ownership of the input
@@ -76,39 +99,15 @@ impl<M: ManagedTensorBase, T> Deref for ManagedCudaSlice<M, T> {
 /// - [`Error::DtypeMismatch`] if the element type does not match `T`
 /// - [`Error::NullData`] if the data pointer is null
 /// - [`Error::InvalidDeviceId`] if the CUDA device ID is negative
-/// - [`Error::Driver`] if `CudaContext::new` fails
+/// - [`Error::StreamDeviceMismatch`] if the ready stream is for another device
 /// - [`Error::Tensor`] for non-compact layouts or shape, element-count,
 ///   byte-offset, and alignment errors
 ///
-/// # Stream synchronization
+/// # Execution context
 ///
-/// A fresh `CudaContext`/stream is created for the device. If the DLPack
-/// producer used a different stream, the caller must synchronize explicitly
-/// (e.g. via `cudaDeviceSynchronize`) before submitting GPU work.
-impl<T, M> TryFromDlpack<Managed<M>, ()> for ManagedCudaSlice<M, T>
-where
-    T: DlpackElement,
-    M: ManagedTensorBase,
-{
-    type Error = Error;
-
-    /// # Safety
-    ///
-    /// In addition to the trait-level requirements, the caller must ensure the
-    /// device data is synchronized for the consumer's stream. With `C = ()`
-    /// the framework performs no synchronization.
-    unsafe fn try_from_dlpack(dlpack: Managed<M>, _context: ()) -> Result<Self, Self::Error> {
-        build(dlpack, None)
-    }
-}
-
-/// Converts a [`Managed`] tensor into an owning CUDA slice view, synchronizing
-/// the consumer's stream against the producer's stream.
-///
-/// This is the `C = Arc<CudaStream>` path: the consumer's default stream
-/// [`CudaStream::join`]s the producer's stream, recording a non-blocking wait
-/// for the producer's outstanding work before the slice is exposed.
-impl<T, M> TryFromDlpack<Managed<M>, Arc<CudaStream>> for ManagedCudaSlice<M, T>
+/// This conversion performs no synchronization. The caller must establish
+/// that the data is ready on [`CudaImport::stream`] before importing it.
+impl<T, M> TryFromDlpack<Managed<M>, CudaImport> for ManagedCudaSlice<M, T>
 where
     T: DlpackElement,
     M: ManagedTensorBase,
@@ -117,30 +116,28 @@ where
 
     unsafe fn try_from_dlpack(
         dlpack: Managed<M>,
-        producer_stream: Arc<CudaStream>,
+        context: CudaImport,
     ) -> Result<Self, Self::Error> {
-        build(dlpack, Some(&producer_stream))
+        build(dlpack, context)
     }
 }
 
-fn build<T, M>(
-    dlpack: Managed<M>,
-    producer_stream: Option<&CudaStream>,
-) -> Result<ManagedCudaSlice<M, T>, Error>
+fn build<T, M>(dlpack: Managed<M>, context: CudaImport) -> Result<ManagedCudaSlice<M, T>, Error>
 where
     T: DlpackElement,
     M: ManagedTensorBase,
 {
     let tensor = dlpack.validate()?;
     let (cu_device_ptr, len, device_id) = validated_cuda_parts::<T>(&tensor)?;
-
-    let ctx = CudaContext::new(device_id).map_err(|source| Error::Driver { source })?;
-    let stream: Arc<CudaStream> = ctx.default_stream();
-    if let Some(producer) = producer_stream {
-        stream
-            .join(producer)
-            .map_err(|source| Error::Driver { source })?;
-    }
+    let stream = context.ready_on;
+    let stream_device_id = stream.context().ordinal();
+    ensure!(
+        stream_device_id == device_id,
+        super::StreamDeviceMismatchSnafu {
+            tensor_device_id: device_id,
+            stream_device_id,
+        }
+    );
 
     // SAFETY:
     // - cu_device_ptr is the checked, byte-offset-adjusted DLPack data pointer,
