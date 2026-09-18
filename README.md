@@ -227,7 +227,8 @@ For producers, `python::ExportRequest::parse` turns the four `__dlpack__`
 arguments (`stream`, `max_version`, `dl_device`, and `copy`) into a validated
 Rust value. Its `export_zero_copy` method checks copy and device requests,
 selects the legacy or versioned ABI, rejects padded sub-byte data for the
-legacy ABI, and creates the corresponding capsule from a fresh managed tensor.
+legacy ABI, rejects flags that a zero-copy or legacy export cannot truthfully
+represent, and creates the corresponding capsule from a fresh managed tensor.
 The producer remains responsible for backend-specific stream synchronization.
 
 PyO3 classes that support DLPack 1.3's C Exchange API can implement

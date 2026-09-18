@@ -151,6 +151,11 @@ impl<'py> ExportRequest<'py> {
                 "this producer only supports zero-copy export",
             ));
         }
+        if flags.contains(DlpackFlags::IS_COPIED) {
+            return Err(PyBufferError::new_err(
+                "a zero-copy export cannot set the DLPack IS_COPIED flag",
+            ));
+        }
         if let Some(requested) = self.device
             && requested != source_device
         {
@@ -166,9 +171,9 @@ impl<'py> ExportRequest<'py> {
         match self.abi() {
             ExportAbi::Versioned => Ok(versioned()?.into_pyobject(py)?.unbind()),
             ExportAbi::Legacy => {
-                if flags.contains(DlpackFlags::IS_SUBBYTE_TYPE_PADDED) {
+                if !flags.is_empty() {
                     return Err(PyBufferError::new_err(
-                        "the legacy DLPack ABI cannot describe padded sub-byte elements",
+                        "the legacy DLPack ABI cannot represent versioned tensor flags",
                     ));
                 }
                 Ok(legacy()?.into_pyobject(py)?.unbind())
@@ -243,6 +248,38 @@ mod tests {
                     || unreachable!(),
                 )
                 .is_err()
+            );
+
+            for flags in [
+                DlpackFlags::READ_ONLY,
+                DlpackFlags::IS_COPIED,
+                DlpackFlags::IS_SUBBYTE_TYPE_PADDED,
+            ] {
+                let legacy = ExportRequest::parse(None, None, None, None)?;
+                assert!(
+                    legacy
+                        .export_zero_copy(
+                            py,
+                            DLDevice::CPU,
+                            flags,
+                            || unreachable!(),
+                            || unreachable!(),
+                        )
+                        .is_err()
+                );
+            }
+
+            let copied = ExportRequest::parse(None, Some((1, 0)), None, None)?;
+            assert!(
+                copied
+                    .export_zero_copy(
+                        py,
+                        DLDevice::CPU,
+                        DlpackFlags::IS_COPIED,
+                        || unreachable!(),
+                        || unreachable!(),
+                    )
+                    .is_err()
             );
             Ok(())
         })
