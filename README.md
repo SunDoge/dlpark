@@ -48,7 +48,7 @@ let initialized: dynamic::Initialized<DLManagedTensorVersioned> =
 let tensor: versioned::Dlpack = unsafe { initialized.finish() };
 ```
 
-A **consumer** receives a `Managed` and calls `validate()` to check its descriptor metadata. The resulting `TensorRef` exposes shape, strides, dtype, device, and size through safe accessors. Dereferencing the data pointer remains unsafe because DLPack does not report allocation bounds. Backend conversions go through the `TryFromDlpack` trait.
+A **consumer** receives a `Managed` and calls `validate()` to check its descriptor metadata. The resulting `TensorRef` exposes shape, strides, dtype, device, and size through safe accessors. Dereferencing the data pointer remains unsafe because DLPack does not report allocation bounds. Backend conversions go through `TryFromDlpack`; its second argument is a consumer-defined import context such as a stream, backend client, allocator, or `()`.
 
 ## What is DLPack?
 

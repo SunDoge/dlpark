@@ -95,9 +95,9 @@ where
     /// # Safety
     ///
     /// In addition to the trait-level requirements, the caller must ensure the
-    /// device data is synchronized for the consumer's stream. With `S = ()`
+    /// device data is synchronized for the consumer's stream. With `C = ()`
     /// the framework performs no synchronization.
-    unsafe fn try_from_dlpack(dlpack: Managed<M>, _stream: ()) -> Result<Self, Self::Error> {
+    unsafe fn try_from_dlpack(dlpack: Managed<M>, _context: ()) -> Result<Self, Self::Error> {
         build(dlpack, None)
     }
 }
@@ -105,7 +105,7 @@ where
 /// Converts a [`Managed`] tensor into an owning CUDA slice view, synchronizing
 /// the consumer's stream against the producer's stream.
 ///
-/// This is the `S = Arc<CudaStream>` path: the consumer's default stream
+/// This is the `C = Arc<CudaStream>` path: the consumer's default stream
 /// [`CudaStream::join`]s the producer's stream, recording a non-blocking wait
 /// for the producer's outstanding work before the slice is exposed.
 impl<T, M> TryFromDlpack<Managed<M>, Arc<CudaStream>> for ManagedCudaSlice<M, T>

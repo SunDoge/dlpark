@@ -219,7 +219,7 @@ mod tests {
     }
 
     /// End-to-end `CudaSlice` → DLPack → `ManagedCudaSlice` round-trip using the
-    /// `S = Arc<CudaStream>` path: the consumer's stream `join`s the producer's
+    /// `C = Arc<CudaStream>` path: the consumer's stream `join`s the producer's
     /// stream, so the data is visible without an explicit host sync.
     #[test]
     #[ignore = "requires a CUDA device; run with --ignored"]
@@ -252,7 +252,7 @@ mod tests {
         assert_eq!(host, data);
     }
 
-    /// Same round-trip via the `S = ()` path: the framework does not sync, so
+    /// Same round-trip via the `C = ()` path: the framework does not sync, so
     /// the caller must synchronize the producer's stream before reading.
     #[test]
     #[ignore = "requires a CUDA device; run with --ignored"]
@@ -273,7 +273,7 @@ mod tests {
         let borrowed: ManagedCudaSlice<DLManagedTensorVersioned, i32> =
             unsafe { TryFromDlpack::try_from_dlpack(managed, ()) }.expect("consumer no-sync");
 
-        // `S = ()` leaves sync to the caller; wait on the producer's stream.
+        // `C = ()` leaves sync to the caller; wait on the producer's stream.
         producer_stream.synchronize().expect("producer sync");
         let consumer_stream = borrowed.stream().clone();
         let host: Vec<i32> = consumer_stream.clone_dtoh(&*borrowed).expect("dtoh copy");
