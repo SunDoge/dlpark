@@ -57,7 +57,7 @@ impl ExchangeTensor {
 
 impl ExchangeApi {
     /// Returns whether the optional borrowed-tensor callback is available.
-    pub fn supports_dltensor_view(&self) -> bool {
+    pub(crate) fn supports_dltensor_view(&self) -> bool {
         unsafe { self.api.as_ref() }
             .dltensor_from_py_object_no_sync
             .is_some()
@@ -98,7 +98,7 @@ impl ExchangeApi {
     /// This does not perform stream synchronization. Consumers running kernels
     /// should also query [`Self::current_work_stream`] for the tensor device and
     /// launch work on the producer's stream.
-    pub fn managed_tensor_from_py_object_no_sync(
+    pub(crate) fn managed_tensor_from_py_object_no_sync(
         &self,
         obj: Borrowed<'_, '_, PyAny>,
     ) -> pyo3::PyResult<Managed<DLManagedTensorVersioned>> {
@@ -199,7 +199,10 @@ impl ExchangeApi {
     /// Returns the producer's current work stream for `device`.
     ///
     /// CPU producers may return null, which means no stream handling is needed.
-    pub fn current_work_stream(&self, device: DLDevice) -> pyo3::PyResult<*mut std::ffi::c_void> {
+    pub(crate) fn current_work_stream(
+        &self,
+        device: DLDevice,
+    ) -> pyo3::PyResult<*mut std::ffi::c_void> {
         let api = unsafe { self.api.as_ref() };
         let Some(current_work_stream) = api.current_work_stream else {
             return Err(PyRuntimeError::new_err(
@@ -220,7 +223,7 @@ impl ExchangeApi {
     /// The producer owns the shape, strides, and data pointers. The view is only
     /// valid during the callback and must not be stored or wrapped as an
     /// owning managed tensor.
-    pub fn with_dltensor_view_no_sync<R>(
+    pub(crate) fn with_dltensor_view_no_sync<R>(
         &self,
         obj: Borrowed<'_, '_, PyAny>,
         f: impl FnOnce(&DLTensor) -> R,
@@ -239,6 +242,21 @@ impl ExchangeApi {
         }
 
         Ok(f(&tensor))
+    }
+
+    /// Borrows a temporary tensor view together with its producer work stream.
+    ///
+    /// The view and its metadata are valid only for the duration of `f`.
+    /// Immediate backend work should be launched on `current_work_stream`.
+    pub fn with_tensor_view_no_sync<R>(
+        &self,
+        obj: Borrowed<'_, '_, PyAny>,
+        f: impl FnOnce(&DLTensor, *mut std::ffi::c_void) -> R,
+    ) -> pyo3::PyResult<R> {
+        self.with_dltensor_view_no_sync(obj, |tensor| {
+            let stream = self.current_work_stream(tensor.device)?;
+            Ok(f(tensor, stream))
+        })?
     }
 }
 
@@ -442,8 +460,8 @@ mod tests {
             cls.setattr("__dlpack_c_exchange_api__", capsule)?;
 
             let api_ref = ExchangeApi::from_object(obj.as_borrowed())?.unwrap();
-            assert!(api_ref.current_work_stream(DLDevice::CPU)?.is_null());
-            api_ref.with_dltensor_view_no_sync(obj.as_borrowed(), |tensor| {
+            api_ref.with_tensor_view_no_sync(obj.as_borrowed(), |tensor, stream| {
+                assert!(stream.is_null());
                 assert_eq!(tensor.ndim, 1);
                 assert_eq!(unsafe { tensor.num_elements() }.unwrap(), 3);
             })?;

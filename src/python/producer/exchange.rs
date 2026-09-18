@@ -339,14 +339,14 @@ mod tests {
             let object = Py::new(py, TestProducer)?.into_bound(py);
             let api = ExchangeApi::from_object(object.as_any().as_borrowed())?.unwrap();
 
-            api.with_dltensor_view_no_sync(object.as_any().as_borrowed(), |view| {
+            api.with_tensor_view_no_sync(object.as_any().as_borrowed(), |view, stream| {
                 assert_eq!(view.device, DLDevice::CPU);
                 assert_eq!(view.ndim, 1);
+                assert!(stream.is_null());
             })?;
-            assert!(api.current_work_stream(DLDevice::CPU)?.is_null());
-            let managed =
-                api.managed_tensor_from_py_object_no_sync(object.as_any().as_borrowed())?;
-            assert_eq!(managed.validate().unwrap().shape(), &[3]);
+            let imported = api.import_managed_no_sync(object.as_any().as_borrowed())?;
+            assert!(imported.current_work_stream().is_null());
+            assert_eq!(imported.tensor().validate().unwrap().shape(), &[3]);
 
             let converted = api.managed_tensor_to_py_object_no_sync(tensor(), py)?;
             assert!(converted.is_instance_of::<TestProducer>());
@@ -364,9 +364,8 @@ mod tests {
             let api = ExchangeApi::from_object(object.as_any().as_borrowed())?.unwrap();
 
             assert!(!api.supports_dltensor_view());
-            let managed =
-                api.managed_tensor_from_py_object_no_sync(object.as_any().as_borrowed())?;
-            assert_eq!(managed.validate().unwrap().shape(), &[3]);
+            let imported = api.import_managed_no_sync(object.as_any().as_borrowed())?;
+            assert_eq!(imported.tensor().validate().unwrap().shape(), &[3]);
             Ok(())
         })
         .unwrap();
