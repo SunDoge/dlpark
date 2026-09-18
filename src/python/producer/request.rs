@@ -39,19 +39,6 @@ pub enum CudaStreamRequest {
     Pointer(usize),
 }
 
-impl CudaStreamRequest {
-    /// Returns the integer value used by the Python DLPack protocol.
-    pub fn python_value(self) -> Option<isize> {
-        match self {
-            Self::Omitted => None,
-            Self::NoSync => Some(-1),
-            Self::LegacyDefault => Some(1),
-            Self::PerThreadDefault => Some(2),
-            Self::Pointer(address) => isize::try_from(address).ok(),
-        }
-    }
-}
-
 /// Parsed arguments supplied to a producer's Python `__dlpack__` method.
 pub struct ExportRequest<'py> {
     stream: Option<Bound<'py, PyAny>>,

@@ -207,7 +207,13 @@ The `pyo3` feature supports the standard Python DLPack capsule protocol:
 - Capsule consumption is single-use: extracting renames the capsule to `"..._used"`; a second extraction raises `PyValueError("DLPack capsule has already been consumed")`.
 - A Python producer should be an application-owned class which keeps its buffer alive. Each `__dlpack__` call handles `stream`, `dl_device`, and `copy`, then creates a fresh managed tensor: use the versioned ABI when the consumer supplies a compatible `max_version`, and the legacy ABI when it omits `max_version` or advertises only DLPack 0.x. Only the returned capsule is single-use; the producer object remains reusable. The CUDA and Metal Python demos show this pattern.
 
-The C Exchange API is intended for extension/library use where the consumer borrows tensors and coordinates work on the producer's current stream. It is not a replacement for the normal `__dlpack__` ingestion path.
+The C Exchange API is intended for extension/library use where the consumer
+runs work on the producer's current stream. Discover it with
+`python::consumer::exchange::ExchangeApi::from_object`. Its public import
+operations keep synchronization information attached: `import_managed_no_sync`
+returns an `ExchangeTensor` containing the owning tensor and current stream,
+while `with_tensor_view_no_sync` supplies both values inside the view callback.
+Use the normal `__dlpack__` path for ordinary data ingestion and retention.
 
 After `python::from_dlpack` validates and imports a tensor, containers that own
 their own pointer and metadata can call `ImportedDlpack::into_deleter`. This
