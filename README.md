@@ -48,7 +48,7 @@ let initialized: dynamic::Initialized<DLManagedTensorVersioned> =
 let tensor: versioned::Dlpack = unsafe { initialized.finish() };
 ```
 
-A **consumer** receives a `Managed` and calls `validate()` to check its descriptor metadata. The resulting `TensorRef` exposes shape, strides, dtype, device, and size through safe accessors. Dereferencing the data pointer remains unsafe because DLPack does not report allocation bounds. Backend conversions go through the `TryFromDlpack` trait.
+A **consumer** receives a `Managed` and calls `validate()` to check its descriptor metadata. The resulting `TensorRef` exposes shape, strides, dtype, device, and size through safe accessors. Dereferencing the data pointer remains unsafe because DLPack does not report allocation bounds. Backend conversions go through `TryFromDlpack`; its second argument is a consumer-defined import context such as a stream, backend client, allocator, or `()`.
 
 ## What is DLPack?
 
@@ -185,6 +185,13 @@ let data = unsafe { tensor.cpu_slice::<f32>()? }; // compact CPU data, dtype-che
 
 `TensorRef::cpu_slice` validates device, dtype, alignment, and compact layout, but remains unsafe because a descriptor cannot prove the data allocation's bounds. `cpu_bytes` is the dtype-agnostic variant and also supports packed sub-byte dtypes. Low-level consumers may use `TensorRef::offset_data_ptr` / `offset_bytes_ptr` to obtain a device-agnostic pointer with `byte_offset` applied.
 
+Legacy and versioned pre-1.2 imports accept a null strides pointer as the
+traditional compact row-major representation. Versioned 1.2+ descriptors must
+provide explicit strides as required by their declared protocol version. Local
+non-scalar exports are stricter regardless of ABI: `Managed::validate_export`,
+Python capsules, and C Exchange require explicit strides. The safe metadata
+builders always provide them.
+
 **Mutable access.** Call `validate_mut()` to validate metadata and reject `READ_ONLY`, then use the unsafe mutable data accessor:
 
 ```rust
@@ -207,7 +214,13 @@ The `pyo3` feature supports the standard Python DLPack capsule protocol:
 - Capsule consumption is single-use: extracting renames the capsule to `"..._used"`; a second extraction raises `PyValueError("DLPack capsule has already been consumed")`.
 - A Python producer should be an application-owned class which keeps its buffer alive. Each `__dlpack__` call handles `stream`, `dl_device`, and `copy`, then creates a fresh managed tensor: use the versioned ABI when the consumer supplies a compatible `max_version`, and the legacy ABI when it omits `max_version` or advertises only DLPack 0.x. Only the returned capsule is single-use; the producer object remains reusable. The CUDA and Metal Python demos show this pattern.
 
-The C Exchange API is intended for extension/library use where the consumer borrows tensors and coordinates work on the producer's current stream. It is not a replacement for the normal `__dlpack__` ingestion path.
+The C Exchange API is intended for extension/library use where the consumer
+runs work on the producer's current stream. Discover it with
+`python::consumer::exchange::ExchangeApi::from_object`. Its public import
+operations keep synchronization information attached: `import_managed_no_sync`
+returns an `ExchangeTensor` containing the owning tensor and current stream,
+while `with_tensor_view_no_sync` supplies both values inside the view callback.
+Use the normal `__dlpack__` path for ordinary data ingestion and retention.
 
 After `python::from_dlpack` validates and imports a tensor, containers that own
 their own pointer and metadata can call `ImportedDlpack::into_deleter`. This
@@ -221,7 +234,8 @@ For producers, `python::ExportRequest::parse` turns the four `__dlpack__`
 arguments (`stream`, `max_version`, `dl_device`, and `copy`) into a validated
 Rust value. Its `export_zero_copy` method checks copy and device requests,
 selects the legacy or versioned ABI, rejects padded sub-byte data for the
-legacy ABI, and creates the corresponding capsule from a fresh managed tensor.
+legacy ABI, rejects flags that a zero-copy or legacy export cannot truthfully
+represent, and creates the corresponding capsule from a fresh managed tensor.
 The producer remains responsible for backend-specific stream synchronization.
 
 PyO3 classes that support DLPack 1.3's C Exchange API can implement
@@ -259,7 +273,7 @@ Zero-copy from `candle::Tensor` to DLPack (the boxed tensor's `Arc`-refcounted s
 
 ### cudarc
 
-Zero-copy in both directions between a [cudarc] `CudaSlice<T>` and a DLPack tensor. The 1-D `TryFrom` producer returns a contiguous default layout (`shape = [len]`, `strides = [1]`) and leaves `IS_COPIED` unset; use `interop::cudarc::from_cuda_slice` for higher-rank tensors. The reverse direction consumes the managed tensor through `TryFromDlpack` for `ManagedCudaSlice<M, T>`, which retains the managed DLPack owner for the CUDA view's lifetime.
+Zero-copy in both directions between a [cudarc] `CudaSlice<T>` and a DLPack tensor. Producers return a `CudaDlpackExport` pairing the initialized tensor with its current work stream; use `interop::cudarc::from_cuda_slice` for higher-rank layouts. The reverse direction consumes the managed tensor through `TryFromDlpack` with an explicit `CudaImport::ready_on(stream)`. `ManagedCudaSlice<M, T>` retains the managed DLPack owner and continues work on that stream.
 
 ### safetensors
 
@@ -386,22 +400,22 @@ Use the optional container adapter when application code already owns a `CudaSli
 use dlpark::{
     TryFromDlpack,
     ffi::DLManagedTensorVersioned,
-    interop::cudarc::{ManagedCudaSlice, from_cuda_slice},
+    interop::cudarc::{CudaImport, ManagedCudaSlice, from_cuda_slice},
     versioned,
 };
 
-let (initialized, producer_stream) =
-    from_cuda_slice::<f32, DLManagedTensorVersioned>(
-        Box::new(cuda_slice),
-        &[2, 3],
-        &[3, 1],
-    )?;
+let export = from_cuda_slice::<f32, DLManagedTensorVersioned>(
+    Box::new(cuda_slice),
+    &[2, 3],
+    &[3, 1],
+)?;
+let (initialized, current_stream) = export.into_parts();
 let dlpack: versioned::Dlpack = unsafe { initialized.finish() };
 
 let borrowed = unsafe {
     ManagedCudaSlice::<DLManagedTensorVersioned, f32>::try_from_dlpack(
         dlpack,
-        producer_stream,
+        CudaImport::ready_on(current_stream),
     )?
 };
 ```

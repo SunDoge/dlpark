@@ -8,8 +8,41 @@ use crate::{
 use cudarc::driver::{CudaSlice, CudaStream, DevicePtr};
 use std::{os::raw::c_void, sync::Arc};
 
+/// A no-sync CUDA DLPack export and the stream carrying its current work.
+///
+/// The initialized tensor does not encode stream state. Consumers must either
+/// continue work on [`Self::current_stream`] or establish an ordering edge to
+/// another stream before importing it there.
+pub struct CudaDlpackExport<I> {
+    initialized: I,
+    current_stream: Arc<CudaStream>,
+}
+
+impl<I> CudaDlpackExport<I> {
+    /// Borrows the initialized DLPack allocation.
+    pub fn initialized(&self) -> &I {
+        &self.initialized
+    }
+
+    /// Mutably borrows the initialized allocation for configuring fields such
+    /// as versioned flags before finishing the managed tensor.
+    pub fn initialized_mut(&mut self) -> &mut I {
+        &mut self.initialized
+    }
+
+    /// Returns the stream on which the exported allocation's data becomes ready.
+    pub fn current_stream(&self) -> &Arc<CudaStream> {
+        &self.current_stream
+    }
+
+    /// Splits the initialized tensor from its current work stream.
+    pub fn into_parts(self) -> (I, Arc<CudaStream>) {
+        (self.initialized, self.current_stream)
+    }
+}
+
 impl<T: DlpackElement, M: ManagedTensorBase> TryFrom<Box<CudaSlice<T>>>
-    for fixed::Initialized<M, 1>
+    for CudaDlpackExport<fixed::Initialized<M, 1>>
 {
     type Error = Error;
 
@@ -23,6 +56,7 @@ impl<T: DlpackElement, M: ManagedTensorBase> TryFrom<Box<CudaSlice<T>>>
                 ordinal: slice.ordinal(),
                 source,
             })?;
+        let current_stream = slice.stream().clone();
         let data_ptr = device_ptr_of(&slice);
 
         let prepared = Fixed::new(Copied([len]), Copied([1])).prepare::<M>()?;
@@ -30,7 +64,10 @@ impl<T: DlpackElement, M: ManagedTensorBase> TryFrom<Box<CudaSlice<T>>>
         initialized.set_device(DLDevice::cuda(device_id));
         initialized.set_data(data_ptr);
         initialized.set_dtype(T::DTYPE);
-        Ok(initialized)
+        Ok(CudaDlpackExport {
+            initialized,
+            current_stream,
+        })
     }
 }
 
@@ -41,20 +78,18 @@ impl<T: DlpackElement, M: ManagedTensorBase> TryFrom<Box<CudaSlice<T>>>
 /// - `shape`   — dimension sizes in elements (any rank)
 /// - `strides` — element strides, must have the same length as `shape`
 ///
-/// Returns the initialized allocation together with the slice's stream, so a
-/// consumer can pass it to `TryFromDlpack::try_from_dlpack(.., stream)` for
-/// non-blocking cross-stream synchronization.
+/// Returns a no-sync export carrying both the initialized allocation and the
+/// stream on which its data becomes ready.
 ///
 /// # Errors
 ///
 /// - [`crate::metadata::Error::MismatchedLength`] if `shape.len() != strides.len()`
 /// - [`crate::metadata::Error::NdimOverflow`] if `shape.len()` overflows `i32`
-#[allow(clippy::type_complexity)]
 pub fn from_cuda_slice<T: DlpackElement, M: ManagedTensorBase>(
     slice: Box<CudaSlice<T>>,
     shape: &[i64],
     strides: &[i64],
-) -> Result<(dynamic::Initialized<M>, Arc<CudaStream>), Error> {
+) -> Result<CudaDlpackExport<dynamic::Initialized<M>>, Error> {
     let device_id = i32::try_from(slice.ordinal()).map_err(|source| Error::DeviceIdOverflow {
         ordinal: slice.ordinal(),
         source,
@@ -66,7 +101,10 @@ pub fn from_cuda_slice<T: DlpackElement, M: ManagedTensorBase>(
     initialized.set_device(DLDevice::cuda(device_id));
     initialized.set_dtype(T::DTYPE);
     initialized.set_data(data_ptr);
-    Ok((initialized, stream))
+    Ok(CudaDlpackExport {
+        initialized,
+        current_stream: stream,
+    })
 }
 
 // ---------------------------------------------------------------------------

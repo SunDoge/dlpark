@@ -6,7 +6,7 @@ use pyo3::{
     types::{PyAnyMethods, PyString},
 };
 
-use super::exchange::DlpackExchangeApiRef;
+use super::exchange::ExchangeApi;
 use crate::ffi::{DLDevice, DLDeviceType};
 
 /// Queries and validates a producer's DLPack device.
@@ -18,7 +18,7 @@ use crate::ffi::{DLDevice, DLDeviceType};
 /// import, prefer [`super::ImportRequest`]. It caches this discovery so the
 /// subsequent import does not query the producer a second time.
 pub fn dlpack_device(array: Borrowed<'_, '_, PyAny>) -> pyo3::PyResult<DLDevice> {
-    if let Some(api) = DlpackExchangeApiRef::from_object(array)?
+    if let Some(api) = ExchangeApi::from_object(array)?
         && api.supports_dltensor_view()
     {
         let device = api.with_dltensor_view_no_sync(array, |tensor| tensor.device)?;

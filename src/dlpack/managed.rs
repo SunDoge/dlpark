@@ -116,7 +116,23 @@ where
     /// Validates the descriptor metadata and returns a safe metadata view.
     ///
     pub fn validate(&self) -> Result<tensor::TensorRef<'_>, tensor::Error> {
+        self.validate_declared_stride_semantics()?;
         unsafe { tensor::TensorRef::from_raw(self.tensor()) }
+    }
+
+    /// Validates a locally produced descriptor before exporting it.
+    ///
+    /// Legacy and versioned pre-1.2 imports may use a null strides pointer as
+    /// the traditional compact row-major representation. dlpark's own
+    /// non-scalar exports are stricter and must always carry explicit strides.
+    pub fn validate_export(&self) -> Result<tensor::TensorRef<'_>, tensor::Error> {
+        let tensor = self.validate()?;
+        if tensor.ndim() != 0 && tensor.strides().is_none() {
+            return Err(tensor::Error::MissingExportStrides {
+                ndim: i32::try_from(tensor.ndim()).expect("validated DLPack rank fits i32"),
+            });
+        }
+        Ok(tensor)
     }
 
     /// Validates the descriptor for mutable access.
@@ -124,6 +140,7 @@ where
     /// `READ_ONLY` tensors are rejected. `IS_COPIED` is exchange metadata and
     /// does not affect Rust mutable-access validation.
     pub fn validate_mut(&mut self) -> Result<tensor::TensorMut<'_>, tensor::Error> {
+        self.validate_declared_stride_semantics()?;
         let flags = unsafe { self.0.as_ref() }.flags();
         let tensor = unsafe { self.0.as_mut() }.tensor_mut();
         unsafe { tensor::TensorMut::from_raw(tensor, flags) }
@@ -133,6 +150,25 @@ where
     #[inline]
     pub fn flags(&self) -> DlpackFlags {
         unsafe { self.0.as_ref() }.flags()
+    }
+
+    fn validate_declared_stride_semantics(&self) -> Result<(), tensor::Error> {
+        let managed = unsafe { self.0.as_ref() };
+        let Some(version) = managed.version() else {
+            return Ok(());
+        };
+        let descriptor = managed.tensor();
+        if version.supports(DLPackVersion { major: 1, minor: 2 })
+            && descriptor.ndim != 0
+            && descriptor.strides.is_null()
+        {
+            return Err(tensor::Error::MissingVersionedStrides {
+                major: version.major,
+                minor: version.minor,
+                ndim: descriptor.ndim,
+            });
+        }
+        Ok(())
     }
 }
 
@@ -312,6 +348,100 @@ mod tests {
         assert_eq!(tensor.byte_offset(), 0);
         assert!(tensor.is_compact().unwrap());
         assert_eq!(&*tensor.strides_or_compact().unwrap(), &[1]);
+    }
+
+    #[test]
+    fn current_versioned_import_rejects_implicit_strides() {
+        let tensor = dlpack_with_flags::<DLManagedTensorVersioned>(DlpackFlags::empty());
+        let raw = tensor.into_raw();
+        unsafe { (*raw).dl_tensor.strides = std::ptr::null_mut() };
+        let tensor = unsafe { Managed::from_raw(raw) }.unwrap();
+
+        assert!(matches!(
+            tensor.validate(),
+            Err(tensor::Error::MissingVersionedStrides { minor, ndim: 1, .. })
+                if minor >= 2
+        ));
+    }
+
+    #[test]
+    fn newer_minor_import_rejects_implicit_strides() {
+        let tensor = dlpack_with_flags::<DLManagedTensorVersioned>(DlpackFlags::empty());
+        let raw = tensor.into_raw();
+        unsafe {
+            (*raw).version.minor = DLPackVersion::CURRENT.minor + 1;
+            (*raw).dl_tensor.strides = std::ptr::null_mut();
+        }
+        let tensor = unsafe { Managed::from_raw(raw) }.unwrap();
+
+        assert!(matches!(
+            tensor.validate(),
+            Err(tensor::Error::MissingVersionedStrides { minor, ndim: 1, .. })
+                if minor > DLPackVersion::CURRENT.minor
+        ));
+    }
+
+    #[test]
+    fn legacy_and_pre_1_2_imports_accept_implicit_strides() {
+        let versioned = dlpack_with_flags::<DLManagedTensorVersioned>(DlpackFlags::empty());
+        let raw = versioned.into_raw();
+        unsafe {
+            (*raw).version.minor = 1;
+            (*raw).dl_tensor.strides = std::ptr::null_mut();
+        }
+        let versioned = unsafe { Managed::from_raw(raw) }.unwrap();
+        assert_eq!(
+            &*versioned.validate().unwrap().strides_or_compact().unwrap(),
+            &[1]
+        );
+
+        let legacy = dlpack_with_flags::<DLManagedTensor>(DlpackFlags::empty());
+        let raw = legacy.into_raw();
+        unsafe { (*raw).dl_tensor.strides = std::ptr::null_mut() };
+        let legacy = unsafe { Managed::from_raw(raw) }.unwrap();
+        assert_eq!(
+            &*legacy.validate().unwrap().strides_or_compact().unwrap(),
+            &[1]
+        );
+    }
+
+    #[test]
+    fn export_validation_requires_explicit_non_scalar_strides() {
+        let versioned = dlpack_with_flags::<DLManagedTensorVersioned>(DlpackFlags::empty());
+        let raw = versioned.into_raw();
+        unsafe {
+            (*raw).version.minor = 1;
+            (*raw).dl_tensor.strides = std::ptr::null_mut();
+        }
+        let versioned = unsafe { Managed::from_raw(raw) }.unwrap();
+        assert!(matches!(
+            versioned.validate_export(),
+            Err(tensor::Error::MissingExportStrides { ndim: 1 })
+        ));
+
+        let legacy = dlpack_with_flags::<DLManagedTensor>(DlpackFlags::empty());
+        let raw = legacy.into_raw();
+        unsafe { (*raw).dl_tensor.strides = std::ptr::null_mut() };
+        let legacy = unsafe { Managed::from_raw(raw) }.unwrap();
+        assert!(matches!(
+            legacy.validate_export(),
+            Err(tensor::Error::MissingExportStrides { ndim: 1 })
+        ));
+    }
+
+    #[test]
+    fn export_validation_allows_scalar_without_strides() {
+        let tensor = make_test_tensor::<_, DLManagedTensorVersioned, 0>(
+            Box::new(()),
+            std::ptr::null_mut(),
+            crate::ffi::DLDataType::U8,
+            DLDevice::CPU,
+            [],
+            [],
+            DlpackFlags::empty(),
+        );
+
+        assert!(tensor.validate_export().is_ok());
     }
 
     #[test]

@@ -186,7 +186,7 @@ where
 {
     type Error = Error;
 
-    unsafe fn try_from_dlpack(dlpack: &'a Managed<M>, _stream: ()) -> Result<Self, Self::Error> {
+    unsafe fn try_from_dlpack(dlpack: &'a Managed<M>, _context: ()) -> Result<Self, Self::Error> {
         unsafe { candle_tensor_from_dlpack(dlpack) }
     }
 }
