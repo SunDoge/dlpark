@@ -11,9 +11,9 @@
 /// `C` is a consumer-defined import context. It can carry anything required
 /// to construct `Self`, such as a backend client or device context, an
 /// allocator, device placement, conversion policy, or synchronization state.
-/// A producer stream is a common context for device tensors, but it is not the
-/// only supported shape. The same `Self` and `D` may have implementations for
-/// multiple context types.
+/// A stream on which the data is already ready is a common context for device
+/// tensors, but it is not the only supported shape. The same `Self` and `D`
+/// may have implementations for multiple context types.
 ///
 /// `C = ()` means that the implementation needs no additional context. Each
 /// implementation documents any synchronization and runtime requirements it
@@ -33,8 +33,8 @@ pub trait TryFromDlpack<D, C = ()>: Sized {
     /// Converts `dlpack` into `Self`.
     ///
     /// The meaning of `context` is defined by the implementation. Device
-    /// consumers commonly use it to carry a producer stream, backend client,
-    /// allocator, placement choice, or import policy.
+    /// consumers commonly use it to carry a ready execution stream, backend
+    /// client, allocator, placement choice, or import policy.
     ///
     /// # Safety
     ///
