@@ -111,7 +111,9 @@ impl<M: crate::ManagedTensorBase, Storage> Initialized<M, Storage> {
     ///
     /// The completed descriptor must satisfy the DLPack contract. Its data and
     /// metadata pointers must remain valid until the tensor is dropped, and
-    /// its flags must accurately describe aliasing and mutability.
+    /// its flags must accurately describe aliasing and mutability. Locally
+    /// produced non-scalar tensors must provide explicit strides; the safe
+    /// metadata builders establish this invariant.
     pub unsafe fn finish(self) -> crate::Managed<M> {
         self.managed
     }

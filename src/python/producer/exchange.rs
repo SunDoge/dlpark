@@ -9,7 +9,7 @@ use crate::{
 };
 use pyo3::{
     Bound, Py, PyClass, PyRef, PyResult, Python,
-    exceptions::{PyNotImplementedError, PyRuntimeError, PyValueError},
+    exceptions::{PyBufferError, PyNotImplementedError, PyRuntimeError, PyValueError},
     types::PyAnyMethods,
 };
 use std::{
@@ -118,6 +118,9 @@ where
         let object = unsafe { Bound::from_borrowed_ptr(py, object.cast()) };
         let producer: PyRef<'_, T> = object.extract()?;
         let tensor = producer.managed_tensor_no_sync(py)?;
+        tensor
+            .validate_export()
+            .map_err(|error| PyBufferError::new_err(error.to_string()))?;
         unsafe { out.write(tensor.into_raw()) };
         Ok(())
     })
@@ -134,7 +137,15 @@ where
         let py = unsafe { Python::assume_attached() };
         let object = unsafe { Bound::from_borrowed_ptr(py, object.cast()) };
         let producer: PyRef<'_, T> = object.extract()?;
-        unsafe { out.write(producer.tensor_view_no_sync(py)?) };
+        let tensor = producer.tensor_view_no_sync(py)?;
+        let view = unsafe { crate::tensor::TensorRef::from_raw(&tensor) }
+            .map_err(|error| PyBufferError::new_err(error.to_string()))?;
+        if view.ndim() != 0 && view.strides().is_none() {
+            return Err(PyBufferError::new_err(
+                "a locally exported tensor must provide explicit strides",
+            ));
+        }
+        unsafe { out.write(tensor) };
         Ok(())
     })
 }
@@ -205,7 +216,11 @@ where
     let result = catch_unwind(AssertUnwindSafe(|| {
         let prototype = unsafe { prototype.as_ref() }.ok_or("prototype is null")?;
         let out = unsafe { out.as_mut() }.ok_or("output is null")?;
-        *out = T::allocate(prototype)?.into_raw();
+        let tensor = T::allocate(prototype)?;
+        tensor
+            .validate_export()
+            .map_err(|error| error.to_string())?;
+        *out = tensor.into_raw();
         Ok::<(), String>(())
     }));
     match result {

@@ -61,16 +61,11 @@ pub enum Error {
         strides_len: usize,
     },
 
-    /// A versioned DLPack descriptor omitted strides even though its declared
-    /// protocol version requires them.
+    /// A locally exported non-scalar tensor omitted explicit strides.
     #[snafu(display(
-        "DLPack {major}.{minor} requires a non-null strides pointer when ndim is {ndim}"
+        "a locally exported tensor must provide explicit strides when ndim is {ndim}"
     ))]
-    NullVersionedStrides {
-        /// The tensor's declared major version.
-        major: u32,
-        /// The tensor's declared minor version.
-        minor: u32,
+    MissingExportStrides {
         /// The tensor rank.
         ndim: i32,
     },
