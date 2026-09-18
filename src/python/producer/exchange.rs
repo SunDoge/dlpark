@@ -254,7 +254,7 @@ mod tests {
     use super::*;
     use crate::{
         DlpackFlags, allocation::fixed::make_test_tensor, ffi::DLDataType,
-        python::exchange::DlpackExchangeApiRef,
+        python::consumer::exchange::DlpackExchangeApiRef,
     };
     use pyo3::prelude::*;
     use std::ffi::c_void;
