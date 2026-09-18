@@ -185,11 +185,12 @@ let data = unsafe { tensor.cpu_slice::<f32>()? }; // compact CPU data, dtype-che
 
 `TensorRef::cpu_slice` validates device, dtype, alignment, and compact layout, but remains unsafe because a descriptor cannot prove the data allocation's bounds. `cpu_bytes` is the dtype-agnostic variant and also supports packed sub-byte dtypes. Low-level consumers may use `TensorRef::offset_data_ptr` / `offset_bytes_ptr` to obtain a device-agnostic pointer with `byte_offset` applied.
 
-Imports accept a null strides pointer as the traditional compact row-major
-representation for compatibility with existing producers. Local non-scalar
-exports are stricter: `Managed::validate_export`, Python capsules, and C
-Exchange require explicit strides. The safe metadata builders always provide
-them.
+Legacy and versioned pre-1.2 imports accept a null strides pointer as the
+traditional compact row-major representation. Versioned 1.2+ descriptors must
+provide explicit strides as required by their declared protocol version. Local
+non-scalar exports are stricter regardless of ABI: `Managed::validate_export`,
+Python capsules, and C Exchange require explicit strides. The safe metadata
+builders always provide them.
 
 **Mutable access.** Call `validate_mut()` to validate metadata and reject `READ_ONLY`, then use the unsafe mutable data accessor:
 

@@ -70,6 +70,18 @@ pub enum Error {
         ndim: i32,
     },
 
+    /// A versioned descriptor omitted strides even though its declared
+    /// protocol version requires them.
+    #[snafu(display("DLPack {major}.{minor} requires explicit strides when ndim is {ndim}"))]
+    MissingVersionedStrides {
+        /// The tensor's declared major version.
+        major: u32,
+        /// The tensor's declared minor version.
+        minor: u32,
+        /// The tensor rank.
+        ndim: i32,
+    },
+
     /// The tensor is not compact row-major, which a contiguous Rust slice requires.
     #[snafu(display("a contiguous Rust slice requires compact row-major strides"))]
     NonCompactStrides,
