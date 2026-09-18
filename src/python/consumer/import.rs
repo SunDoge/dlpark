@@ -2,7 +2,7 @@
 
 use super::{
     device::{optional_standard_dlpack_device, validate_device},
-    exchange::DlpackExchangeApiRef,
+    exchange::ExchangeApi,
     stream::DlpackStream,
 };
 use crate::{
@@ -44,7 +44,7 @@ pub struct ImportRequest<'py> {
 enum ImportSource {
     Capsule,
     Exchange {
-        api: DlpackExchangeApiRef,
+        api: ExchangeApi,
         cached_tensor: Option<Managed<DLManagedTensorVersioned>>,
         device: DLDevice,
     },
@@ -73,7 +73,7 @@ impl<'py> ImportRequest<'py> {
             });
         }
 
-        let source = if let Some(api) = DlpackExchangeApiRef::from_object(object.as_borrowed())? {
+        let source = if let Some(api) = ExchangeApi::from_object(object.as_borrowed())? {
             let (device, cached_tensor) = if api.supports_dltensor_view() {
                 let device =
                     api.with_dltensor_view_no_sync(object.as_borrowed(), |tensor| tensor.device)?;
@@ -233,7 +233,7 @@ pub fn from_dlpack(
 }
 
 fn import_from_exchange_api(
-    api: &DlpackExchangeApiRef,
+    api: &ExchangeApi,
     object: Borrowed<'_, '_, PyAny>,
     cached_tensor: Option<Managed<DLManagedTensorVersioned>>,
     expected_device: DLDevice,
@@ -343,7 +343,7 @@ fn imported_device(tensor: &Managed<DLManagedTensorVersioned>) -> pyo3::PyResult
 }
 
 fn exchange_stream_is_ready(
-    api: &DlpackExchangeApiRef,
+    api: &ExchangeApi,
     device: DLDevice,
     stream: Option<&dyn DlpackStream>,
 ) -> pyo3::PyResult<bool> {

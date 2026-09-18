@@ -254,7 +254,7 @@ mod tests {
     use super::*;
     use crate::{
         DlpackFlags, allocation::fixed::make_test_tensor, ffi::DLDataType,
-        python::consumer::exchange::DlpackExchangeApiRef,
+        python::consumer::exchange::ExchangeApi,
     };
     use pyo3::prelude::*;
     use std::ffi::c_void;
@@ -337,7 +337,7 @@ mod tests {
         Python::attach(|py| -> PyResult<()> {
             install_exchange_api::<TestProducer>(py)?;
             let object = Py::new(py, TestProducer)?.into_bound(py);
-            let api = DlpackExchangeApiRef::from_object(object.as_any().as_borrowed())?.unwrap();
+            let api = ExchangeApi::from_object(object.as_any().as_borrowed())?.unwrap();
 
             api.with_dltensor_view_no_sync(object.as_any().as_borrowed(), |view| {
                 assert_eq!(view.device, DLDevice::CPU);
@@ -361,7 +361,7 @@ mod tests {
         Python::attach(|py| -> PyResult<()> {
             install_exchange_api::<TestProducerWithoutView>(py)?;
             let object = Py::new(py, TestProducerWithoutView)?.into_bound(py);
-            let api = DlpackExchangeApiRef::from_object(object.as_any().as_borrowed())?.unwrap();
+            let api = ExchangeApi::from_object(object.as_any().as_borrowed())?.unwrap();
 
             assert!(!api.supports_dltensor_view());
             let managed =

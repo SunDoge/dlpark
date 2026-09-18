@@ -20,11 +20,42 @@ const DLPACK_EXCHANGE_API: &CStr = c"dlpack_exchange_api";
 ///
 /// The table is owned by the producer framework and must remain alive for the
 /// process lifetime per the DLPack spec.
-pub struct DlpackExchangeApiRef {
+pub struct ExchangeApi {
     api: NonNull<DLPackExchangeAPI>,
 }
 
-impl DlpackExchangeApiRef {
+/// An owning tensor imported without synchronization through C Exchange.
+///
+/// `current_work_stream` is the producer's native execution stream for the
+/// tensor device. Consumers should run immediate work on that stream. A
+/// consumer that wants to retain the tensor on a different stream must first
+/// establish the required backend ordering.
+pub struct ExchangeTensor {
+    tensor: Managed<DLManagedTensorVersioned>,
+    current_work_stream: *mut std::ffi::c_void,
+}
+
+impl ExchangeTensor {
+    /// Borrows the imported managed tensor.
+    pub fn tensor(&self) -> &Managed<DLManagedTensorVersioned> {
+        &self.tensor
+    }
+
+    /// Returns the producer's native current work stream.
+    pub fn current_work_stream(&self) -> *mut std::ffi::c_void {
+        self.current_work_stream
+    }
+
+    /// Separates the owning tensor and producer stream.
+    ///
+    /// The caller remains responsible for preserving their synchronization
+    /// relationship after separating them.
+    pub fn into_parts(self) -> (Managed<DLManagedTensorVersioned>, *mut std::ffi::c_void) {
+        (self.tensor, self.current_work_stream)
+    }
+}
+
+impl ExchangeApi {
     /// Returns whether the optional borrowed-tensor callback is available.
     pub fn supports_dltensor_view(&self) -> bool {
         unsafe { self.api.as_ref() }
@@ -91,6 +122,27 @@ impl DlpackExchangeApiRef {
 
         unsafe { Managed::from_raw(out) }
             .map_err(|error| PyRuntimeError::new_err(error.to_string()))
+    }
+
+    /// Imports an owning tensor together with the producer's current stream.
+    ///
+    /// Keeping these values in one result makes the no-sync contract explicit:
+    /// the tensor is ready for immediate work on `current_work_stream`, while
+    /// another stream requires backend-specific ordering first.
+    pub fn import_managed_no_sync(
+        &self,
+        obj: Borrowed<'_, '_, PyAny>,
+    ) -> pyo3::PyResult<ExchangeTensor> {
+        let tensor = self.managed_tensor_from_py_object_no_sync(obj)?;
+        let device = tensor
+            .validate()
+            .map_err(|error| PyBufferError::new_err(error.to_string()))?
+            .device();
+        let current_work_stream = self.current_work_stream(device)?;
+        Ok(ExchangeTensor {
+            tensor,
+            current_work_stream,
+        })
     }
 
     /// Transfers an owning tensor directly into a Python object.
@@ -389,12 +441,17 @@ mod tests {
             let capsule = unsafe { pyo3::Bound::from_owned_ptr(py, capsule) };
             cls.setattr("__dlpack_c_exchange_api__", capsule)?;
 
-            let api_ref = DlpackExchangeApiRef::from_object(obj.as_borrowed())?.unwrap();
+            let api_ref = ExchangeApi::from_object(obj.as_borrowed())?.unwrap();
             assert!(api_ref.current_work_stream(DLDevice::CPU)?.is_null());
             api_ref.with_dltensor_view_no_sync(obj.as_borrowed(), |tensor| {
                 assert_eq!(tensor.ndim, 1);
                 assert_eq!(unsafe { tensor.num_elements() }.unwrap(), 3);
             })?;
+
+            let imported = api_ref.import_managed_no_sync(obj.as_borrowed())?;
+            assert!(imported.current_work_stream().is_null());
+            assert_eq!(imported.tensor().validate().unwrap().shape(), &[3]);
+            drop(imported);
 
             let ImportedDlpack::Versioned(dlpack) = from_dlpack(obj.as_borrowed(), None, None)?
             else {
@@ -468,7 +525,7 @@ class MockTensor:
             )?;
             let obj = module.getattr("MockTensor")?.call0()?;
 
-            let err = match DlpackExchangeApiRef::from_object(obj.as_borrowed()) {
+            let err = match ExchangeApi::from_object(obj.as_borrowed()) {
                 Ok(_) => panic!("non-AttributeError exchange API lookup failure must propagate"),
                 Err(err) => err,
             };
@@ -484,7 +541,7 @@ class MockTensor:
         pyo3::Python::initialize();
         pyo3::Python::attach(|py| -> pyo3::PyResult<()> {
             let api = NonNull::new(leak_mock_api()).unwrap();
-            let api = DlpackExchangeApiRef { api };
+            let api = ExchangeApi { api };
             let data = Box::new(vec![7i32, 8, 9]);
             let data_ptr = data.as_ptr() as *mut c_void;
             let tensor = make_test_tensor::<_, DLManagedTensorVersioned, 1>(
@@ -510,7 +567,7 @@ class MockTensor:
         pyo3::Python::initialize();
         pyo3::Python::attach(|py| -> pyo3::PyResult<()> {
             let api = NonNull::new(leak_mock_api()).unwrap();
-            let api = DlpackExchangeApiRef { api };
+            let api = ExchangeApi { api };
             let data = Box::new(vec![7i32, 8, 9]);
             let data_ptr = data.as_ptr() as *mut c_void;
             let tensor: Managed<DLManagedTensorVersioned> = make_test_tensor(
@@ -537,7 +594,7 @@ class MockTensor:
         pyo3::Python::attach(|py| {
             let mut raw_api = mock_api();
             raw_api.managed_tensor_to_py_object_no_sync = None;
-            let api = DlpackExchangeApiRef {
+            let api = ExchangeApi {
                 api: NonNull::from(&mut raw_api),
             };
             let drops = Arc::new(AtomicUsize::new(0));
@@ -557,7 +614,7 @@ class MockTensor:
         pyo3::Python::attach(|py| {
             let mut raw_api = mock_api();
             raw_api.managed_tensor_to_py_object_no_sync = None;
-            let api = DlpackExchangeApiRef {
+            let api = ExchangeApi {
                 api: NonNull::from(&mut raw_api),
             };
             let drops = Arc::new(AtomicUsize::new(0));
