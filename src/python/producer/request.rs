@@ -11,7 +11,6 @@ use pyo3::{
     exceptions::{PyBufferError, PyValueError},
     types::PyAnyMethods,
 };
-use std::{ffi::c_void, ptr};
 
 /// Managed-tensor ABI selected from a consumer's `max_version` argument.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -25,9 +24,11 @@ pub enum ExportAbi {
 /// Parsed CUDA stream argument supplied to Python `__dlpack__`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CudaStreamRequest {
-    /// The consumer omitted `stream`; the producer must conservatively make
-    /// the tensor ready before returning.
-    Unspecified,
+    /// The consumer omitted `stream`.
+    ///
+    /// The producer must use the protocol's legacy behavior. This is distinct
+    /// from [`Self::NoSync`] and must not be converted to a native stream.
+    Omitted,
     /// The consumer passed `-1` and requests no synchronization.
     NoSync,
     /// CUDA's legacy default stream sentinel (`1`).
@@ -36,30 +37,6 @@ pub enum CudaStreamRequest {
     PerThreadDefault,
     /// A positive native `cudaStream_t` address.
     Pointer(usize),
-}
-
-impl CudaStreamRequest {
-    /// Returns the native `cudaStream_t` representation when synchronization
-    /// should target a consumer stream.
-    pub fn as_raw(self) -> Option<*mut c_void> {
-        match self {
-            Self::Unspecified | Self::NoSync => None,
-            Self::LegacyDefault => Some(ptr::null_mut()),
-            Self::PerThreadDefault => Some(ptr::without_provenance_mut(2)),
-            Self::Pointer(address) => Some(ptr::without_provenance_mut(address)),
-        }
-    }
-
-    /// Returns the integer value used by the Python DLPack protocol.
-    pub fn python_value(self) -> Option<isize> {
-        match self {
-            Self::Unspecified => None,
-            Self::NoSync => Some(-1),
-            Self::LegacyDefault => Some(1),
-            Self::PerThreadDefault => Some(2),
-            Self::Pointer(address) => isize::try_from(address).ok(),
-        }
-    }
 }
 
 /// Parsed arguments supplied to a producer's Python `__dlpack__` method.
@@ -107,7 +84,7 @@ impl<'py> ExportRequest<'py> {
     /// Parses `stream` according to the CUDA Python DLPack convention.
     pub fn cuda_stream(&self) -> PyResult<CudaStreamRequest> {
         let Some(stream) = &self.stream else {
-            return Ok(CudaStreamRequest::Unspecified);
+            return Ok(CudaStreamRequest::Omitted);
         };
         let value = stream
             .extract::<isize>()
@@ -174,6 +151,11 @@ impl<'py> ExportRequest<'py> {
                 "this producer only supports zero-copy export",
             ));
         }
+        if flags.contains(DlpackFlags::IS_COPIED) {
+            return Err(PyBufferError::new_err(
+                "a zero-copy export cannot set the DLPack IS_COPIED flag",
+            ));
+        }
         if let Some(requested) = self.device
             && requested != source_device
         {
@@ -189,9 +171,9 @@ impl<'py> ExportRequest<'py> {
         match self.abi() {
             ExportAbi::Versioned => Ok(versioned()?.into_pyobject(py)?.unbind()),
             ExportAbi::Legacy => {
-                if flags.contains(DlpackFlags::IS_SUBBYTE_TYPE_PADDED) {
+                if !flags.is_empty() {
                     return Err(PyBufferError::new_err(
-                        "the legacy DLPack ABI cannot describe padded sub-byte elements",
+                        "the legacy DLPack ABI cannot represent versioned tensor flags",
                     ));
                 }
                 Ok(legacy()?.into_pyobject(py)?.unbind())
@@ -267,6 +249,38 @@ mod tests {
                 )
                 .is_err()
             );
+
+            for flags in [
+                DlpackFlags::READ_ONLY,
+                DlpackFlags::IS_COPIED,
+                DlpackFlags::IS_SUBBYTE_TYPE_PADDED,
+            ] {
+                let legacy = ExportRequest::parse(None, None, None, None)?;
+                assert!(
+                    legacy
+                        .export_zero_copy(
+                            py,
+                            DLDevice::CPU,
+                            flags,
+                            || unreachable!(),
+                            || unreachable!(),
+                        )
+                        .is_err()
+                );
+            }
+
+            let copied = ExportRequest::parse(None, Some((1, 0)), None, None)?;
+            assert!(
+                copied
+                    .export_zero_copy(
+                        py,
+                        DLDevice::CPU,
+                        DlpackFlags::IS_COPIED,
+                        || unreachable!(),
+                        || unreachable!(),
+                    )
+                    .is_err()
+            );
             Ok(())
         })
         .unwrap();
@@ -277,7 +291,7 @@ mod tests {
         Python::initialize();
         Python::attach(|py| -> PyResult<()> {
             let request = ExportRequest::parse(None, None, None, None)?;
-            assert_eq!(request.cuda_stream()?, CudaStreamRequest::Unspecified);
+            assert_eq!(request.cuda_stream()?, CudaStreamRequest::Omitted);
 
             for (value, expected) in [
                 (-1, CudaStreamRequest::NoSync),

@@ -79,7 +79,7 @@ impl CudaTensor {
 
     fn synchronize(&self, stream: CudaStreamRequest) -> PyResult<()> {
         match stream {
-            CudaStreamRequest::Unspecified => {
+            CudaStreamRequest::Omitted => {
                 eprintln!(
                     "[dlpark/cuda] destination supplied no stream; synchronizing relay stream on the host"
                 );
@@ -88,16 +88,29 @@ impl CudaTensor {
             CudaStreamRequest::NoSync => eprintln!(
                 "[dlpark/cuda] destination requested stream=-1; no synchronization inserted"
             ),
-            stream => {
-                let raw = stream
-                    .python_value()
-                    .expect("a concrete CUDA stream has a Python value");
-                let consumer = stream
-                    .as_raw()
-                    .expect("a concrete CUDA stream has a native representation");
+            CudaStreamRequest::LegacyDefault => {
+                let raw = 1;
+                let consumer = std::ptr::null_mut();
                 unsafe { self.stream.hand_off_to_raw(consumer) }.map_err(runtime_error)?;
                 eprintln!(
                     "[dlpark/cuda] event handoff relay_stream={:p} destination_stream_arg={raw:#x} cuda_stream={consumer:p}",
+                    self.stream.as_raw(),
+                );
+            }
+            CudaStreamRequest::PerThreadDefault => {
+                let raw = 2;
+                let consumer = std::ptr::without_provenance_mut(2);
+                unsafe { self.stream.hand_off_to_raw(consumer) }.map_err(runtime_error)?;
+                eprintln!(
+                    "[dlpark/cuda] event handoff relay_stream={:p} destination_stream_arg={raw:#x} cuda_stream={consumer:p}",
+                    self.stream.as_raw(),
+                );
+            }
+            CudaStreamRequest::Pointer(address) => {
+                let consumer = std::ptr::without_provenance_mut(address);
+                unsafe { self.stream.hand_off_to_raw(consumer) }.map_err(runtime_error)?;
+                eprintln!(
+                    "[dlpark/cuda] event handoff relay_stream={:p} destination_stream_arg={address:#x} cuda_stream={consumer:p}",
                     self.stream.as_raw(),
                 );
             }

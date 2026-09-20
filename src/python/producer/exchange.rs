@@ -9,7 +9,7 @@ use crate::{
 };
 use pyo3::{
     Bound, Py, PyClass, PyRef, PyResult, Python,
-    exceptions::{PyNotImplementedError, PyRuntimeError, PyValueError},
+    exceptions::{PyBufferError, PyNotImplementedError, PyRuntimeError, PyValueError},
     types::PyAnyMethods,
 };
 use std::{
@@ -118,6 +118,9 @@ where
         let object = unsafe { Bound::from_borrowed_ptr(py, object.cast()) };
         let producer: PyRef<'_, T> = object.extract()?;
         let tensor = producer.managed_tensor_no_sync(py)?;
+        tensor
+            .validate_export()
+            .map_err(|error| PyBufferError::new_err(error.to_string()))?;
         unsafe { out.write(tensor.into_raw()) };
         Ok(())
     })
@@ -134,7 +137,15 @@ where
         let py = unsafe { Python::assume_attached() };
         let object = unsafe { Bound::from_borrowed_ptr(py, object.cast()) };
         let producer: PyRef<'_, T> = object.extract()?;
-        unsafe { out.write(producer.tensor_view_no_sync(py)?) };
+        let tensor = producer.tensor_view_no_sync(py)?;
+        let view = unsafe { crate::tensor::TensorRef::from_raw(&tensor) }
+            .map_err(|error| PyBufferError::new_err(error.to_string()))?;
+        if view.ndim() != 0 && view.strides().is_none() {
+            return Err(PyBufferError::new_err(
+                "a locally exported tensor must provide explicit strides",
+            ));
+        }
+        unsafe { out.write(tensor) };
         Ok(())
     })
 }
@@ -205,7 +216,11 @@ where
     let result = catch_unwind(AssertUnwindSafe(|| {
         let prototype = unsafe { prototype.as_ref() }.ok_or("prototype is null")?;
         let out = unsafe { out.as_mut() }.ok_or("output is null")?;
-        *out = T::allocate(prototype)?.into_raw();
+        let tensor = T::allocate(prototype)?;
+        tensor
+            .validate_export()
+            .map_err(|error| error.to_string())?;
+        *out = tensor.into_raw();
         Ok::<(), String>(())
     }));
     match result {
@@ -254,7 +269,7 @@ mod tests {
     use super::*;
     use crate::{
         DlpackFlags, allocation::fixed::make_test_tensor, ffi::DLDataType,
-        python::exchange::DlpackExchangeApiRef,
+        python::consumer::exchange::ExchangeApi,
     };
     use pyo3::prelude::*;
     use std::ffi::c_void;
@@ -337,16 +352,16 @@ mod tests {
         Python::attach(|py| -> PyResult<()> {
             install_exchange_api::<TestProducer>(py)?;
             let object = Py::new(py, TestProducer)?.into_bound(py);
-            let api = DlpackExchangeApiRef::from_object(object.as_any().as_borrowed())?.unwrap();
+            let api = ExchangeApi::from_object(object.as_any().as_borrowed())?.unwrap();
 
-            api.with_dltensor_view_no_sync(object.as_any().as_borrowed(), |view| {
+            api.with_tensor_view_no_sync(object.as_any().as_borrowed(), |view, stream| {
                 assert_eq!(view.device, DLDevice::CPU);
                 assert_eq!(view.ndim, 1);
+                assert!(stream.is_null());
             })?;
-            assert!(api.current_work_stream(DLDevice::CPU)?.is_null());
-            let managed =
-                api.managed_tensor_from_py_object_no_sync(object.as_any().as_borrowed())?;
-            assert_eq!(managed.validate().unwrap().shape(), &[3]);
+            let imported = api.import_managed_no_sync(object.as_any().as_borrowed())?;
+            assert!(imported.current_work_stream().is_null());
+            assert_eq!(imported.tensor().validate().unwrap().shape(), &[3]);
 
             let converted = api.managed_tensor_to_py_object_no_sync(tensor(), py)?;
             assert!(converted.is_instance_of::<TestProducer>());
@@ -361,12 +376,11 @@ mod tests {
         Python::attach(|py| -> PyResult<()> {
             install_exchange_api::<TestProducerWithoutView>(py)?;
             let object = Py::new(py, TestProducerWithoutView)?.into_bound(py);
-            let api = DlpackExchangeApiRef::from_object(object.as_any().as_borrowed())?.unwrap();
+            let api = ExchangeApi::from_object(object.as_any().as_borrowed())?.unwrap();
 
             assert!(!api.supports_dltensor_view());
-            let managed =
-                api.managed_tensor_from_py_object_no_sync(object.as_any().as_borrowed())?;
-            assert_eq!(managed.validate().unwrap().shape(), &[3]);
+            let imported = api.import_managed_no_sync(object.as_any().as_borrowed())?;
+            assert_eq!(imported.tensor().validate().unwrap().shape(), &[3]);
             Ok(())
         })
         .unwrap();

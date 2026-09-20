@@ -12,7 +12,7 @@ where
 {
     type Error = Error;
 
-    unsafe fn try_from_dlpack(dlpack: &'a Managed<M>, _stream: ()) -> Result<Self, Self::Error> {
+    unsafe fn try_from_dlpack(dlpack: &'a Managed<M>, _context: ()) -> Result<Self, Self::Error> {
         let tensor = dlpack.validate()?;
         let layout = validated_hwc::<P>(&tensor)?;
 
@@ -57,7 +57,7 @@ where
 {
     type Error = Error;
 
-    unsafe fn try_from_dlpack(dlpack: Managed<M>, _stream: ()) -> Result<Self, Self::Error> {
+    unsafe fn try_from_dlpack(dlpack: Managed<M>, _context: ()) -> Result<Self, Self::Error> {
         let layout = {
             let tensor = dlpack.validate()?;
             validated_hwc::<P>(&tensor)?

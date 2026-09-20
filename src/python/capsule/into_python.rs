@@ -70,6 +70,8 @@ impl<'py> IntoPyObject<'py> for Managed<DLManagedTensor> {
     type Error = pyo3::PyErr;
 
     fn into_pyobject(self, py: pyo3::Python<'py>) -> pyo3::PyResult<Self::Output> {
+        self.validate_export()
+            .map_err(|error| PyBufferError::new_err(error.to_string()))?;
         unsafe {
             let raw = self.into_raw();
             let capsule =
@@ -91,6 +93,8 @@ impl<'py> IntoPyObject<'py> for Managed<DLManagedTensorVersioned> {
     type Error = pyo3::PyErr;
 
     fn into_pyobject(self, py: pyo3::Python<'py>) -> pyo3::PyResult<Self::Output> {
+        self.validate_export()
+            .map_err(|error| PyBufferError::new_err(error.to_string()))?;
         unsafe {
             let raw = self.into_raw();
             let capsule = match raw_dlpack_to_capsule(

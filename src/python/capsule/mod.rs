@@ -121,6 +121,20 @@ mod tests {
     }
 
     #[test]
+    fn local_non_scalar_export_requires_explicit_strides() {
+        pyo3::Python::initialize();
+        pyo3::Python::attach(|py| {
+            let tensor = versioned_tensor();
+            let raw = tensor.into_raw();
+            unsafe { (*raw).dl_tensor.strides = std::ptr::null_mut() };
+            let tensor = unsafe { Managed::from_raw(raw) }.unwrap();
+
+            let error = tensor.into_pyobject(py).unwrap_err();
+            assert!(error.is_instance_of::<pyo3::exceptions::PyBufferError>(py));
+        });
+    }
+
+    #[test]
     fn legacy_capsule_can_only_be_consumed_once() {
         pyo3::Python::initialize();
         pyo3::Python::attach(|py| -> pyo3::PyResult<()> {
