@@ -4,6 +4,53 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## 0.9.0-beta.4 - 2026-09-20
+
+### 🐛 Fixes
+
+- Honor versioned stride requirements on import
+
+
+- Reject lossy Python DLPack exports
+
+
+- Enforce versioned stride requirements
+
+
+
+### 📝 Documentation
+
+- Clarify C Exchange execution contexts
+
+
+- Describe ready import execution contexts
+
+
+- Define DLPack import context semantics
+
+
+
+### 🌀 Miscellaneous
+
+- Validate strides at export boundaries
+
+
+- Keep C Exchange streams attached to views
+
+
+- Pair C Exchange tensors with work streams
+
+
+- Preserve Python stream request semantics
+
+
+- Make cudarc transfer context explicit
+
+
+
+**Full Changelog**: <https://github.com/SunDoge/dlpark/compare/v0.9.0-beta.3...v0.9.0-beta.4>
+
+---
 ## 0.9.0-beta.3 - 2026-09-16
 
 ### 🚀 Features
