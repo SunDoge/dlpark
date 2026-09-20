@@ -16,5 +16,6 @@ pub use consumer::{
     DlpackStream, ImportRequest, ImportedDlpack, StreamArg, dlpack_device, from_dlpack,
 };
 pub use producer::{
-    CudaStreamRequest, DlpackExchangeProducer, ExportAbi, ExportRequest, install_exchange_api,
+    CudaStreamRequest, DlpackExchangeProducer, DlpackExporter, ExportAbi, ExportRequest,
+    export_dlpack, install_exchange_api,
 };

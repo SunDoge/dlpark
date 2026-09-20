@@ -8,8 +8,8 @@ use dlpark::{
     },
     metadata::{Copied, Dynamic},
     python::{
-        CudaStreamRequest, DlpackExchangeProducer, ExportRequest, ImportRequest, ImportedDlpack,
-        install_exchange_api,
+        CudaStreamRequest, DlpackExchangeProducer, DlpackExporter, ExportRequest, ImportRequest,
+        ImportedDlpack, export_dlpack, install_exchange_api,
     },
 };
 use pyo3::{
@@ -310,14 +310,7 @@ impl CudaTensor {
         copy: Option<bool>,
     ) -> PyResult<Py<PyAny>> {
         let request = ExportRequest::parse(stream, max_version, dl_device, copy)?;
-        self.synchronize(request.cuda_stream()?)?;
-        request.export_zero_copy(
-            py,
-            self.device(),
-            self.flags,
-            || self.export::<DLManagedTensor>(),
-            || self.export::<DLManagedTensorVersioned>(),
-        )
+        export_dlpack(self, py, request)
     }
 
     #[getter]
@@ -333,6 +326,28 @@ impl CudaTensor {
     #[getter]
     fn length(&self) -> usize {
         self.length
+    }
+}
+
+impl DlpackExporter for CudaTensor {
+    fn device(&self) -> DLDevice {
+        self.device()
+    }
+
+    fn flags(&self) -> DlpackFlags {
+        self.flags
+    }
+
+    fn prepare_export(&self, _py: Python<'_>, request: &ExportRequest<'_>) -> PyResult<()> {
+        self.synchronize(request.cuda_stream()?)
+    }
+
+    fn export_legacy(&self, _py: Python<'_>) -> PyResult<Managed<DLManagedTensor>> {
+        self.export()
+    }
+
+    fn export_versioned(&self, _py: Python<'_>) -> PyResult<Managed<DLManagedTensorVersioned>> {
+        self.export()
     }
 }
 

@@ -146,6 +146,14 @@ impl<'py> ExportRequest<'py> {
         L: FnOnce() -> PyResult<Managed<DLManagedTensor>>,
         V: FnOnce() -> PyResult<Managed<DLManagedTensorVersioned>>,
     {
+        self.validate_zero_copy(source_device, flags)?;
+        self.export_zero_copy_validated(py, legacy, versioned)
+    }
+
+    /// Validates device, copy, flags, and ABI constraints for a zero-copy export.
+    ///
+    /// This does not create a managed tensor or perform stream synchronization.
+    pub fn validate_zero_copy(&self, source_device: DLDevice, flags: DlpackFlags) -> PyResult<()> {
         if self.copy == Some(true) {
             return Err(PyBufferError::new_err(
                 "this producer only supports zero-copy export",
@@ -168,16 +176,27 @@ impl<'py> ExportRequest<'py> {
             )));
         }
 
+        if self.abi() == ExportAbi::Legacy && !flags.is_empty() {
+            return Err(PyBufferError::new_err(
+                "the legacy DLPack ABI cannot represent versioned tensor flags",
+            ));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn export_zero_copy_validated<L, V>(
+        &self,
+        py: Python<'py>,
+        legacy: L,
+        versioned: V,
+    ) -> PyResult<Py<PyAny>>
+    where
+        L: FnOnce() -> PyResult<Managed<DLManagedTensor>>,
+        V: FnOnce() -> PyResult<Managed<DLManagedTensorVersioned>>,
+    {
         match self.abi() {
             ExportAbi::Versioned => Ok(versioned()?.into_pyobject(py)?.unbind()),
-            ExportAbi::Legacy => {
-                if !flags.is_empty() {
-                    return Err(PyBufferError::new_err(
-                        "the legacy DLPack ABI cannot represent versioned tensor flags",
-                    ));
-                }
-                Ok(legacy()?.into_pyobject(py)?.unbind())
-            }
+            ExportAbi::Legacy => Ok(legacy()?.into_pyobject(py)?.unbind()),
         }
     }
 }

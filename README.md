@@ -230,13 +230,13 @@ versioned managed-tensor wrappers. `AllocationDeleter::from_raw_parts` also
 adopts an existing context pointer and release function without allocating an
 additional closure.
 
-For producers, `python::ExportRequest::parse` turns the four `__dlpack__`
-arguments (`stream`, `max_version`, `dl_device`, and `copy`) into a validated
-Rust value. Its `export_zero_copy` method checks copy and device requests,
-selects the legacy or versioned ABI, rejects padded sub-byte data for the
-legacy ABI, rejects flags that a zero-copy or legacy export cannot truthfully
-represent, and creates the corresponding capsule from a fresh managed tensor.
-The producer remains responsible for backend-specific stream synchronization.
+For reusable Python tensor wrappers, implement `python::DlpackExporter` and
+pass a parsed `ExportRequest` to `python::export_dlpack`. dlpark validates copy,
+device, flags, and ABI constraints before asking the backend to prepare the
+consumer stream, then calls exactly one exporter method to create a fresh
+legacy or versioned managed tensor. The wrapper continues to own its buffer and
+may serve any number of `__dlpack__` calls; every returned capsule remains
+single-use. The CUDA and Metal demos implement this pattern.
 
 PyO3 classes that support DLPack 1.3's C Exchange API can implement
 `python::DlpackExchangeProducer` and call

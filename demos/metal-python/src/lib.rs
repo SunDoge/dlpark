@@ -5,7 +5,8 @@ use dlpark::{
     },
     metadata::{Copied, Dynamic},
     python::{
-        DlpackExchangeProducer, ExportRequest, ImportedDlpack, from_dlpack, install_exchange_api,
+        DlpackExchangeProducer, DlpackExporter, ExportRequest, ImportedDlpack, export_dlpack,
+        from_dlpack, install_exchange_api,
     },
 };
 use objc2::{
@@ -359,18 +360,7 @@ impl MetalTensor {
         copy: Option<bool>,
     ) -> PyResult<Py<PyAny>> {
         let request = ExportRequest::parse(stream, max_version, dl_device, copy)?;
-        if request.stream().is_some() {
-            return Err(PyValueError::new_err(
-                "MetalTensor does not accept a stream argument",
-            ));
-        }
-        request.export_zero_copy(
-            py,
-            self.device(),
-            self.flags,
-            || self.export::<DLManagedTensor>(),
-            || self.export::<DLManagedTensorVersioned>(),
-        )
+        export_dlpack(self, py, request)
     }
 
     #[getter]
@@ -388,6 +378,33 @@ impl MetalTensor {
     #[getter]
     fn length(&self) -> usize {
         self.length
+    }
+}
+
+impl DlpackExporter for MetalTensor {
+    fn device(&self) -> DLDevice {
+        self.device()
+    }
+
+    fn flags(&self) -> DlpackFlags {
+        self.flags
+    }
+
+    fn prepare_export(&self, _py: Python<'_>, request: &ExportRequest<'_>) -> PyResult<()> {
+        if request.stream().is_some() {
+            return Err(PyValueError::new_err(
+                "MetalTensor does not accept a stream argument",
+            ));
+        }
+        Ok(())
+    }
+
+    fn export_legacy(&self, _py: Python<'_>) -> PyResult<Managed<DLManagedTensor>> {
+        self.export()
+    }
+
+    fn export_versioned(&self, _py: Python<'_>) -> PyResult<Managed<DLManagedTensorVersioned>> {
+        self.export()
     }
 }
 
