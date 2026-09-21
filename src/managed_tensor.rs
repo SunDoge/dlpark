@@ -198,9 +198,13 @@ mod tests {
         };
 
         assert!(current.is_compatible_with(newer_minor));
+        assert!(current.ensure_compatible_with(newer_minor).is_ok());
         assert!(newer_minor.supports(current));
         assert!(!current.supports(newer_minor));
         assert!(!current.is_compatible_with(other_major));
+        let error = other_major.ensure_compatible_with(current).unwrap_err();
+        assert_eq!(error.expected, current.major);
+        assert_eq!(error.actual, other_major.major);
         assert!(!current.supports(other_major));
         assert_eq!(DLPackVersion::default(), current);
     }

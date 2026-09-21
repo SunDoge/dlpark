@@ -11,16 +11,6 @@ pub struct VersionError {
     pub actual: u32,
 }
 
-pub(crate) fn validate_version(version: DLPackVersion) -> Result<(), VersionError> {
-    if !version.is_compatible_with(DLPackVersion::CURRENT) {
-        return Err(VersionError {
-            expected: DLPackVersion::CURRENT.major,
-            actual: version.major,
-        });
-    }
-    Ok(())
-}
-
 impl Default for DLPackVersion {
     fn default() -> Self {
         Self::CURRENT
@@ -37,6 +27,18 @@ impl DLPackVersion {
     /// Returns whether two versions use a compatible ABI.
     pub const fn is_compatible_with(self, other: Self) -> bool {
         self.major == other.major
+    }
+
+    /// Ensures that this declared version is ABI-compatible with `expected`.
+    pub fn ensure_compatible_with(self, expected: Self) -> Result<(), VersionError> {
+        if self.is_compatible_with(expected) {
+            Ok(())
+        } else {
+            Err(VersionError {
+                expected: expected.major,
+                actual: self.major,
+            })
+        }
     }
 
     /// Returns whether this version includes the requested feature level.

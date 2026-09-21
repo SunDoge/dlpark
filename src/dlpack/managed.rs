@@ -70,7 +70,7 @@ where
         let ptr = NonNull::new(ptr).ok_or(FromRawError::Null)?;
         let managed = Self(ptr);
         if let Some(version) = unsafe { ptr.as_ref() }.version() {
-            crate::version::validate_version(version)?;
+            version.ensure_compatible_with(DLPackVersion::CURRENT)?;
         }
         Ok(managed)
     }

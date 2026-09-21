@@ -130,7 +130,7 @@ impl<Storage> Initialized<crate::ffi::DLManagedTensorVersioned, Storage> {
         &mut self,
         version: crate::ffi::DLPackVersion,
     ) -> Result<&mut Self, crate::VersionError> {
-        crate::version::validate_version(version)?;
+        version.ensure_compatible_with(crate::ffi::DLPackVersion::CURRENT)?;
         unsafe { (*self.managed.as_ptr()).version = version };
         Ok(self)
     }
