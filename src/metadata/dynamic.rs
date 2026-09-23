@@ -18,7 +18,7 @@ pub struct Compact;
 impl<Shape> Dynamic<Shape, Compact> {
     /// Creates runtime-rank metadata with explicit compact row-major strides
     /// computed from `shape`.
-    pub fn compact(shape: Shape) -> Self {
+    pub const fn compact(shape: Shape) -> Self {
         Self {
             shape,
             strides: Compact,
@@ -29,7 +29,7 @@ impl<Shape> Dynamic<Shape, Compact> {
 impl<Shape, Strides> Dynamic<Shape, Strides> {
     /// Creates runtime-rank metadata with independently selected shape and
     /// strides storage policies.
-    pub fn new(shape: Shape, strides: Strides) -> Self {
+    pub const fn new(shape: Shape, strides: Strides) -> Self {
         Self { shape, strides }
     }
 }

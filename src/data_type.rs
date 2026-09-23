@@ -71,7 +71,7 @@ define_data_type!(F4E2M1FN, DLDataTypeCode::FLOAT4_E2M1FN, 4);
 
 impl DLDataType {
     /// Constructs a data type descriptor from its code, bit width, and lane count.
-    pub fn new(code: DLDataTypeCode, bits: u8, lanes: u16) -> Self {
+    pub const fn new(code: DLDataTypeCode, bits: u8, lanes: u16) -> Self {
         Self { code, bits, lanes }
     }
 
@@ -90,12 +90,12 @@ impl DLDataType {
     }
 
     /// Returns whether code, bit width, and lane count all match.
-    pub fn matches(&self, other: Self) -> bool {
-        *self == other
+    pub const fn matches(&self, other: Self) -> bool {
+        self.code.0 == other.code.0 && self.bits == other.bits && self.lanes == other.lanes
     }
 
     /// Returns whether this descriptor exactly represents `T`.
-    pub fn is<T: DlpackElement>(&self) -> bool {
+    pub const fn is<T: DlpackElement>(&self) -> bool {
         self.matches(T::DTYPE)
     }
 
@@ -111,7 +111,7 @@ impl DLDataType {
     /// [`crate::ffi::DLTensor::num_bytes`] for a whole-tensor byte count
     /// that accounts for packing correctly instead of multiplying this by
     /// the element count.
-    pub fn element_size(&self) -> usize {
+    pub const fn element_size(&self) -> usize {
         let total_bits = (self.bits as usize) * (self.lanes as usize);
         total_bits.div_ceil(8)
     }
@@ -141,6 +141,12 @@ impl Default for DLDataType {
 #[cfg(test)]
 mod knownness_tests {
     use super::*;
+
+    const VECTOR: DLDataType = DLDataType::new(DLDataTypeCode::FLOAT, 32, 4);
+    const VECTOR_SIZE: usize = VECTOR.element_size();
+    const IS_F32: bool = DLDataType::F32.is::<f32>();
+    const _: () = assert!(VECTOR_SIZE == 16);
+    const _: () = assert!(IS_F32);
 
     #[test]
     fn data_type_code_knownness_tracks_bundled_header() {

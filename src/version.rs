@@ -30,7 +30,7 @@ impl DLPackVersion {
     }
 
     /// Ensures that this declared version is ABI-compatible with `expected`.
-    pub fn ensure_compatible_with(self, expected: Self) -> Result<(), VersionError> {
+    pub const fn ensure_compatible_with(self, expected: Self) -> Result<(), VersionError> {
         if self.is_compatible_with(expected) {
             Ok(())
         } else {

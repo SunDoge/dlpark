@@ -8,7 +8,7 @@ impl DLDevice {
     };
 
     /// Constructs a CUDA device descriptor with the given ordinal.
-    pub fn cuda(device_id: i32) -> Self {
+    pub const fn cuda(device_id: i32) -> Self {
         Self {
             device_type: DLDeviceType::CUDA,
             device_id,
@@ -16,7 +16,7 @@ impl DLDevice {
     }
 
     /// Constructs a Metal device descriptor with the given registry index.
-    pub fn metal(device_id: i32) -> Self {
+    pub const fn metal(device_id: i32) -> Self {
         Self {
             device_type: DLDeviceType::METAL,
             device_id,
@@ -56,12 +56,15 @@ impl From<DLDevice> for (u32, i32) {
 mod tests {
     use super::*;
 
+    const CUDA: DLDevice = DLDevice::cuda(3);
+    const METAL: DLDevice = DLDevice::metal(7);
+
     #[test]
     fn device_converts_to_python_protocol_tuple() {
         for (device, expected) in [
             (DLDevice::CPU, (DLDeviceType::CPU.0, 0)),
-            (DLDevice::cuda(3), (DLDeviceType::CUDA.0, 3)),
-            (DLDevice::metal(7), (DLDeviceType::METAL.0, 7)),
+            (CUDA, (DLDeviceType::CUDA.0, 3)),
+            (METAL, (DLDeviceType::METAL.0, 7)),
         ] {
             assert_eq!(<(u32, i32)>::from(device), expected);
         }

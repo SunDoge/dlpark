@@ -11,7 +11,7 @@ pub struct Fixed<const N: usize, Shape, Strides> {
 impl<const N: usize, Shape, Strides> Fixed<N, Shape, Strides> {
     /// Creates fixed-rank metadata with independently selected shape and
     /// strides storage policies.
-    pub fn new(shape: Shape, strides: Strides) -> Self {
+    pub const fn new(shape: Shape, strides: Strides) -> Self {
         Self { shape, strides }
     }
 }
