@@ -94,10 +94,8 @@ pub enum Error {
 
 #[cfg(test)]
 use crate::{
-    DlpackElement, DlpackFlags, ManagedTensorBase, TryFromDlpack,
-    allocation::fixed,
-    ffi::DLDevice,
-    metadata::{Copied, Fixed},
+    DlpackElement, DlpackFlags, ManagedTensorBase, TryFromDlpack, allocation::fixed, ffi::DLDevice,
+    metadata::Fixed,
 };
 #[cfg(test)]
 use image::ImageBuffer;
@@ -199,7 +197,7 @@ mod tests {
         let data_ptr = data.as_ptr() as *mut c_void;
         let shape = [1, 1, 3];
         let strides = [3, 3, 1];
-        let prepared = Fixed::new(Copied(shape), Copied(strides))
+        let prepared = Fixed::new(shape, strides)
             .prepare::<DLManagedTensor>()
             .unwrap();
         let mut initialized = prepared.initialize(data);

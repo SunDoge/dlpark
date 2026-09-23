@@ -8,11 +8,32 @@ pub struct Fixed<const N: usize, Shape, Strides> {
     strides: Strides,
 }
 
-impl<const N: usize, Shape, Strides> Fixed<N, Shape, Strides> {
-    /// Creates fixed-rank metadata with independently selected shape and
-    /// strides storage policies.
+impl<const N: usize, Shape, Strides> Fixed<N, Copied<Shape>, Copied<Strides>> {
+    /// Creates fixed-rank metadata by copying shape and strides into the
+    /// managed-tensor allocation.
     pub const fn new(shape: Shape, strides: Strides) -> Self {
+        Self {
+            shape: Copied(shape),
+            strides: Copied(strides),
+        }
+    }
+}
+
+impl<const N: usize, Shape, Strides> Fixed<N, Shape, Strides> {
+    /// Creates fixed-rank metadata with explicit shape and stride storage
+    /// policies.
+    pub const fn with_storage(shape: Shape, strides: Strides) -> Self {
         Self { shape, strides }
+    }
+}
+
+impl<'a, const N: usize> Fixed<N, Borrowed<&'a [i64; N]>, Borrowed<&'a [i64; N]>> {
+    /// Creates fixed-rank metadata that borrows shape and strides.
+    ///
+    /// Calling `prepare_unchecked` remains unsafe because both arrays must
+    /// outlive the resulting managed tensor.
+    pub const fn borrowed(shape: &'a [i64; N], strides: &'a [i64; N]) -> Self {
+        Self::with_storage(Borrowed(shape), Borrowed(strides))
     }
 }
 
@@ -179,7 +200,7 @@ mod tests {
 
     #[test]
     fn copied_metadata_uses_inline_arrays() {
-        let prepared = Fixed::new(Copied([2_u32, 3]), Copied([3_isize, 1]))
+        let prepared = Fixed::new([2_u32, 3], [3_isize, 1])
             .prepare::<DLManagedTensor>()
             .unwrap();
         let mut initialized = prepared.initialize(Box::new(()));
@@ -192,7 +213,7 @@ mod tests {
 
     #[test]
     fn initialize_fuses_owned_preparation_and_context_installation() {
-        let mut initialized = Fixed::new(Copied([2_u32, 3]), Copied([3_isize, 1]))
+        let mut initialized = Fixed::new([2_u32, 3], [3_isize, 1])
             .initialize::<DLManagedTensor>(Box::new(()))
             .unwrap();
         initialized.set_dtype(crate::ffi::DLDataType::U8);
@@ -206,7 +227,7 @@ mod tests {
     fn borrowed_shape_allocates_only_strides() {
         let shape = [2_i64, 3];
         let prepared = unsafe {
-            Fixed::new(Borrowed(&shape), Copied([3_i64, 1]))
+            Fixed::with_storage(Borrowed(&shape), Copied([3_i64, 1]))
                 .prepare_unchecked::<DLManagedTensor>()
                 .unwrap()
         };
@@ -216,5 +237,22 @@ mod tests {
 
         assert_eq!(tensor.validate().unwrap().shape(), &shape);
         assert_eq!(tensor.validate().unwrap().strides().unwrap(), &[3, 1]);
+    }
+
+    #[test]
+    fn borrowed_constructor_selects_borrowed_storage() {
+        let shape = [2_i64, 3];
+        let strides = [3_i64, 1];
+        let prepared = unsafe {
+            Fixed::borrowed(&shape, &strides)
+                .prepare_unchecked::<DLManagedTensor>()
+                .unwrap()
+        };
+        let mut initialized = prepared.initialize(Box::new(()));
+        initialized.set_dtype(crate::ffi::DLDataType::U8);
+        let tensor = unsafe { initialized.finish() };
+
+        assert_eq!(tensor.validate().unwrap().shape(), &shape);
+        assert_eq!(tensor.validate().unwrap().strides().unwrap(), &strides);
     }
 }

@@ -15,22 +15,54 @@ pub struct Dynamic<Shape, Strides> {
 #[derive(Debug, Clone, Copy)]
 pub struct Compact;
 
-impl<Shape> Dynamic<Shape, Compact> {
+impl<Shape> Dynamic<Copied<Shape>, Compact> {
     /// Creates runtime-rank metadata with explicit compact row-major strides
-    /// computed from `shape`.
+    /// computed from a copied `shape`.
     pub const fn compact(shape: Shape) -> Self {
         Self {
-            shape,
+            shape: Copied(shape),
             strides: Compact,
         }
     }
 }
 
-impl<Shape, Strides> Dynamic<Shape, Strides> {
-    /// Creates runtime-rank metadata with independently selected shape and
-    /// strides storage policies.
+impl<Shape, Strides> Dynamic<Copied<Shape>, Copied<Strides>> {
+    /// Creates runtime-rank metadata by copying shape and strides into the
+    /// managed-tensor allocation.
     pub const fn new(shape: Shape, strides: Strides) -> Self {
+        Self {
+            shape: Copied(shape),
+            strides: Copied(strides),
+        }
+    }
+}
+
+impl<Shape, Strides> Dynamic<Shape, Strides> {
+    /// Creates runtime-rank metadata with explicit shape and stride storage
+    /// policies.
+    pub const fn with_storage(shape: Shape, strides: Strides) -> Self {
         Self { shape, strides }
+    }
+}
+
+impl<'a> Dynamic<Borrowed<&'a [i64]>, Borrowed<&'a [i64]>> {
+    /// Creates runtime-rank metadata that borrows shape and strides.
+    ///
+    /// Calling `prepare_unchecked` remains unsafe because both slices must
+    /// outlive the resulting managed tensor.
+    pub const fn borrowed(shape: &'a [i64], strides: &'a [i64]) -> Self {
+        Self::with_storage(Borrowed(shape), Borrowed(strides))
+    }
+}
+
+impl<'a> Dynamic<Borrowed<&'a [i64]>, Compact> {
+    /// Creates compact runtime-rank metadata that borrows its shape.
+    ///
+    /// Calling `prepare_unchecked` remains unsafe because `shape` must outlive
+    /// the resulting managed tensor. Compact strides are stored in the managed
+    /// allocation.
+    pub const fn borrowed_compact(shape: &'a [i64]) -> Self {
+        Self::with_storage(Borrowed(shape), Compact)
     }
 }
 
@@ -310,7 +342,40 @@ mod tests {
     fn mixed_storage_uses_only_copied_extra() {
         let shape = [2_i64, 3];
         let prepared = unsafe {
-            Dynamic::new(Borrowed(shape.as_slice()), Copied(vec![3_i16, 1]))
+            Dynamic::with_storage(Borrowed(shape.as_slice()), Copied(vec![3_i16, 1]))
+                .prepare_unchecked::<DLManagedTensor>()
+                .unwrap()
+        };
+        let mut initialized = prepared.initialize(Box::new(()));
+        initialized.set_dtype(crate::ffi::DLDataType::U8);
+        let tensor = unsafe { initialized.finish() };
+
+        assert_eq!(tensor.validate().unwrap().shape(), &shape);
+        assert_eq!(tensor.validate().unwrap().strides().unwrap(), &[3, 1]);
+    }
+
+    #[test]
+    fn borrowed_constructor_selects_borrowed_storage() {
+        let shape = [2_i64, 3];
+        let strides = [3_i64, 1];
+        let prepared = unsafe {
+            Dynamic::borrowed(&shape, &strides)
+                .prepare_unchecked::<DLManagedTensor>()
+                .unwrap()
+        };
+        let mut initialized = prepared.initialize(Box::new(()));
+        initialized.set_dtype(crate::ffi::DLDataType::U8);
+        let tensor = unsafe { initialized.finish() };
+
+        assert_eq!(tensor.validate().unwrap().shape(), &shape);
+        assert_eq!(tensor.validate().unwrap().strides().unwrap(), &strides);
+    }
+
+    #[test]
+    fn borrowed_compact_constructor_stores_only_strides() {
+        let shape = [2_i64, 3];
+        let prepared = unsafe {
+            Dynamic::borrowed_compact(&shape)
                 .prepare_unchecked::<DLManagedTensor>()
                 .unwrap()
         };
@@ -324,7 +389,7 @@ mod tests {
 
     #[test]
     fn compact_computes_explicit_strides() {
-        let prepared = Dynamic::compact(Copied(vec![2_u64, 3, 4]))
+        let prepared = Dynamic::compact(vec![2_u64, 3, 4])
             .prepare::<DLManagedTensor>()
             .unwrap();
         let mut initialized = prepared.initialize(Box::new(()));
@@ -338,7 +403,7 @@ mod tests {
 
     #[test]
     fn initialize_fuses_owned_preparation_and_context_installation() {
-        let mut initialized = Dynamic::compact(Copied(vec![2_u64, 3, 4]))
+        let mut initialized = Dynamic::compact(vec![2_u64, 3, 4])
             .initialize::<DLManagedTensor>(Box::new(()))
             .unwrap();
         initialized.set_dtype(crate::ffi::DLDataType::U8);
@@ -351,7 +416,7 @@ mod tests {
 
     #[test]
     fn compact_scalar_may_omit_strides() {
-        let prepared = Dynamic::compact(Copied(Vec::<i64>::new()))
+        let prepared = Dynamic::compact(Vec::<i64>::new())
             .prepare::<DLManagedTensor>()
             .unwrap();
         let mut initialized = prepared.initialize(Box::new(()));
@@ -365,8 +430,7 @@ mod tests {
 
     #[test]
     fn compact_rejects_invalid_shape() {
-        let negative = match Dynamic::compact(Copied(vec![2_i64, -1])).prepare::<DLManagedTensor>()
-        {
+        let negative = match Dynamic::compact(vec![2_i64, -1]).prepare::<DLManagedTensor>() {
             Ok(_) => panic!("negative shape must be rejected"),
             Err(error) => error,
         };
@@ -375,11 +439,10 @@ mod tests {
             Error::NegativeShapeValue { axis: 1, value: -1 }
         ));
 
-        let overflow =
-            match Dynamic::compact(Copied(vec![i64::MAX, 2])).prepare::<DLManagedTensor>() {
-                Ok(_) => panic!("overflowing compact strides must be rejected"),
-                Err(error) => error,
-            };
+        let overflow = match Dynamic::compact(vec![i64::MAX, 2]).prepare::<DLManagedTensor>() {
+            Ok(_) => panic!("overflowing compact strides must be rejected"),
+            Err(error) => error,
+        };
         assert!(matches!(overflow, Error::CompactStrideOverflow));
     }
 }

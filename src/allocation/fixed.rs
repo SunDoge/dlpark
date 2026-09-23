@@ -233,12 +233,9 @@ where
     C: OpaqueContext,
     M: ManagedTensorBase,
 {
-    let prepared = crate::metadata::Fixed::new(
-        crate::metadata::Copied(shape),
-        crate::metadata::Copied(strides),
-    )
-    .prepare::<M>()
-    .unwrap();
+    let prepared = crate::metadata::Fixed::new(shape, strides)
+        .prepare::<M>()
+        .unwrap();
     let mut initialized = prepared.initialize(ctx);
     initialized.set_data(data);
     initialized.set_dtype(dtype);

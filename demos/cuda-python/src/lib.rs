@@ -6,7 +6,7 @@ use dlpark::{
     ffi::{
         DLDataType, DLDevice, DLDeviceType, DLManagedTensor, DLManagedTensorVersioned, DLTensor,
     },
-    metadata::{Copied, Dynamic},
+    metadata::{Dynamic},
     python::{
         CudaStreamRequest, DlpackExchangeProducer, DlpackExporter, ExportRequest, ImportRequest,
         ImportedDlpack, export_dlpack, install_exchange_api,
@@ -48,7 +48,7 @@ impl CudaTensor {
     where
         M: ManagedTensorBase,
     {
-        let prepared = Dynamic::new(Copied(self.shape.clone()), Copied(self.strides.clone()))
+        let prepared = Dynamic::new(self.shape.clone(), self.strides.clone())
             .prepare::<M>()
             .map_err(runtime_error)?;
         let mut initialized = prepared.initialize(Arc::clone(&self.buffer));

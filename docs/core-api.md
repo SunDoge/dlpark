@@ -24,20 +24,22 @@ Production has three stages: metadata preparation, initialization with an
 owning context, and completion of scalar fields.
 
 `metadata::Fixed` handles compile-time rank and `metadata::Dynamic` handles
-runtime rank. `Copied<T>` safely copies shape or stride values into the managed
-allocation. `Borrowed<T>` avoids that copy but requires `prepare_unchecked`
-because the referenced arrays must outlive the exported tensor.
+runtime rank. Their standard constructors copy shape and stride values into the
+managed allocation. The explicitly named `borrowed` constructors avoid that
+copy but require `prepare_unchecked` because the referenced arrays must outlive
+the exported tensor. Advanced callers can use `with_storage` with `Copied` and
+`Borrowed` to select each part independently.
 
 ```rust
 use dlpark::{
     ffi::{DLDataType, DLDevice, DLManagedTensorVersioned},
-    metadata::{Copied, Fixed},
+    metadata::Fixed,
     versioned,
 };
 
 let mut values = vec![0_f32; 6];
 let data = values.as_mut_ptr().cast();
-let mut initialized = Fixed::new(Copied([2, 3]), Copied([3, 1]))
+let mut initialized = Fixed::new([2, 3], [3, 1])
     .initialize::<DLManagedTensorVersioned>(Box::new(values))?;
 initialized
     .set_data(data)

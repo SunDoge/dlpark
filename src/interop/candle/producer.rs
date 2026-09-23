@@ -3,7 +3,7 @@ use crate::{
     ManagedTensorBase,
     allocation::dynamic,
     ffi::{DLDataType, DLDataTypeCode, DLDevice},
-    metadata::{Copied, Dynamic},
+    metadata::Dynamic,
 };
 use candle_core::{DType, Storage, Tensor, backend::BackendStorage, cpu_backend::CpuStorage};
 use std::{mem::size_of, os::raw::c_void};
@@ -161,7 +161,7 @@ impl<M: ManagedTensorBase> TryFrom<Box<Tensor>> for dynamic::Initialized<M> {
             dims,
             strides,
         } = dlpack_layout_from_candle(&tensor)?;
-        let prepared = Dynamic::new(Copied(dims), Copied(strides)).prepare::<M>()?;
+        let prepared = Dynamic::new(dims, strides).prepare::<M>()?;
         let mut initialized = prepared.initialize(tensor);
         initialized.set_data(data_ptr);
         initialized.set_dtype(dtype);

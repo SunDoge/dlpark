@@ -3,7 +3,7 @@ use crate::{
     DlpackElement, ManagedTensorBase,
     allocation::{dynamic, fixed},
     ffi::DLDevice,
-    metadata::{Copied, Dynamic, Fixed},
+    metadata::{Dynamic, Fixed},
 };
 use cudarc::driver::{CudaSlice, CudaStream, DevicePtr};
 use std::{os::raw::c_void, sync::Arc};
@@ -59,7 +59,7 @@ impl<T: DlpackElement, M: ManagedTensorBase> TryFrom<Box<CudaSlice<T>>>
         let current_stream = slice.stream().clone();
         let data_ptr = device_ptr_of(&slice);
 
-        let prepared = Fixed::new(Copied([len]), Copied([1])).prepare::<M>()?;
+        let prepared = Fixed::new([len], [1]).prepare::<M>()?;
         let mut initialized = prepared.initialize(slice);
         initialized.set_device(DLDevice::cuda(device_id));
         initialized.set_data(data_ptr);
@@ -96,7 +96,7 @@ pub fn from_cuda_slice<T: DlpackElement, M: ManagedTensorBase>(
     })?;
     let stream = slice.stream().clone();
     let data_ptr = device_ptr_of(&slice);
-    let prepared = Dynamic::new(Copied(shape), Copied(strides)).prepare::<M>()?;
+    let prepared = Dynamic::new(shape, strides).prepare::<M>()?;
     let mut initialized = prepared.initialize(slice);
     initialized.set_device(DLDevice::cuda(device_id));
     initialized.set_dtype(T::DTYPE);

@@ -1,4 +1,5 @@
-//! Compares the four metadata construction paths against each other,
+//! Compares copied and borrowed metadata construction paths, including the
+//! fused copied initialization convenience methods,
 //! across several tensor ranks (`ndim`), to see whether the gap between
 //! variants shrinks, stays flat, or grows as shape/strides get bigger.
 //!
@@ -8,7 +9,7 @@
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use dlpark::OpaqueContext;
 use dlpark::ffi::DLManagedTensor;
-use dlpark::metadata::{Borrowed, Copied, Dynamic, Fixed};
+use dlpark::metadata::{Borrowed, Dynamic, Fixed};
 use dlpark::tensor::compact_strides_array;
 use std::ffi::c_void;
 
@@ -27,7 +28,7 @@ fn context() -> NoopContext {
     NoopContext
 }
 
-/// Registers all four variants at rank `N` under a `builder/ndim=N` group.
+/// Registers all variants at rank `N` under a `builder/ndim=N` group.
 /// The array variants need `N` as a const generic, so a generic function is
 /// all the per-size fixture needs.
 fn bench_ndim<const N: usize>(c: &mut Criterion) {
@@ -41,12 +42,9 @@ fn bench_ndim<const N: usize>(c: &mut Criterion) {
 
     group.bench_function(BenchmarkId::new("copied_array", N), |b| {
         b.iter(|| {
-            let prepared = Fixed::new(
-                Copied(std::hint::black_box(&shape)),
-                Copied(std::hint::black_box(&strides)),
-            )
-            .prepare::<DLManagedTensor>()
-            .unwrap();
+            let prepared = Fixed::new(std::hint::black_box(&shape), std::hint::black_box(&strides))
+                .prepare::<DLManagedTensor>()
+                .unwrap();
             std::hint::black_box(prepared.initialize(context()));
         });
     });
@@ -54,12 +52,9 @@ fn bench_ndim<const N: usize>(c: &mut Criterion) {
     group.bench_function(BenchmarkId::new("copied_array_fused", N), |b| {
         b.iter(|| {
             std::hint::black_box(
-                Fixed::new(
-                    Copied(std::hint::black_box(&shape)),
-                    Copied(std::hint::black_box(&strides)),
-                )
-                .initialize::<DLManagedTensor>(context())
-                .unwrap(),
+                Fixed::new(std::hint::black_box(&shape), std::hint::black_box(&strides))
+                    .initialize::<DLManagedTensor>(context())
+                    .unwrap(),
             );
         });
     });
@@ -67,7 +62,7 @@ fn bench_ndim<const N: usize>(c: &mut Criterion) {
     group.bench_function(BenchmarkId::new("borrowed_array", N), |b| {
         b.iter(|| {
             let prepared = unsafe {
-                Fixed::new(
+                Fixed::with_storage(
                     Borrowed(std::hint::black_box(&shape)),
                     Borrowed(std::hint::black_box(&strides)),
                 )
@@ -81,8 +76,8 @@ fn bench_ndim<const N: usize>(c: &mut Criterion) {
     group.bench_function(BenchmarkId::new("copied_slice", N), |b| {
         b.iter(|| {
             let prepared = Dynamic::new(
-                Copied(std::hint::black_box(shape.as_slice())),
-                Copied(std::hint::black_box(strides.as_slice())),
+                std::hint::black_box(shape.as_slice()),
+                std::hint::black_box(strides.as_slice()),
             )
             .prepare::<DLManagedTensor>()
             .unwrap();
@@ -94,8 +89,8 @@ fn bench_ndim<const N: usize>(c: &mut Criterion) {
         b.iter(|| {
             std::hint::black_box(
                 Dynamic::new(
-                    Copied(std::hint::black_box(shape.as_slice())),
-                    Copied(std::hint::black_box(strides.as_slice())),
+                    std::hint::black_box(shape.as_slice()),
+                    std::hint::black_box(strides.as_slice()),
                 )
                 .initialize::<DLManagedTensor>(context())
                 .unwrap(),
@@ -106,7 +101,7 @@ fn bench_ndim<const N: usize>(c: &mut Criterion) {
     group.bench_function(BenchmarkId::new("borrowed_slice", N), |b| {
         b.iter(|| {
             let prepared = unsafe {
-                Dynamic::new(
+                Dynamic::with_storage(
                     Borrowed(std::hint::black_box(shape.as_slice())),
                     Borrowed(std::hint::black_box(strides.as_slice())),
                 )

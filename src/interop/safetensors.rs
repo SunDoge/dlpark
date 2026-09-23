@@ -10,7 +10,7 @@
 use crate::{
     DlpackFlags, Managed, ManagedTensorBase,
     ffi::{DLDataType, DLDevice, DLManagedTensorVersioned},
-    metadata::{Copied, Dynamic},
+    metadata::Dynamic,
     tensor::TensorRef,
     versioned,
 };
@@ -218,8 +218,8 @@ impl SafeTensorFile {
             data.cast_mut().cast()
         };
 
-        let prepared = Dynamic::compact(Copied(info.shape.as_slice()))
-            .prepare::<DLManagedTensorVersioned>()?;
+        let prepared =
+            Dynamic::compact(info.shape.as_slice()).prepare::<DLManagedTensorVersioned>()?;
         let mut initialized = prepared.initialize(Arc::clone(&self.inner));
         initialized
             .set_data(data)
@@ -468,7 +468,7 @@ mod tests {
     fn dlpack_view_serializes_without_copying_source_data() {
         let values = Box::new(vec![7_i32, 8, 9, 10]);
         let data = values.as_ptr().cast_mut().cast();
-        let prepared = Dynamic::compact(Copied([2_i64, 2].as_slice()))
+        let prepared = Dynamic::compact([2_i64, 2].as_slice())
             .prepare::<DLManagedTensor>()
             .unwrap();
         let mut initialized: dynamic::Initialized<_> = prepared.initialize(values);

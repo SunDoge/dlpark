@@ -1,8 +1,5 @@
 use crate::{
-    DlpackElement, ManagedTensorBase,
-    allocation::dynamic,
-    ffi::DLDevice,
-    metadata::{Copied, Dynamic},
+    DlpackElement, ManagedTensorBase, allocation::dynamic, ffi::DLDevice, metadata::Dynamic,
 };
 use ndarray::{ArrayBase, Dimension, OwnedRepr};
 use std::os::raw::c_void;
@@ -26,8 +23,7 @@ where
         } else {
             array.as_ptr() as *mut c_void
         };
-        let prepared =
-            Dynamic::new(Copied(array.shape()), Copied(array.strides())).prepare::<M>()?;
+        let prepared = Dynamic::new(array.shape(), array.strides()).prepare::<M>()?;
         let mut initialized = prepared.initialize(array);
         initialized.set_data(data_ptr);
         initialized.set_dtype(T::DTYPE);

@@ -2,15 +2,16 @@
 //!
 //! [`Fixed`](crate::metadata::Fixed) composes compile-time-rank shape and strides;
 //! [`Dynamic`](crate::metadata::Dynamic) composes runtime-rank shape and strides.
-//! Each part is wrapped in either [`Copied`](crate::metadata::Copied)
-//! (values copied into the managed allocation; safe `prepare`) or
-//! [`Borrowed`](crate::metadata::Borrowed) (caller-owned `i64` storage borrowed
-//! zero-copy; unsafe `prepare_unchecked`, because the arrays must outlive the
-//! managed tensor).
+//! The standard constructors copy values into the managed allocation. The
+//! explicitly named `borrowed` constructors retain caller-owned `i64` storage
+//! and therefore require unsafe `prepare_unchecked`: those arrays must outlive
+//! the managed tensor. [`Copied`](crate::metadata::Copied) and
+//! [`Borrowed`](crate::metadata::Borrowed) remain available with
+//! `with_storage` for mixed or otherwise explicit storage policies.
 //!
 //! `prepare::<M>()` returns a `PreparedFixed` / `PreparedDynamic`; calling
 //! `initialize(ctx)` on it installs the context and deleter and returns an
-//! [`crate::allocation::Initialized`]. `Copied` accepts any integer element
+//! [`crate::allocation::Initialized`]. Copied input accepts any integer element
 //! implementing `TryInto<i64>` (not just `i64`); an `i64` source takes a
 //! `TypeId` fast path through `ptr::copy_nonoverlapping`.
 //! [`Dynamic::compact`](crate::metadata::Dynamic::compact) computes and stores
