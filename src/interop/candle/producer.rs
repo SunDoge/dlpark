@@ -161,7 +161,7 @@ impl<M: ManagedTensorBase> TryFrom<Box<Tensor>> for dynamic::Initialized<M> {
             dims,
             strides,
         } = dlpack_layout_from_candle(&tensor)?;
-        let prepared = Dynamic::new(dims, strides).prepare::<M>()?;
+        let prepared = Dynamic::new(dims, strides).prepare_as::<M>()?;
         let mut initialized = prepared.initialize(tensor);
         initialized.set_data(data_ptr);
         initialized.set_dtype(dtype);

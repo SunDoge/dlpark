@@ -9,9 +9,10 @@
 //! [`Borrowed`](crate::metadata::Borrowed) remain available with
 //! `with_storage` for mixed or otherwise explicit storage policies.
 //!
-//! `prepare::<M>()` returns a `PreparedFixed` / `PreparedDynamic`; calling
+//! `prepare()` returns a versioned `PreparedFixed` / `PreparedDynamic`; calling
 //! `initialize(ctx)` on it installs the context and deleter and returns an
-//! [`crate::allocation::Initialized`]. Copied input accepts any integer element
+//! [`crate::allocation::Initialized`]. Use `prepare_as::<M>()` when selecting
+//! an ABI explicitly. Copied input accepts any integer element
 //! implementing `TryInto<i64>` (not just `i64`); an `i64` source takes a
 //! `TypeId` fast path through `ptr::copy_nonoverlapping`.
 //! [`Dynamic::compact`](crate::metadata::Dynamic::compact) computes and stores

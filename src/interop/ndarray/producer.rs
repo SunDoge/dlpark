@@ -23,7 +23,7 @@ where
         } else {
             array.as_ptr() as *mut c_void
         };
-        let prepared = Dynamic::new(array.shape(), array.strides()).prepare::<M>()?;
+        let prepared = Dynamic::new(array.shape(), array.strides()).prepare_as::<M>()?;
         let mut initialized = prepared.initialize(array);
         initialized.set_data(data_ptr);
         initialized.set_dtype(T::DTYPE);

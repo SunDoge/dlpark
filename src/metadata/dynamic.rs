@@ -202,7 +202,19 @@ where
     ///
     /// Every value wrapped in [`Borrowed`] must remain alive and immutable
     /// until the resulting managed tensor is dropped.
-    pub unsafe fn prepare_unchecked<M>(self) -> Result<PreparedDynamic<M>, Error>
+    pub unsafe fn prepare_unchecked(
+        self,
+    ) -> Result<PreparedDynamic<crate::ffi::DLManagedTensorVersioned>, Error> {
+        self.prepare_inner()
+    }
+
+    /// Prepares runtime metadata for an explicitly selected managed-tensor ABI.
+    ///
+    /// # Safety
+    ///
+    /// Every value wrapped in [`Borrowed`] must remain alive and immutable
+    /// until the resulting managed tensor is dropped.
+    pub unsafe fn prepare_unchecked_as<M>(self) -> Result<PreparedDynamic<M>, Error>
     where
         M: ManagedTensorBase,
     {
@@ -271,7 +283,19 @@ where
     ///
     /// A shape wrapped in [`Borrowed`] must remain alive and immutable until
     /// the resulting managed tensor is dropped.
-    pub unsafe fn prepare_unchecked<M>(self) -> Result<PreparedDynamic<M>, Error>
+    pub unsafe fn prepare_unchecked(
+        self,
+    ) -> Result<PreparedDynamic<crate::ffi::DLManagedTensorVersioned>, Error> {
+        self.prepare_compact_inner()
+    }
+
+    /// Prepares compact metadata for an explicitly selected managed-tensor ABI.
+    ///
+    /// # Safety
+    ///
+    /// A shape wrapped in [`Borrowed`] must remain alive and immutable until
+    /// the resulting managed tensor is dropped.
+    pub unsafe fn prepare_unchecked_as<M>(self) -> Result<PreparedDynamic<M>, Error>
     where
         M: ManagedTensorBase,
     {
@@ -286,18 +310,35 @@ where
     /// Allocates copied shape and compact-stride metadata and immediately
     /// installs its owning context.
     ///
-    /// This is a convenience form of `self.prepare::<M>()?.initialize(ctx)`;
+    /// This is a convenience form of `self.prepare()?.initialize(ctx)`;
     /// it performs the same single managed-tensor allocation.
     #[inline]
-    pub fn initialize<M>(self, ctx: impl OpaqueContext) -> Result<dynamic::Initialized<M>, Error>
+    pub fn initialize(
+        self,
+        ctx: impl OpaqueContext,
+    ) -> Result<dynamic::Initialized<crate::ffi::DLManagedTensorVersioned>, Error> {
+        Ok(self.prepare()?.initialize(ctx))
+    }
+
+    /// Allocates copied shape and compact-stride metadata for an explicitly
+    /// selected ABI and immediately installs its owning context.
+    #[inline]
+    pub fn initialize_as<M>(self, ctx: impl OpaqueContext) -> Result<dynamic::Initialized<M>, Error>
     where
         M: ManagedTensorBase,
     {
-        Ok(self.prepare::<M>()?.initialize(ctx))
+        Ok(self.prepare_as::<M>()?.initialize(ctx))
     }
 
-    /// Allocates owned shape storage and computes explicit compact strides.
-    pub fn prepare<M>(self) -> Result<PreparedDynamic<M>, Error>
+    /// Allocates versioned owned shape storage and computes explicit compact
+    /// strides.
+    pub fn prepare(self) -> Result<PreparedDynamic<crate::ffi::DLManagedTensorVersioned>, Error> {
+        self.prepare_compact_inner()
+    }
+
+    /// Allocates owned shape storage and compact strides for an explicitly
+    /// selected managed-tensor ABI.
+    pub fn prepare_as<M>(self) -> Result<PreparedDynamic<M>, Error>
     where
         M: ManagedTensorBase,
     {
@@ -313,19 +354,35 @@ where
     /// Allocates copied shape and stride metadata and immediately installs its
     /// owning context.
     ///
-    /// This is a convenience form of `self.prepare::<M>()?.initialize(ctx)`;
+    /// This is a convenience form of `self.prepare()?.initialize(ctx)`;
     /// it performs the same single managed-tensor allocation.
     #[inline]
-    pub fn initialize<M>(self, ctx: impl OpaqueContext) -> Result<dynamic::Initialized<M>, Error>
+    pub fn initialize(
+        self,
+        ctx: impl OpaqueContext,
+    ) -> Result<dynamic::Initialized<crate::ffi::DLManagedTensorVersioned>, Error> {
+        Ok(self.prepare()?.initialize(ctx))
+    }
+
+    /// Allocates copied shape and stride metadata for an explicitly selected
+    /// ABI and immediately installs its owning context.
+    #[inline]
+    pub fn initialize_as<M>(self, ctx: impl OpaqueContext) -> Result<dynamic::Initialized<M>, Error>
     where
         M: ManagedTensorBase,
     {
-        Ok(self.prepare::<M>()?.initialize(ctx))
+        Ok(self.prepare_as::<M>()?.initialize(ctx))
     }
 
-    /// Validates runtime rank, allocates copied storage, and writes shape and
-    /// strides into it.
-    pub fn prepare<M>(self) -> Result<PreparedDynamic<M>, Error>
+    /// Validates runtime rank, allocates versioned copied storage, and writes
+    /// shape and strides into it.
+    pub fn prepare(self) -> Result<PreparedDynamic<crate::ffi::DLManagedTensorVersioned>, Error> {
+        self.prepare_inner()
+    }
+
+    /// Validates runtime rank and allocates copied storage for an explicitly
+    /// selected managed-tensor ABI.
+    pub fn prepare_as<M>(self) -> Result<PreparedDynamic<M>, Error>
     where
         M: ManagedTensorBase,
     {
@@ -343,7 +400,7 @@ mod tests {
         let shape = [2_i64, 3];
         let prepared = unsafe {
             Dynamic::with_storage(Borrowed(shape.as_slice()), Copied(vec![3_i16, 1]))
-                .prepare_unchecked::<DLManagedTensor>()
+                .prepare_unchecked_as::<DLManagedTensor>()
                 .unwrap()
         };
         let mut initialized = prepared.initialize(Box::new(()));
@@ -360,7 +417,7 @@ mod tests {
         let strides = [3_i64, 1];
         let prepared = unsafe {
             Dynamic::borrowed(&shape, &strides)
-                .prepare_unchecked::<DLManagedTensor>()
+                .prepare_unchecked_as::<DLManagedTensor>()
                 .unwrap()
         };
         let mut initialized = prepared.initialize(Box::new(()));
@@ -376,7 +433,7 @@ mod tests {
         let shape = [2_i64, 3];
         let prepared = unsafe {
             Dynamic::borrowed_compact(&shape)
-                .prepare_unchecked::<DLManagedTensor>()
+                .prepare_unchecked_as::<DLManagedTensor>()
                 .unwrap()
         };
         let mut initialized = prepared.initialize(Box::new(()));
@@ -390,7 +447,7 @@ mod tests {
     #[test]
     fn compact_computes_explicit_strides() {
         let prepared = Dynamic::compact(vec![2_u64, 3, 4])
-            .prepare::<DLManagedTensor>()
+            .prepare_as::<DLManagedTensor>()
             .unwrap();
         let mut initialized = prepared.initialize(Box::new(()));
         initialized.set_dtype(crate::ffi::DLDataType::U8);
@@ -404,7 +461,7 @@ mod tests {
     #[test]
     fn initialize_fuses_owned_preparation_and_context_installation() {
         let mut initialized = Dynamic::compact(vec![2_u64, 3, 4])
-            .initialize::<DLManagedTensor>(Box::new(()))
+            .initialize(Box::new(()))
             .unwrap();
         initialized.set_dtype(crate::ffi::DLDataType::U8);
         let tensor = unsafe { initialized.finish() };
@@ -417,7 +474,7 @@ mod tests {
     #[test]
     fn compact_scalar_may_omit_strides() {
         let prepared = Dynamic::compact(Vec::<i64>::new())
-            .prepare::<DLManagedTensor>()
+            .prepare_as::<DLManagedTensor>()
             .unwrap();
         let mut initialized = prepared.initialize(Box::new(()));
         initialized.set_dtype(crate::ffi::DLDataType::U8);
@@ -430,7 +487,7 @@ mod tests {
 
     #[test]
     fn compact_rejects_invalid_shape() {
-        let negative = match Dynamic::compact(vec![2_i64, -1]).prepare::<DLManagedTensor>() {
+        let negative = match Dynamic::compact(vec![2_i64, -1]).prepare_as::<DLManagedTensor>() {
             Ok(_) => panic!("negative shape must be rejected"),
             Err(error) => error,
         };
@@ -439,7 +496,7 @@ mod tests {
             Error::NegativeShapeValue { axis: 1, value: -1 }
         ));
 
-        let overflow = match Dynamic::compact(vec![i64::MAX, 2]).prepare::<DLManagedTensor>() {
+        let overflow = match Dynamic::compact(vec![i64::MAX, 2]).prepare_as::<DLManagedTensor>() {
             Ok(_) => panic!("overflowing compact strides must be rejected"),
             Err(error) => error,
         };

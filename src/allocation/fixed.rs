@@ -234,7 +234,7 @@ where
     M: ManagedTensorBase,
 {
     let prepared = crate::metadata::Fixed::new(shape, strides)
-        .prepare::<M>()
+        .prepare_as::<M>()
         .unwrap();
     let mut initialized = prepared.initialize(ctx);
     initialized.set_data(data);

@@ -9,7 +9,7 @@
 
 use crate::{
     DlpackFlags, Managed, ManagedTensorBase,
-    ffi::{DLDataType, DLDevice, DLManagedTensorVersioned},
+    ffi::{DLDataType, DLDevice},
     metadata::Dynamic,
     tensor::TensorRef,
     versioned,
@@ -218,8 +218,7 @@ impl SafeTensorFile {
             data.cast_mut().cast()
         };
 
-        let prepared =
-            Dynamic::compact(info.shape.as_slice()).prepare::<DLManagedTensorVersioned>()?;
+        let prepared = Dynamic::compact(info.shape.as_slice()).prepare()?;
         let mut initialized = prepared.initialize(Arc::clone(&self.inner));
         initialized
             .set_data(data)
@@ -469,7 +468,7 @@ mod tests {
         let values = Box::new(vec![7_i32, 8, 9, 10]);
         let data = values.as_ptr().cast_mut().cast();
         let prepared = Dynamic::compact([2_i64, 2].as_slice())
-            .prepare::<DLManagedTensor>()
+            .prepare_as::<DLManagedTensor>()
             .unwrap();
         let mut initialized: dynamic::Initialized<_> = prepared.initialize(values);
         initialized

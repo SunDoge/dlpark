@@ -31,6 +31,7 @@ pub mod ffi;
 
 pub mod allocation;
 mod allocation_deleter;
+#[cfg(feature = "cudarc")]
 mod borrowed;
 mod convert;
 mod data_type;
@@ -58,7 +59,8 @@ pub mod versioned;
 /// Shape and stride metadata composed with managed tensor allocations.
 pub mod metadata;
 pub use allocation_deleter::AllocationDeleter;
-pub use borrowed::Borrowed;
+#[cfg(feature = "cudarc")]
+pub(crate) use borrowed::Borrowed;
 pub use convert::TryFromDlpack;
 pub use data_type::DlpackElement;
 pub use dlpack::Managed;

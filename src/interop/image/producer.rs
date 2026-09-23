@@ -25,7 +25,7 @@ where
         let shape = [height as i64, width as i64, channels as i64];
         let strides = compact_strides_array(shape).expect("image shape must fit compact strides");
 
-        let prepared = Fixed::new(shape, strides).prepare::<M>()?;
+        let prepared = Fixed::new(shape, strides).prepare_as::<M>()?;
         let mut initialized = prepared.initialize(img);
         initialized
             .set_data(data_ptr)

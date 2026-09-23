@@ -32,15 +32,14 @@ the exported tensor. Advanced callers can use `with_storage` with `Copied` and
 
 ```rust
 use dlpark::{
-    ffi::{DLDataType, DLDevice, DLManagedTensorVersioned},
+    ffi::{DLDataType, DLDevice},
     metadata::Fixed,
     versioned,
 };
 
 let mut values = vec![0_f32; 6];
 let data = values.as_mut_ptr().cast();
-let mut initialized = Fixed::new([2, 3], [3, 1])
-    .initialize::<DLManagedTensorVersioned>(Box::new(values))?;
+let mut initialized = Fixed::new([2, 3], [3, 1]).initialize(Box::new(values))?;
 initialized
     .set_data(data)
     .set_dtype(DLDataType::F32)

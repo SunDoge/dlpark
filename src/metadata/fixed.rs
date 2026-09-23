@@ -154,7 +154,22 @@ where
     ///
     /// Every value wrapped in [`Borrowed`] must remain alive and immutable
     /// until the resulting managed tensor is dropped.
-    pub unsafe fn prepare_unchecked<M>(
+    pub unsafe fn prepare_unchecked(
+        self,
+    ) -> Result<
+        PreparedFixed<crate::ffi::DLManagedTensorVersioned, N, Shape::Storage, Strides::Storage>,
+        Error,
+    > {
+        self.prepare_inner()
+    }
+
+    /// Prepares metadata for an explicitly selected managed-tensor ABI.
+    ///
+    /// # Safety
+    ///
+    /// Every value wrapped in [`Borrowed`] must remain alive and immutable
+    /// until the resulting managed tensor is dropped.
+    pub unsafe fn prepare_unchecked_as<M>(
         self,
     ) -> Result<PreparedFixed<M, N, Shape::Storage, Strides::Storage>, Error>
     where
@@ -171,21 +186,53 @@ where
 {
     /// Allocates copied metadata and immediately installs its owning context.
     ///
-    /// This is a convenience form of `self.prepare::<M>()?.initialize(ctx)`;
+    /// This is a convenience form of `self.prepare()?.initialize(ctx)`;
     /// it performs the same single managed-tensor allocation.
     #[inline]
-    pub fn initialize<M>(
+    pub fn initialize(
+        self,
+        ctx: impl OpaqueContext,
+    ) -> Result<
+        fixed::Initialized<
+            crate::ffi::DLManagedTensorVersioned,
+            N,
+            Shape::Storage,
+            Strides::Storage,
+        >,
+        Error,
+    > {
+        Ok(self.prepare()?.initialize(ctx))
+    }
+
+    /// Allocates copied metadata for an explicitly selected managed-tensor ABI
+    /// and immediately installs its owning context.
+    #[inline]
+    pub fn initialize_as<M>(
         self,
         ctx: impl OpaqueContext,
     ) -> Result<fixed::Initialized<M, N, Shape::Storage, Strides::Storage>, Error>
     where
         M: ManagedTensorBase,
     {
-        Ok(self.prepare::<M>()?.initialize(ctx))
+        Ok(self.prepare_as::<M>()?.initialize(ctx))
     }
 
-    /// Allocates fixed metadata storage and copies shape and strides into it.
-    pub fn prepare<M>(self) -> Result<PreparedFixed<M, N, Shape::Storage, Strides::Storage>, Error>
+    /// Allocates versioned fixed metadata storage and copies shape and strides
+    /// into it.
+    pub fn prepare(
+        self,
+    ) -> Result<
+        PreparedFixed<crate::ffi::DLManagedTensorVersioned, N, Shape::Storage, Strides::Storage>,
+        Error,
+    > {
+        self.prepare_inner()
+    }
+
+    /// Allocates fixed metadata storage for an explicitly selected
+    /// managed-tensor ABI.
+    pub fn prepare_as<M>(
+        self,
+    ) -> Result<PreparedFixed<M, N, Shape::Storage, Strides::Storage>, Error>
     where
         M: ManagedTensorBase,
     {
@@ -201,7 +248,7 @@ mod tests {
     #[test]
     fn copied_metadata_uses_inline_arrays() {
         let prepared = Fixed::new([2_u32, 3], [3_isize, 1])
-            .prepare::<DLManagedTensor>()
+            .prepare_as::<DLManagedTensor>()
             .unwrap();
         let mut initialized = prepared.initialize(Box::new(()));
         initialized.set_dtype(crate::ffi::DLDataType::U8);
@@ -214,7 +261,7 @@ mod tests {
     #[test]
     fn initialize_fuses_owned_preparation_and_context_installation() {
         let mut initialized = Fixed::new([2_u32, 3], [3_isize, 1])
-            .initialize::<DLManagedTensor>(Box::new(()))
+            .initialize(Box::new(()))
             .unwrap();
         initialized.set_dtype(crate::ffi::DLDataType::U8);
         let tensor = unsafe { initialized.finish() };
@@ -228,7 +275,7 @@ mod tests {
         let shape = [2_i64, 3];
         let prepared = unsafe {
             Fixed::with_storage(Borrowed(&shape), Copied([3_i64, 1]))
-                .prepare_unchecked::<DLManagedTensor>()
+                .prepare_unchecked_as::<DLManagedTensor>()
                 .unwrap()
         };
         let mut initialized = prepared.initialize(Box::new(()));
@@ -245,7 +292,7 @@ mod tests {
         let strides = [3_i64, 1];
         let prepared = unsafe {
             Fixed::borrowed(&shape, &strides)
-                .prepare_unchecked::<DLManagedTensor>()
+                .prepare_unchecked_as::<DLManagedTensor>()
                 .unwrap()
         };
         let mut initialized = prepared.initialize(Box::new(()));

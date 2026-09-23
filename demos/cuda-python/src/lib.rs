@@ -49,7 +49,7 @@ impl CudaTensor {
         M: ManagedTensorBase,
     {
         let prepared = Dynamic::new(self.shape.clone(), self.strides.clone())
-            .prepare::<M>()
+            .prepare_as::<M>()
             .map_err(runtime_error)?;
         let mut initialized = prepared.initialize(Arc::clone(&self.buffer));
         initialized

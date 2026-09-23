@@ -43,7 +43,7 @@ fn bench_ndim<const N: usize>(c: &mut Criterion) {
     group.bench_function(BenchmarkId::new("copied_array", N), |b| {
         b.iter(|| {
             let prepared = Fixed::new(std::hint::black_box(&shape), std::hint::black_box(&strides))
-                .prepare::<DLManagedTensor>()
+                .prepare_as::<DLManagedTensor>()
                 .unwrap();
             std::hint::black_box(prepared.initialize(context()));
         });
@@ -53,7 +53,7 @@ fn bench_ndim<const N: usize>(c: &mut Criterion) {
         b.iter(|| {
             std::hint::black_box(
                 Fixed::new(std::hint::black_box(&shape), std::hint::black_box(&strides))
-                    .initialize::<DLManagedTensor>(context())
+                    .initialize_as::<DLManagedTensor>(context())
                     .unwrap(),
             );
         });
@@ -66,7 +66,7 @@ fn bench_ndim<const N: usize>(c: &mut Criterion) {
                     Borrowed(std::hint::black_box(&shape)),
                     Borrowed(std::hint::black_box(&strides)),
                 )
-                .prepare_unchecked::<DLManagedTensor>()
+                .prepare_unchecked_as::<DLManagedTensor>()
                 .unwrap()
             };
             std::hint::black_box(prepared.initialize(context()));
@@ -79,7 +79,7 @@ fn bench_ndim<const N: usize>(c: &mut Criterion) {
                 std::hint::black_box(shape.as_slice()),
                 std::hint::black_box(strides.as_slice()),
             )
-            .prepare::<DLManagedTensor>()
+            .prepare_as::<DLManagedTensor>()
             .unwrap();
             std::hint::black_box(prepared.initialize(context()));
         });
@@ -92,7 +92,7 @@ fn bench_ndim<const N: usize>(c: &mut Criterion) {
                     std::hint::black_box(shape.as_slice()),
                     std::hint::black_box(strides.as_slice()),
                 )
-                .initialize::<DLManagedTensor>(context())
+                .initialize_as::<DLManagedTensor>(context())
                 .unwrap(),
             );
         });
@@ -105,7 +105,7 @@ fn bench_ndim<const N: usize>(c: &mut Criterion) {
                     Borrowed(std::hint::black_box(shape.as_slice())),
                     Borrowed(std::hint::black_box(strides.as_slice())),
                 )
-                .prepare_unchecked::<DLManagedTensor>()
+                .prepare_unchecked_as::<DLManagedTensor>()
                 .unwrap()
             };
             std::hint::black_box(prepared.initialize(context()));

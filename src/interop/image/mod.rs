@@ -198,7 +198,7 @@ mod tests {
         let shape = [1, 1, 3];
         let strides = [3, 3, 1];
         let prepared = Fixed::new(shape, strides)
-            .prepare::<DLManagedTensor>()
+            .prepare_as::<DLManagedTensor>()
             .unwrap();
         let mut initialized = prepared.initialize(data);
         initialized.set_data(data_ptr);
