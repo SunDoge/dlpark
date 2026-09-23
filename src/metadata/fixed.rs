@@ -148,6 +148,21 @@ where
     Shape: OwnedFixedPart<N>,
     Strides: OwnedFixedPart<N>,
 {
+    /// Allocates copied metadata and immediately installs its owning context.
+    ///
+    /// This is a convenience form of `self.prepare::<M>()?.initialize(ctx)`;
+    /// it performs the same single managed-tensor allocation.
+    #[inline]
+    pub fn initialize<M>(
+        self,
+        ctx: impl OpaqueContext,
+    ) -> Result<fixed::Initialized<M, N, Shape::Storage, Strides::Storage>, Error>
+    where
+        M: ManagedTensorBase,
+    {
+        Ok(self.prepare::<M>()?.initialize(ctx))
+    }
+
     /// Allocates fixed metadata storage and copies shape and strides into it.
     pub fn prepare<M>(self) -> Result<PreparedFixed<M, N, Shape::Storage, Strides::Storage>, Error>
     where
@@ -168,6 +183,18 @@ mod tests {
             .prepare::<DLManagedTensor>()
             .unwrap();
         let mut initialized = prepared.initialize(Box::new(()));
+        initialized.set_dtype(crate::ffi::DLDataType::U8);
+        let tensor = unsafe { initialized.finish() };
+
+        assert_eq!(tensor.validate().unwrap().shape(), &[2, 3]);
+        assert_eq!(tensor.validate().unwrap().strides().unwrap(), &[3, 1]);
+    }
+
+    #[test]
+    fn initialize_fuses_owned_preparation_and_context_installation() {
+        let mut initialized = Fixed::new(Copied([2_u32, 3]), Copied([3_isize, 1]))
+            .initialize::<DLManagedTensor>(Box::new(()))
+            .unwrap();
         initialized.set_dtype(crate::ffi::DLDataType::U8);
         let tensor = unsafe { initialized.finish() };
 

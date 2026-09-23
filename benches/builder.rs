@@ -51,6 +51,19 @@ fn bench_ndim<const N: usize>(c: &mut Criterion) {
         });
     });
 
+    group.bench_function(BenchmarkId::new("copied_array_fused", N), |b| {
+        b.iter(|| {
+            std::hint::black_box(
+                Fixed::new(
+                    Copied(std::hint::black_box(&shape)),
+                    Copied(std::hint::black_box(&strides)),
+                )
+                .initialize::<DLManagedTensor>(context())
+                .unwrap(),
+            );
+        });
+    });
+
     group.bench_function(BenchmarkId::new("borrowed_array", N), |b| {
         b.iter(|| {
             let prepared = unsafe {
@@ -74,6 +87,19 @@ fn bench_ndim<const N: usize>(c: &mut Criterion) {
             .prepare::<DLManagedTensor>()
             .unwrap();
             std::hint::black_box(prepared.initialize(context()));
+        });
+    });
+
+    group.bench_function(BenchmarkId::new("copied_slice_fused", N), |b| {
+        b.iter(|| {
+            std::hint::black_box(
+                Dynamic::new(
+                    Copied(std::hint::black_box(shape.as_slice())),
+                    Copied(std::hint::black_box(strides.as_slice())),
+                )
+                .initialize::<DLManagedTensor>(context())
+                .unwrap(),
+            );
         });
     });
 

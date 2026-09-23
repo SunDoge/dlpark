@@ -37,9 +37,8 @@ use dlpark::{
 
 let mut values = vec![0_f32; 6];
 let data = values.as_mut_ptr().cast();
-let prepared = Fixed::new(Copied([2, 3]), Copied([3, 1]))
-    .prepare::<DLManagedTensorVersioned>()?;
-let mut initialized = prepared.initialize(Box::new(values));
+let mut initialized = Fixed::new(Copied([2, 3]), Copied([3, 1]))
+    .initialize::<DLManagedTensorVersioned>(Box::new(values))?;
 initialized
     .set_data(data)
     .set_dtype(DLDataType::F32)
@@ -51,6 +50,11 @@ let dlpack: versioned::Dlpack = unsafe { initialized.finish() };
 The context owns both the backing data and any borrowed metadata. `Box<T:
 Send>` and `Arc<T: Send + Sync>` implement `OpaqueContext`; the bounds allow a
 consumer to invoke the deleter on another thread.
+
+For owned metadata, `initialize` fuses preparation and context installation
+without changing the allocation strategy. Use `prepare` directly when those
+steps need to remain separate. Borrowed metadata keeps the explicit unsafe
+`prepare_unchecked` path so its lifetime obligation remains visible.
 
 `finish` is unsafe because it asserts that all pointers, lifetimes, flags, and
 layout fields satisfy the DLPack contract. `set_flags` prevents newly asserting

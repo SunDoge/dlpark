@@ -251,6 +251,19 @@ impl<Shape> Dynamic<Shape, Compact>
 where
     Shape: OwnedDynamicPart,
 {
+    /// Allocates copied shape and compact-stride metadata and immediately
+    /// installs its owning context.
+    ///
+    /// This is a convenience form of `self.prepare::<M>()?.initialize(ctx)`;
+    /// it performs the same single managed-tensor allocation.
+    #[inline]
+    pub fn initialize<M>(self, ctx: impl OpaqueContext) -> Result<dynamic::Initialized<M>, Error>
+    where
+        M: ManagedTensorBase,
+    {
+        Ok(self.prepare::<M>()?.initialize(ctx))
+    }
+
     /// Allocates owned shape storage and computes explicit compact strides.
     pub fn prepare<M>(self) -> Result<PreparedDynamic<M>, Error>
     where
@@ -265,6 +278,19 @@ where
     Shape: OwnedDynamicPart,
     Strides: OwnedDynamicPart,
 {
+    /// Allocates copied shape and stride metadata and immediately installs its
+    /// owning context.
+    ///
+    /// This is a convenience form of `self.prepare::<M>()?.initialize(ctx)`;
+    /// it performs the same single managed-tensor allocation.
+    #[inline]
+    pub fn initialize<M>(self, ctx: impl OpaqueContext) -> Result<dynamic::Initialized<M>, Error>
+    where
+        M: ManagedTensorBase,
+    {
+        Ok(self.prepare::<M>()?.initialize(ctx))
+    }
+
     /// Validates runtime rank, allocates copied storage, and writes shape and
     /// strides into it.
     pub fn prepare<M>(self) -> Result<PreparedDynamic<M>, Error>
@@ -302,6 +328,19 @@ mod tests {
             .prepare::<DLManagedTensor>()
             .unwrap();
         let mut initialized = prepared.initialize(Box::new(()));
+        initialized.set_dtype(crate::ffi::DLDataType::U8);
+        let tensor = unsafe { initialized.finish() };
+        let tensor = tensor.validate().unwrap();
+
+        assert_eq!(tensor.shape(), &[2, 3, 4]);
+        assert_eq!(tensor.strides(), Some([12, 4, 1].as_slice()));
+    }
+
+    #[test]
+    fn initialize_fuses_owned_preparation_and_context_installation() {
+        let mut initialized = Dynamic::compact(Copied(vec![2_u64, 3, 4]))
+            .initialize::<DLManagedTensor>(Box::new(()))
+            .unwrap();
         initialized.set_dtype(crate::ffi::DLDataType::U8);
         let tensor = unsafe { initialized.finish() };
         let tensor = tensor.validate().unwrap();
