@@ -11,6 +11,7 @@ license = "Apache-2.0"
 include = [
   "CHANGELOG.md",
   "Cargo.toml",
+  "docs/**",
   "LICENSE",
   "README.md",
   "benches/**",
