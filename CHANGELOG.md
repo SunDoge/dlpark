@@ -4,6 +4,41 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## 0.9.0-beta.5 - 2026-09-23
+
+### 🚀 Features
+
+- Make value helpers const evaluable
+
+
+- Fuse owned metadata initialization
+
+
+- Add reusable Python DLPack exporters
+
+
+
+### 📝 Documentation
+
+- Move detailed guides out of readme
+
+
+
+### 🌀 Miscellaneous
+
+- Default metadata APIs to versioned DLPack
+
+
+- Default metadata constructors to copied storage
+
+
+- Move version validation onto DLPackVersion
+
+
+
+**Full Changelog**: <https://github.com/SunDoge/dlpark/compare/v0.9.0-beta.4...v0.9.0-beta.5>
+
+---
 ## 0.9.0-beta.4 - 2026-09-20
 
 ### 🐛 Fixes
