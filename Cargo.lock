@@ -497,7 +497,7 @@ dependencies = [
 
 [[package]]
 name = "dlpark"
-version = "0.9.0-beta.5"
+version = "0.9.0-rc.1"
 dependencies = [
  "bitflags",
  "candle-core",
