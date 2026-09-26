@@ -2,6 +2,7 @@
 actionlint = "1.7.12"
 cocogitto = "7.0.0"
 github-cli = "2.98.0"
+release-plz = "latest"
 
 [tasks.bindgen]
 run = "cargo xtask bindgen"
