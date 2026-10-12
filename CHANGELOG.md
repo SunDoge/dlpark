@@ -36,7 +36,7 @@ All notable changes to this project will be documented in this file.
 
 
 
-**Full Changelog**: <https://github.com/SunDoge/dlpark/compare/v0.9.0-beta.4...v0.9.0-beta.5>
+**Full Changelog**: <https://github.com/SunDoge/dlpark/compare/v0.9.0-beta.4...v0.9.0-rc.1>
 
 ---
 ## 0.9.0-beta.4 - 2026-09-20
