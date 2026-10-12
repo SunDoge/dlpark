@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## 0.9.0-rc.2 - 2026-10-12
+## 0.9.0 - 2026-10-12
 
 ### 🐛 Fixes
 
@@ -12,7 +12,7 @@ All notable changes to this project will be documented in this file.
 
 
 
-**Full Changelog**: <https://github.com/SunDoge/dlpark/compare/v0.9.0-rc.1...v0.9.0-rc.2>
+**Full Changelog**: <https://github.com/SunDoge/dlpark/compare/v0.9.0-rc.1...v0.9.0>
 
 ---
 ## 0.9.0-rc.1 - 2026-09-23
