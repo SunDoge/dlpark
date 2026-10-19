@@ -2,8 +2,15 @@ use crate::ffi::DLPackVersion;
 use snafu::Snafu;
 
 /// The DLPack major version is incompatible with this build.
+///
+/// ```
+/// use dlpark::IncompatibleVersionError;
+///
+/// let error = IncompatibleVersionError { expected: 1, actual: 2 };
+/// let IncompatibleVersionError { expected, actual } = error;
+/// assert_eq!((expected, actual), (1, 2));
+/// ```
 #[derive(Debug, Snafu)]
-#[non_exhaustive]
 #[snafu(display("incompatible DLPack major version: expected {expected}, got {actual}"))]
 pub struct IncompatibleVersionError {
     /// The expected major version (from the bundled headers).
