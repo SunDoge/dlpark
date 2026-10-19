@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## 0.9.1 - 2026-10-19
+
+### 🐛 Fixes
+
+- Align bindgen formatter with syn 2
+
+
+
+### 🧪 Dependencies
+
+- Bump image from 0.25.9 to 0.25.10
+
+
+- Bump pyo3 from 0.29.3 to 0.30.1
+
+
+
+**Full Changelog**: <https://github.com/SunDoge/dlpark/compare/v0.9.0...v0.9.1>
+
+---
 ## 0.9.0 - 2026-10-12
 
 ### 🐛 Fixes
