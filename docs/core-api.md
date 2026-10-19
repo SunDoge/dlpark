@@ -78,7 +78,7 @@ unsafe because the descriptor cannot prove the allocation's bounds.
 The bundled headers currently define DLPack 1.3. `DLPackVersion` provides:
 
 - `is_compatible_with` for major-version ABI compatibility.
-- `ensure_compatible_with` for the checked form returning `VersionError`.
+- `ensure_compatible_with` for the checked form returning `IncompatibleVersionError`.
 - `supports` for testing whether a feature-level version is available.
 
 Versioned tensors carry `DlpackFlags`, including `READ_ONLY`, `IS_COPIED`, and
