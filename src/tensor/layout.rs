@@ -175,8 +175,10 @@ impl DLTensor {
         let shape = unsafe { self.shape()? };
         validate_shape_dimensions(shape)?;
         shape.iter().try_fold(1usize, |acc, &dim| {
-            acc.checked_mul(dim as usize)
-                .ok_or(Error::NumElementsOverflow)
+            // usize::try_from rather than `as` so 32-bit targets reject
+            // dimensions above usize::MAX instead of truncating them.
+            let dim = usize::try_from(dim).map_err(|_| Error::NumElementsOverflow)?;
+            acc.checked_mul(dim).ok_or(Error::NumElementsOverflow)
         })
     }
 

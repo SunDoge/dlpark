@@ -172,7 +172,6 @@ pub(super) fn validated_cuda_parts<T: DlpackElement>(
             actual: tensor.dtype(),
         }
     );
-    ensure!(!tensor.data_ptr().is_null(), NullDataSnafu);
     let device_id =
         usize::try_from(tensor.device().device_id).map_err(|_| Error::InvalidDeviceId {
             device_id: tensor.device().device_id,
@@ -184,6 +183,16 @@ pub(super) fn validated_cuda_parts<T: DlpackElement>(
             source: crate::tensor::Error::NonCompactStrides,
         });
     }
-    let cu_device_ptr = unsafe { tensor.offset_data_ptr::<T>()? } as usize as u64;
+    let cu_device_ptr = if len == 0 {
+        // DLPack specifies a NULL data pointer for zero-size tensors, so a
+        // null device pointer paired with zero length is the honest empty
+        // slice — not an error, and not a fabricated dangling address
+        // either (which cudarc would wrap into a bogus CUdeviceptr).
+        0
+    } else {
+        ensure!(!tensor.data_ptr().is_null(), NullDataSnafu);
+        let ptr = unsafe { tensor.offset_data_ptr::<T>()? };
+        ptr as usize as u64
+    };
     Ok((cu_device_ptr, len, device_id))
 }

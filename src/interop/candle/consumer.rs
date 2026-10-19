@@ -59,9 +59,13 @@ fn validate_strided_span(
                 source: crate::tensor::Error::NegativeDimension { axis: 0, value: d },
             });
         }
-        total = total.checked_mul(d as usize).ok_or(Error::Tensor {
-            source: crate::tensor::Error::NumElementsOverflow,
-        })?;
+        total = total
+            .checked_mul(usize::try_from(d).map_err(|_| Error::Tensor {
+                source: crate::tensor::Error::NumElementsOverflow,
+            })?)
+            .ok_or(Error::Tensor {
+                source: crate::tensor::Error::NumElementsOverflow,
+            })?;
         if d == 0 {
             continue;
         }

@@ -298,6 +298,55 @@ mod tests {
     }
 
     #[test]
+    fn mut_ndarray_view_accepts_genuinely_distinct_strided_strides() {
+        // Strides [6, 5] on shape [2, 2] touch {0, 5, 6, 11} — all distinct
+        // addresses, but the conservative stride-growth heuristic rejects
+        // them. The exact rescue path must accept this layout.
+        let data = Box::new(vec![0i32; 12]);
+        let data_ptr = data.as_ptr().cast_mut().cast();
+        let mut dlpack = make_test_tensor::<_, crate::ffi::DLManagedTensorVersioned, 2>(
+            data,
+            data_ptr,
+            <i32 as DlpackElement>::DTYPE,
+            DLDevice::CPU,
+            [2, 2],
+            [6, 5],
+            DlpackFlags::empty(),
+        );
+
+        let mut view = unsafe { ArrayViewMutD::<i32>::try_from_dlpack(&mut dlpack, ()) }.unwrap();
+        view[[1, 1]] = 7;
+
+        // Read back through a fresh view over the same tensor.
+        let view = unsafe { ArrayViewD::<i32>::try_from_dlpack(&dlpack, ()) }.unwrap();
+        assert_eq!(view[[1, 1]], 7);
+        assert_eq!(view[[0, 0]], 0);
+    }
+
+    #[test]
+    fn mut_ndarray_view_rejects_true_overlap_beyond_the_heuristic() {
+        // Strides [3, 3] on shape [2, 2]: (0,1) and (1,0) both reach offset
+        // 3, so this truly overlaps and must be rejected even though the
+        // conservative heuristic (3 < 1*2) sends it to the exact rescue path.
+        let data = Box::new(vec![0i32; 7]);
+        let data_ptr = data.as_ptr().cast_mut().cast();
+        let mut dlpack = make_test_tensor::<_, crate::ffi::DLManagedTensorVersioned, 2>(
+            data,
+            data_ptr,
+            <i32 as DlpackElement>::DTYPE,
+            DLDevice::CPU,
+            [2, 2],
+            [3, 3],
+            DlpackFlags::empty(),
+        );
+
+        assert!(matches!(
+            unsafe { ArrayViewMutD::<i32>::try_from_dlpack(&mut dlpack, ()) },
+            Err(Error::Shape { .. })
+        ));
+    }
+
+    #[test]
     fn mut_ndarray_view_accepts_caller_proven_legacy_exclusivity() {
         let mut dlpack = legacy_2x3_dlpack();
 

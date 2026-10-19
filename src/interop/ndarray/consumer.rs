@@ -118,6 +118,25 @@ fn validate_strided_span(shape: &[usize], strides: &[usize]) -> Result<(), Error
 }
 
 fn validate_non_overlapping(shape: &[usize], strides: &[usize]) -> Result<(), Error> {
+    // Fast path: the conservative stride-growth heuristic accepts every
+    // layout that real frameworks produce (compact, sliced, broadcast).
+    if conservative_non_overlapping(shape, strides)? {
+        return Ok(());
+    }
+    // Rescue path: the heuristic is only sufficient, not necessary — e.g.
+    // shape [2, 2] with strides [6, 5] touches {0, 5, 6, 11}, genuinely
+    // distinct addresses, yet fails it. Fall back to an exact check.
+    match exact_non_overlapping(shape, strides)? {
+        true => Ok(()),
+        false => Err(Error::Shape {
+            source: ndarray::ShapeError::from_kind(ndarray::ErrorKind::Unsupported),
+        }),
+    }
+}
+
+/// Sufficient non-overlap check: ascending strides must each clear the index
+/// footprint of all smaller-stride axes combined.
+fn conservative_non_overlapping(shape: &[usize], strides: &[usize]) -> Result<bool, Error> {
     let mut axes = shape
         .iter()
         .copied()
@@ -129,11 +148,64 @@ fn validate_non_overlapping(shape: &[usize], strides: &[usize]) -> Result<(), Er
     let mut required_stride = 1usize;
     for (dim, stride) in axes {
         if stride < required_stride {
-            return Err(Error::Shape {
-                source: ndarray::ShapeError::from_kind(ndarray::ErrorKind::Unsupported),
-            });
+            return Ok(false);
         }
         required_stride = stride.checked_mul(dim).ok_or(Error::SpanOverflow)?;
     }
-    Ok(())
+    Ok(true)
+}
+
+/// Exact non-overlap check by construction of the element-offset set.
+///
+/// The covered offsets start as `{0}` and grow one axis at a time: for an
+/// axis with stride `s` and length `d`, `d - 1` copies of the covered range
+/// are added, shifted by `k * s`. Two distinct index tuples share an offset
+/// exactly when some copy collides with existing coverage, so tracking the
+/// covered set as disjoint intervals detects every overlap. The interval
+/// count is capped; past the cap the layout is rejected conservatively
+/// rather than spending unbounded memory on adversarial strides.
+fn exact_non_overlapping(shape: &[usize], strides: &[usize]) -> Result<bool, Error> {
+    const MAX_INTERVALS: usize = 1 << 16;
+
+    let mut axes = shape
+        .iter()
+        .copied()
+        .zip(strides.iter().copied())
+        .filter(|&(dim, _)| dim > 1)
+        .collect::<Vec<_>>();
+    axes.sort_unstable_by_key(|&(_, stride)| stride);
+
+    // Inclusive-start, exclusive-end element offsets covered so far.
+    let mut covered: Vec<(usize, usize)> = vec![(0, 1)];
+    for (dim, stride) in axes {
+        let base = covered.clone();
+        for k in 1..dim {
+            let shift = k.checked_mul(stride).ok_or(Error::SpanOverflow)?;
+            for &(lo, hi) in &base {
+                let (lo, hi) = (lo.checked_add(shift), hi.checked_add(shift));
+                let (Some(lo), Some(hi)) = (lo, hi) else {
+                    return Err(Error::SpanOverflow);
+                };
+                covered.push((lo, hi));
+                if covered.len() > MAX_INTERVALS {
+                    return Ok(false);
+                }
+            }
+        }
+        covered.sort_unstable();
+        // Any adjacent overlap proves two index tuples share an element.
+        if covered.windows(2).any(|w| w[0].1 > w[1].0) {
+            return Ok(false);
+        }
+        // Merge runs back into disjoint intervals to bound growth.
+        covered.dedup_by(|second, first| {
+            if first.1 >= second.0 {
+                first.1 = first.1.max(second.1);
+                true
+            } else {
+                false
+            }
+        });
+    }
+    Ok(true)
 }

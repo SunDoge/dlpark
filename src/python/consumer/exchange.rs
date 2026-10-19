@@ -296,9 +296,21 @@ impl ExchangeApi {
 /// the spec by chaining a bare 16-byte header would make those downstream
 /// reads out of bounds; the spec's "framework-owned static table" contract is
 /// what rules that out.
+///
+/// Two further spec-trust assumptions: the spec does not forbid a cyclic
+/// `prev_api` chain, so the walk is depth-bounded rather than unbounded;
+/// and a same-major table is assumed to carry every function-pointer field
+/// this build reads, which holds because the table debuted complete at
+/// DLPack 1.3 — fields appended by a later minor version are simply not
+/// read by this build.
 fn compatible_api(api: *mut DLPackExchangeAPI) -> Option<NonNull<DLPackExchangeAPI>> {
+    /// Bounds the chain walk; no real framework chains anywhere near this
+    /// deep, and a spec-violating cycle cannot hang the consumer.
+    const MAX_CHAIN_DEPTH: usize = 16;
+
     let mut header = api.cast::<DLPackExchangeAPIHeader>();
-    while let Some(current_header) = NonNull::new(header) {
+    for _ in 0..=MAX_CHAIN_DEPTH {
+        let current_header = NonNull::new(header)?;
         let current = unsafe { current_header.as_ref() };
         if current.version.major == DLPACK_MAJOR_VERSION {
             return NonNull::new(header.cast::<DLPackExchangeAPI>());

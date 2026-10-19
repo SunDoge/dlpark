@@ -23,7 +23,11 @@ where
         let channels = P::CHANNEL_COUNT;
         let data_ptr = img.as_raw().as_ptr() as *mut c_void;
         let shape = [height as i64, width as i64, channels as i64];
-        let strides = compact_strides_array(shape).expect("image shape must fit compact strides");
+        // Practically unreachable (an overflowing H×W×C image cannot be
+        // backed by a Vec), but map the failure instead of panicking for
+        // consistency with the surrounding fallible conversions.
+        let strides =
+            compact_strides_array(shape).map_err(|_| crate::metadata::Error::CompactStrideOverflow)?;
 
         let prepared = Fixed::new(shape, strides).prepare_as::<M>()?;
         let mut initialized = prepared.initialize(img);
