@@ -34,7 +34,7 @@ half = "2.7"
 image = { version = "0.25", default-features = false }
 memmap2 = "0.9"
 ndarray = { version = "0.17", default-features = false, features = ["std"] }
-pyo3 = "0.29"
+pyo3 = "0.30"
 safetensors = "0.8"
 snafu = "0.9"
 
