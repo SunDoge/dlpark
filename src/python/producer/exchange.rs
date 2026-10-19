@@ -27,10 +27,19 @@ const DLPACK_EXCHANGE_API: &CStr = c"dlpack_exchange_api";
 /// # Safety
 ///
 /// When [`Self::HAS_DLTENSOR_VIEW`] is true, `tensor_view_no_sync` must return
-/// data, shape, and stride pointers that stay valid and immutable until that
-/// callback returns. Managed tensors must obey DLPack's ownership contract,
-/// and `current_work_stream` must return a live backend stream for the requested
-/// device.
+/// data, shape, and stride pointers that stay valid and immutable until the
+/// producer next regains control — that is, until the next C Exchange API or
+/// Python protocol call on this object — not merely until the callback
+/// returns. Consumers dereference the borrowed `DLTensor` after the callback
+/// has already returned, so pointers living only for the callback's own
+/// invocation are unsound. Managed tensors must obey DLPack's ownership
+/// contract, and `current_work_stream` must return a live backend stream for
+/// the requested device.
+///
+/// Every method receives a `Python<'_>` token: dlpark's C table functions
+/// attach the GIL themselves (via `Python::attach`) before invoking the
+/// trait, so implementations may freely call into the Python C API and need
+/// not — and must not — acquire the token again.
 pub unsafe trait DlpackExchangeProducer: PyClass {
     /// Whether to publish the optional borrowed `DLTensor` callback.
     const HAS_DLTENSOR_VIEW: bool = false;
@@ -110,11 +119,10 @@ where
     if !out.is_null() {
         unsafe { out.write(ptr::null_mut()) };
     }
-    python_callback(|| {
+    python_callback(|py| {
         if object.is_null() || out.is_null() {
             return Err(PyValueError::new_err("null C Exchange API argument"));
         }
-        let py = unsafe { Python::assume_attached() };
         let object = unsafe { Bound::from_borrowed_ptr(py, object.cast()) };
         let producer: PyRef<'_, T> = object.extract()?;
         let tensor = producer.managed_tensor_no_sync(py)?;
@@ -130,11 +138,10 @@ unsafe extern "C" fn tensor_view<T>(object: *mut c_void, out: *mut DLTensor) -> 
 where
     T: DlpackExchangeProducer,
 {
-    python_callback(|| {
+    python_callback(|py| {
         if object.is_null() || out.is_null() {
             return Err(PyValueError::new_err("null C Exchange API argument"));
         }
-        let py = unsafe { Python::assume_attached() };
         let object = unsafe { Bound::from_borrowed_ptr(py, object.cast()) };
         let producer: PyRef<'_, T> = object.extract()?;
         let tensor = producer.tensor_view_no_sync(py)?;
@@ -160,11 +167,10 @@ where
     if !out.is_null() {
         unsafe { out.write(ptr::null_mut()) };
     }
-    python_callback(|| {
+    python_callback(|py| {
         if raw.is_null() || out.is_null() {
             return Err(PyValueError::new_err("null C Exchange API argument"));
         }
-        let py = unsafe { Python::assume_attached() };
         let tensor = unsafe { Managed::from_raw(raw) }
             .map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
         let object = T::from_managed_tensor_no_sync(py, tensor)?;
@@ -184,11 +190,10 @@ where
     if !out.is_null() {
         unsafe { out.write(ptr::null_mut()) };
     }
-    python_callback(|| {
+    python_callback(|py| {
         if out.is_null() {
             return Err(PyValueError::new_err("null C Exchange API output"));
         }
-        let py = unsafe { Python::assume_attached() };
         let stream = T::current_work_stream(
             py,
             DLDevice {
@@ -236,16 +241,28 @@ where
     }
 }
 
-fn python_callback(callback: impl FnOnce() -> PyResult<()>) -> c_int {
-    match catch_unwind(AssertUnwindSafe(callback)) {
+fn python_callback<F>(callback: F) -> c_int
+where
+    F: for<'py> FnOnce(Python<'py>) -> PyResult<()>,
+{
+    // Foreign consumers reach this table through the Python protocol, but a
+    // contract-violating caller might invoke it without holding the GIL.
+    // attach uses PyGILState_Ensure, which is reentrant when the GIL is
+    // already held and correct when it is not, converting misuse into
+    // defined behavior instead of unsound refcount traffic.
+    match catch_unwind(AssertUnwindSafe(|| Python::attach(callback))) {
         Ok(Ok(())) => 0,
         Ok(Err(error)) => {
-            error.restore(unsafe { Python::assume_attached() });
+            Python::try_attach(|py| error.restore(py));
             -1
         }
         Err(_) => {
-            PyRuntimeError::new_err("Rust panic in DLPack C Exchange API callback")
-                .restore(unsafe { Python::assume_attached() });
+            // The interpreter may be in any state after a panic; try_attach
+            // avoids panicking again if it cannot be attached to.
+            Python::try_attach(|py| {
+                PyRuntimeError::new_err("Rust panic in DLPack C Exchange API callback")
+                    .restore(py);
+            });
             -1
         }
     }

@@ -24,6 +24,7 @@ mod producer;
 pub use consumer::array_view_from_dlpack_mut_unchecked;
 
 #[derive(Debug, Snafu)]
+#[non_exhaustive]
 /// Errors produced while validating a DLPack tensor as an ndarray view.
 pub enum Error {
     /// An ndarray view cannot represent a negative DLPack stride.
@@ -37,7 +38,7 @@ pub enum Error {
 
     /// A DLPack stride cannot be represented by ndarray's `usize` stride.
     #[snafu(display("DLPack stride {axis} with value {value} does not fit in usize"))]
-    DlpackStrideOverflow {
+    StrideOverflow {
         /// The axis of the offending stride.
         axis: usize,
         /// The offending stride value.
@@ -191,6 +192,26 @@ mod tests {
     }
 
     #[test]
+    fn cuda_descriptors_are_rejected_by_both_view_imports() {
+        let mut dlpack = legacy_2x3_dlpack();
+        unsafe {
+            (*dlpack.as_ptr()).dl_tensor.device = DLDevice::cuda(0);
+        }
+        assert!(matches!(
+            unsafe { ArrayViewD::<i32>::try_from_dlpack(&dlpack, ()) },
+            Err(Error::Tensor {
+                source: crate::tensor::Error::NotCpu { .. }
+            })
+        ));
+        assert!(matches!(
+            unsafe { ArrayViewMutD::<i32>::try_from_dlpack(&mut dlpack, ()) },
+            Err(Error::Tensor {
+                source: crate::tensor::Error::NotCpu { .. }
+            })
+        ));
+    }
+
+    #[test]
     fn borrowed_dlpack_to_ndarray_view_is_zero_copy() {
         let dlpack = legacy_2x3_dlpack();
         let view = unsafe { ArrayViewD::<i32>::try_from_dlpack(&dlpack, ()) }.unwrap();
@@ -287,6 +308,55 @@ mod tests {
             DLDevice::CPU,
             [2, 2],
             [0, 1],
+            DlpackFlags::empty(),
+        );
+
+        assert!(matches!(
+            unsafe { ArrayViewMutD::<i32>::try_from_dlpack(&mut dlpack, ()) },
+            Err(Error::Shape { .. })
+        ));
+    }
+
+    #[test]
+    fn mut_ndarray_view_accepts_genuinely_distinct_strided_strides() {
+        // Strides [6, 5] on shape [2, 2] touch {0, 5, 6, 11} — all distinct
+        // addresses, but the conservative stride-growth heuristic rejects
+        // them. The exact rescue path must accept this layout.
+        let data = Box::new(vec![0i32; 12]);
+        let data_ptr = data.as_ptr().cast_mut().cast();
+        let mut dlpack = make_test_tensor::<_, crate::ffi::DLManagedTensorVersioned, 2>(
+            data,
+            data_ptr,
+            <i32 as DlpackElement>::DTYPE,
+            DLDevice::CPU,
+            [2, 2],
+            [6, 5],
+            DlpackFlags::empty(),
+        );
+
+        let mut view = unsafe { ArrayViewMutD::<i32>::try_from_dlpack(&mut dlpack, ()) }.unwrap();
+        view[[1, 1]] = 7;
+
+        // Read back through a fresh view over the same tensor.
+        let view = unsafe { ArrayViewD::<i32>::try_from_dlpack(&dlpack, ()) }.unwrap();
+        assert_eq!(view[[1, 1]], 7);
+        assert_eq!(view[[0, 0]], 0);
+    }
+
+    #[test]
+    fn mut_ndarray_view_rejects_true_overlap_beyond_the_heuristic() {
+        // Strides [3, 3] on shape [2, 2]: (0,1) and (1,0) both reach offset
+        // 3, so this truly overlaps and must be rejected even though the
+        // conservative heuristic (3 < 1*2) sends it to the exact rescue path.
+        let data = Box::new(vec![0i32; 7]);
+        let data_ptr = data.as_ptr().cast_mut().cast();
+        let mut dlpack = make_test_tensor::<_, crate::ffi::DLManagedTensorVersioned, 2>(
+            data,
+            data_ptr,
+            <i32 as DlpackElement>::DTYPE,
+            DLDevice::CPU,
+            [2, 2],
+            [3, 3],
             DlpackFlags::empty(),
         );
 

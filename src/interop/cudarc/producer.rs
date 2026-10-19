@@ -75,14 +75,20 @@ impl<T: DlpackElement, M: ManagedTensorBase> TryFrom<Box<CudaSlice<T>>>
 ///
 /// - `slice` — owned GPU buffer; ownership is transferred into the DLPack
 ///   tensor's `manager_ctx` via `Box<CudaSlice<T>>`
-/// - `shape`   — dimension sizes in elements (any rank)
+/// - `shape`   — dimension sizes in elements (any rank, all non-negative)
 /// - `strides` — element strides, must have the same length as `shape`
+///
+/// The full shape/stride index grid — including negative strides — is
+/// validated to lie within `slice.len()` elements, mirroring the span checks
+/// of the import direction.
 ///
 /// Returns a no-sync export carrying both the initialized allocation and the
 /// stream on which its data becomes ready.
 ///
 /// # Errors
 ///
+/// - [`Error::NegativeDimension`] if a shape dimension is negative
+/// - [`Error::StridedSpanOverflow`] if the grid reaches outside the slice
 /// - [`crate::metadata::Error::MismatchedLength`] if `shape.len() != strides.len()`
 /// - [`crate::metadata::Error::NdimOverflow`] if `shape.len()` overflows `i32`
 pub fn from_cuda_slice<T: DlpackElement, M: ManagedTensorBase>(
@@ -90,6 +96,7 @@ pub fn from_cuda_slice<T: DlpackElement, M: ManagedTensorBase>(
     shape: &[i64],
     strides: &[i64],
 ) -> Result<CudaDlpackExport<dynamic::Initialized<M>>, Error> {
+    validate_strided_span(shape, strides, slice.len())?;
     let device_id = i32::try_from(slice.ordinal()).map_err(|source| Error::DeviceIdOverflow {
         ordinal: slice.ordinal(),
         source,
@@ -105,6 +112,45 @@ pub fn from_cuda_slice<T: DlpackElement, M: ManagedTensorBase>(
         initialized,
         current_stream: stream,
     })
+}
+
+/// Proves that the shape/stride index grid lies within `slice_len` elements.
+///
+/// `shape` must be non-negative; strides may be negative (DLPack permits
+/// both). An empty grid (any dimension zero) never touches data, so any
+/// strides are accepted — mirroring how `is_compact_strides` treats empty
+/// tensors. Otherwise, per-axis min/max element offsets are accumulated in
+/// `i128` so negative strides are handled exactly, and the resulting element
+/// span must fit inside `[0, slice_len)`.
+fn validate_strided_span(
+    shape: &[i64],
+    strides: &[i64],
+    slice_len: usize,
+) -> Result<(), Error> {
+    let mut total: i128 = 1;
+    let mut min_elem: i128 = 0;
+    let mut max_elem: i128 = 0;
+    for (axis, (&d, &s)) in shape.iter().zip(strides).enumerate() {
+        if d < 0 {
+            return Err(Error::NegativeDimension { axis, value: d });
+        }
+        total *= d as i128;
+        if d == 0 {
+            continue;
+        }
+        let last = (d - 1) as i128;
+        let s = s as i128;
+        let (lo, hi) = if s >= 0 { (0, last * s) } else { (last * s, 0) };
+        min_elem += lo;
+        max_elem += hi;
+    }
+    if total == 0 {
+        return Ok(());
+    }
+    if min_elem < 0 || max_elem + 1 > slice_len as i128 {
+        return Err(Error::StridedSpanOverflow { len: slice_len });
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -124,4 +170,49 @@ fn device_ptr_of<T>(slice: &CudaSlice<T>) -> *mut c_void {
     drop(sync); // commits the read-fence event; releases the borrow of slice
 
     cu_ptr as usize as *mut c_void
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn span_validation_accepts_in_bounds_grids() {
+        // Compact and strided-within-bounds layouts pass.
+        validate_strided_span(&[4], &[1], 4).unwrap();
+        validate_strided_span(&[2, 3], &[3, 1], 6).unwrap();
+        // A length-1 dimension contributes nothing, so even a negative or
+        // huge stride on it stays in bounds.
+        validate_strided_span(&[3, 1], &[1, -5], 3).unwrap();
+        // Zero-sized dimension touches nothing.
+        validate_strided_span(&[0, 5], &[999, 999], 1).unwrap();
+        // Zero strides never leave the first element.
+        validate_strided_span(&[3, 3], &[0, 0], 1).unwrap();
+    }
+
+    #[test]
+    fn span_validation_rejects_out_of_bounds_grids() {
+        assert!(matches!(
+            validate_strided_span(&[1_000_000], &[1], 4),
+            Err(Error::StridedSpanOverflow { len: 4 })
+        ));
+        // Max index (d-1)*s = 2*3 = 6 is one past a 6-element slice.
+        assert!(matches!(
+            validate_strided_span(&[3, 3], &[3, 1], 6),
+            Err(Error::StridedSpanOverflow { len: 6 })
+        ));
+        // Negative stride reaching before the base pointer.
+        assert!(matches!(
+            validate_strided_span(&[3], &[-1], 3),
+            Err(Error::StridedSpanOverflow { len: 3 })
+        ));
+    }
+
+    #[test]
+    fn span_validation_rejects_negative_dimensions() {
+        assert!(matches!(
+            validate_strided_span(&[-1], &[1], 4),
+            Err(Error::NegativeDimension { axis: 0, value: -1 })
+        ));
+    }
 }

@@ -24,7 +24,9 @@ Production has three stages: metadata preparation, initialization with an
 owning context, and completion of scalar fields.
 
 `metadata::Fixed` handles compile-time rank and `metadata::Dynamic` handles
-runtime rank. Their standard constructors copy shape and stride values into the
+runtime rank. Dynamic metadata accepts arrays, array references, slices, vectors,
+and boxed slices, inferring their integer element types. Their standard
+constructors copy shape and stride values into the
 managed allocation. The explicitly named `borrowed` constructors avoid that
 copy but require `prepare_unchecked` because the referenced arrays must outlive
 the exported tensor. Advanced callers can use `with_storage` with `Copied` and
@@ -78,7 +80,7 @@ unsafe because the descriptor cannot prove the allocation's bounds.
 The bundled headers currently define DLPack 1.3. `DLPackVersion` provides:
 
 - `is_compatible_with` for major-version ABI compatibility.
-- `ensure_compatible_with` for the checked form returning `VersionError`.
+- `ensure_compatible_with` for the checked form returning `IncompatibleVersionError`.
 - `supports` for testing whether a feature-level version is available.
 
 Versioned tensors carry `DlpackFlags`, including `READ_ONLY`, `IS_COPIED`, and

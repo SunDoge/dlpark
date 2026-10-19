@@ -79,6 +79,14 @@ where
         }
     }
 
+    pub(crate) fn shape_storage_ptr(&self) -> *mut Shape::Value {
+        self.shape.as_ptr()
+    }
+
+    pub(crate) fn strides_storage_ptr(&self) -> *mut Strides::Value {
+        self.strides.as_ptr()
+    }
+
     /// Returns the storage selected for shape metadata.
     pub fn shape_storage_mut(&mut self) -> &mut Shape::Value {
         unsafe { self.shape.as_mut() }

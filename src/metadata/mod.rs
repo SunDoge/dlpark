@@ -29,6 +29,7 @@ pub use storage::{Borrowed, Copied};
 
 /// Errors raised while composing shape and stride metadata with an allocation.
 #[derive(Debug, Snafu)]
+#[non_exhaustive]
 pub enum Error {
     /// The underlying allocation failed.
     #[snafu(transparent)]

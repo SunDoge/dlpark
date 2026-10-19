@@ -2,9 +2,17 @@ use crate::ffi::DLPackVersion;
 use snafu::Snafu;
 
 /// The DLPack major version is incompatible with this build.
+///
+/// ```
+/// use dlpark::IncompatibleVersionError;
+///
+/// let error = IncompatibleVersionError { expected: 1, actual: 2 };
+/// let IncompatibleVersionError { expected, actual } = error;
+/// assert_eq!((expected, actual), (1, 2));
+/// ```
 #[derive(Debug, Snafu)]
 #[snafu(display("incompatible DLPack major version: expected {expected}, got {actual}"))]
-pub struct VersionError {
+pub struct IncompatibleVersionError {
     /// The expected major version (from the bundled headers).
     pub expected: u32,
     /// The actual major version declared by the managed tensor.
@@ -30,11 +38,11 @@ impl DLPackVersion {
     }
 
     /// Ensures that this declared version is ABI-compatible with `expected`.
-    pub const fn ensure_compatible_with(self, expected: Self) -> Result<(), VersionError> {
+    pub const fn ensure_compatible_with(self, expected: Self) -> Result<(), IncompatibleVersionError> {
         if self.is_compatible_with(expected) {
             Ok(())
         } else {
-            Err(VersionError {
+            Err(IncompatibleVersionError {
                 expected: expected.major,
                 actual: self.major,
             })

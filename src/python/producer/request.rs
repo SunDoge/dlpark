@@ -82,13 +82,36 @@ impl<'py> ExportRequest<'py> {
     }
 
     /// Parses `stream` according to the CUDA Python DLPack convention.
+    ///
+    /// The interchange protocol accepts either an integer or an object
+    /// exposing a `__cuda_stream__` attribute (e.g. `torch.cuda.Stream`),
+    /// whose value resolves to the underlying stream handle.
     pub fn cuda_stream(&self) -> PyResult<CudaStreamRequest> {
         let Some(stream) = &self.stream else {
             return Ok(CudaStreamRequest::Omitted);
         };
-        let value = stream
-            .extract::<isize>()
-            .map_err(|_| PyValueError::new_err("CUDA DLPack stream must be an integer"))?;
+        let value = match stream.extract::<isize>() {
+            Ok(value) => value,
+            Err(_) => {
+                let py = stream.py();
+                let resolved = stream
+                    .getattr(pyo3::intern!(py, "__cuda_stream__"))
+                    .map_err(|_| {
+                        PyValueError::new_err(
+                            "CUDA DLPack stream must be an integer or provide __cuda_stream__",
+                        )
+                    })?;
+                // Some producers expose the attribute as a callable.
+                let resolved = if resolved.is_callable() {
+                    resolved.call0()?
+                } else {
+                    resolved
+                };
+                resolved.extract::<isize>().map_err(|_| {
+                    PyValueError::new_err("__cuda_stream__ must resolve to an integer")
+                })?
+            }
+        };
         match value {
             -1 => Ok(CudaStreamRequest::NoSync),
             0 => Err(PyValueError::new_err(
@@ -325,6 +348,37 @@ mod tests {
 
             let zero = PyInt::new(py, 0);
             let request = ExportRequest::parse(Some(zero.as_any()), None, None, None)?;
+            assert!(request.cuda_stream().is_err());
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn resolves_cuda_stream_objects_via_dunder() {
+        Python::initialize();
+        Python::attach(|py| -> PyResult<()> {
+            // An object exposing __cuda_stream__ as a plain attribute.
+            let stream_obj = py.eval(
+                c"type('Stream', (), {'__cuda_stream__': 17})()",
+                None,
+                None,
+            )?;
+            let request = ExportRequest::parse(Some(&stream_obj), None, None, None)?;
+            assert_eq!(request.cuda_stream()?, CudaStreamRequest::Pointer(17));
+
+            // An object exposing __cuda_stream__ as a callable.
+            let callable_obj = py.eval(
+                c"type('Stream', (), {'__cuda_stream__': lambda self: 2})()",
+                None,
+                None,
+            )?;
+            let request = ExportRequest::parse(Some(&callable_obj), None, None, None)?;
+            assert_eq!(request.cuda_stream()?, CudaStreamRequest::PerThreadDefault);
+
+            // An object with neither form still errors.
+            let bad_obj = py.eval(c"object()", None, None)?;
+            let request = ExportRequest::parse(Some(&bad_obj), None, None, None)?;
             assert!(request.cuda_stream().is_err());
             Ok(())
         })

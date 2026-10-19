@@ -73,6 +73,7 @@ pub use producer::{CudaDlpackExport, from_cuda_slice};
 
 /// Errors raised during cudarc interop.
 #[derive(Debug, Snafu)]
+#[non_exhaustive]
 pub enum Error {
     /// Metadata preparation failed.
     #[snafu(transparent)]
@@ -124,6 +125,24 @@ pub enum Error {
         expected: crate::ffi::DLDataType,
         /// The dtype carried by the tensor.
         actual: crate::ffi::DLDataType,
+    },
+
+    /// The shape/stride grid describes elements outside the CUDA slice.
+    #[snafu(display(
+        "shape/stride grid spans beyond the CUDA slice length {len}"
+    ))]
+    StridedSpanOverflow {
+        /// The CUDA slice's element length.
+        len: usize,
+    },
+
+    /// A shape dimension is negative.
+    #[snafu(display("shape dimension {axis} is negative: {value}"))]
+    NegativeDimension {
+        /// The axis of the offending dimension.
+        axis: usize,
+        /// The offending dimension value.
+        value: i64,
     },
 
     /// The stream supplied for import belongs to another CUDA device.

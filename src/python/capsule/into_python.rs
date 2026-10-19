@@ -1,16 +1,15 @@
 //! Converts owning Rust tensors into Python DLPack capsules.
 
-use super::{DLTENSOR, DLTENSOR_VERSIONED, USED_DLTENSOR, USED_DLTENSOR_VERSIONED};
+use super::{
+    DLTENSOR, DLTENSOR_VERSIONED, USED_DLTENSOR, USED_DLTENSOR_VERSIONED,
+    ffi_error::fetch_python_error,
+};
 use crate::{
     Managed,
     ffi::{DLManagedTensor, DLManagedTensorVersioned},
 };
-use pyo3::{Bound, PyAny, PyErr, conversion::IntoPyObject, exceptions::PyBufferError};
+use pyo3::{Bound, PyAny, conversion::IntoPyObject, exceptions::PyBufferError};
 use std::ffi::CStr;
-
-fn fetch_python_error() -> PyErr {
-    unsafe { PyErr::fetch(pyo3::Python::assume_attached()) }
-}
 
 unsafe extern "C" fn dlpack_capsule_deleter(capsule: *mut pyo3::ffi::PyObject) {
     unsafe {
@@ -58,7 +57,9 @@ fn raw_dlpack_to_capsule(
     }
     let capsule = unsafe { pyo3::ffi::PyCapsule_New(ptr, name.as_ptr(), Some(deleter)) };
     if capsule.is_null() {
-        Err(fetch_python_error())
+        // SAFETY: called from PyO3 conversion code, so this thread is
+        // attached to the interpreter and PyCapsule_New has set an exception.
+        Err(unsafe { fetch_python_error() })
     } else {
         Ok(capsule)
     }

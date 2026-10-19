@@ -13,6 +13,7 @@ unsafe fn drop_managed<M: ManagedTensorBase>(context: *mut c_void) {
 
 /// Errors raised when taking ownership of a raw managed tensor pointer.
 #[derive(Debug, Snafu)]
+#[non_exhaustive]
 pub enum FromRawError {
     /// The pointer is null.
     #[snafu(display("managed tensor pointer is null"))]
@@ -22,7 +23,7 @@ pub enum FromRawError {
     #[snafu(transparent)]
     Version {
         /// The underlying version error.
-        source: crate::VersionError,
+        source: crate::IncompatibleVersionError,
     },
 }
 

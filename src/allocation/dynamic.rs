@@ -34,6 +34,12 @@ impl<M: ManagedTensorBase> Allocation<M> {
         }
     }
 
+    /// Returns the allocation-derived pointer without creating a temporary
+    /// mutable slice borrow that would narrow its provenance.
+    pub(crate) fn extra_ptr(&self) -> *mut i64 {
+        self.extra.as_ptr()
+    }
+
     /// Returns the zero-initialized extra metadata buffer.
     pub fn extra_mut(&mut self) -> &mut [i64] {
         unsafe { std::slice::from_raw_parts_mut(self.extra.as_ptr(), self.extra_len) }

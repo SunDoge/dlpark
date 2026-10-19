@@ -1,4 +1,4 @@
-use super::{Borrowed, Copied, Error, storage::try_copy};
+use super::{Borrowed, Copied, Error, storage::write_dynamic};
 use crate::{
     ManagedTensorBase, OpaqueContext,
     allocation::{self, dynamic},
@@ -49,7 +49,14 @@ impl<'a> Dynamic<Borrowed<&'a [i64]>, Borrowed<&'a [i64]>> {
     /// Creates runtime-rank metadata that borrows shape and strides.
     ///
     /// Calling `prepare_unchecked` remains unsafe because both slices must
-    /// outlive the resulting managed tensor.
+    /// outlive the resulting managed tensor. Safe preparation is unavailable:
+    ///
+    /// ```compile_fail
+    /// use dlpark::metadata::Dynamic;
+    /// let shape = [2_i64, 3];
+    /// let strides = [3_i64, 1];
+    /// let _ = Dynamic::borrowed(&shape, &strides).initialize(Box::new(()));
+    /// ```
     pub const fn borrowed(shape: &'a [i64], strides: &'a [i64]) -> Self {
         Self::with_storage(Borrowed(shape), Borrowed(strides))
     }
@@ -90,58 +97,69 @@ impl<M: ManagedTensorBase> PreparedDynamic<M> {
     }
 }
 
-/// Internal runtime-rank metadata writing policy.
+/// Input values used by runtime-rank metadata.
+///
+/// Storage selection and writing are handled internally; this trait only
+/// exposes the source element type, slice, and whether its pointer is retained.
 #[doc(hidden)]
 pub trait DynamicPart {
-    const COPIED: bool;
-    type Item: Copy + TryInto<i64>;
+    type Item: Copy + TryInto<i64> + 'static;
 
     fn values(&self) -> &[Self::Item];
 
-    fn write(self, dst: *mut i64) -> Result<*mut i64, usize>;
+    fn is_borrowed(&self) -> bool {
+        false
+    }
 }
 
-/// A dynamic metadata part whose values are owned by the managed allocation.
-#[doc(hidden)]
-pub trait OwnedDynamicPart: DynamicPart {}
-
 macro_rules! impl_copied_dynamic {
-    ($source:ty) => {
+    ($($source:ty),+ $(,)?) => {$(
         impl<T> DynamicPart for Copied<$source>
         where
             T: Copy + TryInto<i64> + 'static,
         {
-            const COPIED: bool = true;
             type Item = T;
 
             fn values(&self) -> &[T] {
                 &self.0
             }
-
-            fn write(self, dst: *mut i64) -> Result<*mut i64, usize> {
-                unsafe { try_copy(&self.0, dst)? };
-                Ok(dst)
-            }
         }
-
-        impl<T> OwnedDynamicPart for Copied<$source> where T: Copy + TryInto<i64> + 'static {}
-    };
+    )+};
 }
 
-impl_copied_dynamic!(Vec<T>);
-impl_copied_dynamic!(Box<[T]>);
-impl_copied_dynamic!(&[T]);
+impl_copied_dynamic!(Vec<T>, Box<[T]>, &[T]);
+
+impl<T, const N: usize> DynamicPart for Copied<[T; N]>
+where
+    T: Copy + TryInto<i64> + 'static,
+{
+    type Item = T;
+
+    fn values(&self) -> &[T] {
+        &self.0
+    }
+}
+
+impl<T, const N: usize> DynamicPart for Copied<&[T; N]>
+where
+    T: Copy + TryInto<i64> + 'static,
+{
+    type Item = T;
+
+    fn values(&self) -> &[T] {
+        self.0
+    }
+}
 
 impl DynamicPart for Borrowed<&[i64]> {
-    const COPIED: bool = false;
     type Item = i64;
 
     fn values(&self) -> &[i64] {
         self.0
     }
 
-    fn write(self, _: *mut i64) -> Result<*mut i64, usize> {
-        Ok(self.0.as_ptr().cast_mut())
+    fn is_borrowed(&self) -> bool {
+        true
     }
 }
 
@@ -167,26 +185,31 @@ where
             source,
         })?;
 
-        let shape_extra = usize::from(Shape::COPIED)
+        let shape_extra = usize::from(!self.shape.is_borrowed())
             .checked_mul(shape_len)
             .ok_or(allocation::Error::LayoutOverflow)?;
-        let strides_extra = usize::from(Strides::COPIED)
+        let strides_extra = usize::from(!self.strides.is_borrowed())
             .checked_mul(strides_len)
             .ok_or(allocation::Error::LayoutOverflow)?;
         let extra = shape_extra
             .checked_add(strides_extra)
             .ok_or(allocation::Error::LayoutOverflow)?;
-        let mut allocation = dynamic::Allocation::<M>::allocate(extra)?;
-        let extra = allocation.extra_mut().as_mut_ptr();
+        let allocation = dynamic::Allocation::<M>::allocate(extra)?;
+        let extra = allocation.extra_ptr();
 
-        let shape = self
-            .shape
-            .write(extra)
+        // Storage selection is a value, not another policy trait. The concrete
+        // input implementations return constants, allowing optimized builds to
+        // eliminate the unused path.
+        let shape = unsafe { write_dynamic(self.shape.values(), extra, self.shape.is_borrowed()) }
             .map_err(|axis| Error::ShapeValueOverflow { axis })?;
-        let strides = self
-            .strides
-            .write(unsafe { extra.add(shape_extra) })
-            .map_err(|axis| Error::StrideValueOverflow { axis })?;
+        let strides = unsafe {
+            write_dynamic(
+                self.strides.values(),
+                extra.add(shape_extra),
+                self.strides.is_borrowed(),
+            )
+        }
+        .map_err(|axis| Error::StrideValueOverflow { axis })?;
 
         Ok(PreparedDynamic {
             allocation,
@@ -235,17 +258,15 @@ where
             ndim: shape_len,
             source,
         })?;
-        let shape_extra = usize::from(Shape::COPIED)
+        let shape_extra = usize::from(!self.shape.is_borrowed())
             .checked_mul(shape_len)
             .ok_or(allocation::Error::LayoutOverflow)?;
         let extra_len = shape_extra
             .checked_add(shape_len)
             .ok_or(allocation::Error::LayoutOverflow)?;
-        let mut allocation = dynamic::Allocation::<M>::allocate(extra_len)?;
-        let extra = allocation.extra_mut().as_mut_ptr();
-        let shape = self
-            .shape
-            .write(extra)
+        let allocation = dynamic::Allocation::<M>::allocate(extra_len)?;
+        let extra = allocation.extra_ptr();
+        let shape = unsafe { write_dynamic(self.shape.values(), extra, self.shape.is_borrowed()) }
             .map_err(|axis| Error::ShapeValueOverflow { axis })?;
         let strides = unsafe { extra.add(shape_extra) };
 
@@ -303,9 +324,9 @@ where
     }
 }
 
-impl<Shape> Dynamic<Shape, Compact>
+impl<Shape> Dynamic<Copied<Shape>, Compact>
 where
-    Shape: OwnedDynamicPart,
+    Copied<Shape>: DynamicPart,
 {
     /// Allocates copied shape and compact-stride metadata and immediately
     /// installs its owning context.
@@ -346,10 +367,10 @@ where
     }
 }
 
-impl<Shape, Strides> Dynamic<Shape, Strides>
+impl<Shape, Strides> Dynamic<Copied<Shape>, Copied<Strides>>
 where
-    Shape: OwnedDynamicPart,
-    Strides: OwnedDynamicPart,
+    Copied<Shape>: DynamicPart,
+    Copied<Strides>: DynamicPart,
 {
     /// Allocates copied shape and stride metadata and immediately installs its
     /// owning context.
@@ -396,6 +417,78 @@ mod tests {
     use crate::ffi::DLManagedTensor;
 
     #[test]
+    fn copied_shape_and_borrowed_strides_keep_independent_storage() {
+        fn check<M: ManagedTensorBase>() {
+            let shape = [2_i64, 3];
+            let strides = [3_i64, 1];
+            let prepared = unsafe {
+                Dynamic::with_storage(Copied(shape.as_slice()), Borrowed(strides.as_slice()))
+                    .prepare_unchecked_as::<M>()
+                    .unwrap()
+            };
+            let mut initialized = prepared.initialize(Box::new(()));
+            // Only shape is copied into the trailing metadata allocation.
+            assert_eq!(initialized.extra_mut(), &shape);
+            let mut data = [0_u8; 6];
+            initialized
+                .set_dtype(crate::ffi::DLDataType::U8)
+                .set_device(crate::ffi::DLDevice::CPU)
+                .set_data(data.as_mut_ptr().cast());
+            let tensor = unsafe { initialized.finish() };
+            let view = tensor.validate().unwrap();
+            assert_eq!(view.shape(), &shape);
+            assert_ne!(view.shape().as_ptr(), shape.as_ptr());
+            assert_eq!(view.strides().unwrap().as_ptr(), strides.as_ptr());
+            drop(tensor);
+        }
+        check::<DLManagedTensor>();
+        check::<crate::ffi::DLManagedTensorVersioned>();
+    }
+
+    #[test]
+    fn arrays_and_array_references_infer_element_types() {
+        let shape = [2_u32, 3];
+        let strides = [3_isize, 1];
+        let mut copied = Dynamic::new(shape, strides)
+            .initialize(Box::new(()))
+            .unwrap();
+        assert_eq!(copied.extra_mut(), &[2, 3, 3, 1]);
+        let mut referenced = Dynamic::new(&shape, &strides)
+            .initialize(Box::new(()))
+            .unwrap();
+        assert_eq!(referenced.extra_mut(), &[2, 3, 3, 1]);
+        let mut compact = Dynamic::compact(&shape).initialize(Box::new(())).unwrap();
+        assert_eq!(compact.extra_mut(), &[2, 3, 3, 1]);
+    }
+
+    #[test]
+    fn copied_i64_input_is_not_implicitly_borrowed() {
+        let mut shape = [2_i64, 3];
+        let strides = [3_i64, 1];
+        let mut initialized = Dynamic::new(&shape, &strides)
+            .initialize(Box::new(()))
+            .unwrap();
+        initialized.set_dtype(crate::ffi::DLDataType::U8);
+        shape[0] = 9;
+        let tensor = unsafe { initialized.finish() };
+        let view = tensor.validate().unwrap();
+        assert_eq!(view.shape(), &[2, 3]);
+        assert_ne!(view.shape().as_ptr(), shape.as_ptr());
+    }
+
+    #[test]
+    fn copied_integer_overflow_reports_the_correct_part_and_axis() {
+        assert!(matches!(
+            Dynamic::new([2_u64, u64::MAX], [1_i64, 1]).prepare(),
+            Err(Error::ShapeValueOverflow { axis: 1 })
+        ));
+        assert!(matches!(
+            Dynamic::new([2_i64, 3], [1_u64, u64::MAX]).prepare(),
+            Err(Error::StrideValueOverflow { axis: 1 })
+        ));
+    }
+
+    #[test]
     fn mixed_storage_uses_only_copied_extra() {
         let shape = [2_i64, 3];
         let prepared = unsafe {
@@ -404,11 +497,17 @@ mod tests {
                 .unwrap()
         };
         let mut initialized = prepared.initialize(Box::new(()));
+        assert_eq!(initialized.extra_mut(), &[3, 1]);
+        let copied_strides = initialized.extra_mut().as_ptr();
         initialized.set_dtype(crate::ffi::DLDataType::U8);
         let tensor = unsafe { initialized.finish() };
 
-        assert_eq!(tensor.validate().unwrap().shape(), &shape);
+        assert_eq!(tensor.validate().unwrap().shape().as_ptr(), shape.as_ptr());
         assert_eq!(tensor.validate().unwrap().strides().unwrap(), &[3, 1]);
+        assert_eq!(
+            tensor.validate().unwrap().strides().unwrap().as_ptr(),
+            copied_strides
+        );
     }
 
     #[test]
@@ -421,11 +520,15 @@ mod tests {
                 .unwrap()
         };
         let mut initialized = prepared.initialize(Box::new(()));
+        assert!(initialized.extra_mut().is_empty());
         initialized.set_dtype(crate::ffi::DLDataType::U8);
         let tensor = unsafe { initialized.finish() };
 
-        assert_eq!(tensor.validate().unwrap().shape(), &shape);
-        assert_eq!(tensor.validate().unwrap().strides().unwrap(), &strides);
+        assert_eq!(tensor.validate().unwrap().shape().as_ptr(), shape.as_ptr());
+        assert_eq!(
+            tensor.validate().unwrap().strides().unwrap().as_ptr(),
+            strides.as_ptr()
+        );
     }
 
     #[test]

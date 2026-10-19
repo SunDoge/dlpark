@@ -2,7 +2,8 @@
 
 use pyo3::exceptions::{PyAttributeError, PyBufferError, PyRuntimeError};
 use pyo3::types::PyAnyMethods;
-use pyo3::{Borrowed, Bound, PyAny, PyErr, Python};
+use pyo3::{Borrowed, Bound, PyAny, Python};
+use crate::python::capsule::ffi_error::checked_fetch_python_error;
 use std::ffi::CStr;
 use std::ptr::NonNull;
 
@@ -79,15 +80,21 @@ impl ExchangeApi {
             let ptr =
                 pyo3::ffi::PyCapsule_GetPointer(capsule.as_ptr(), DLPACK_EXCHANGE_API.as_ptr());
             if ptr.is_null() {
-                return Err(fetch_python_error());
+                // GetPointer on a NULL-pointer capsule returns NULL without
+                // setting an exception.
+                return Err(checked_fetch_python_error(PyBufferError::new_err(
+                    "DLPack exchange API capsule contains a null pointer",
+                )));
             }
             ptr.cast::<DLPackExchangeAPI>()
         };
 
         let Some(api) = compatible_api(api_ptr) else {
-            return Err(PyRuntimeError::new_err(
-                "no compatible DLPackExchangeAPI version found",
-            ));
+            // The C Exchange API is an optional accelerator: a producer whose
+            // chain only offers incompatible (e.g. future-major) versions
+            // may still fully implement the standard __dlpack__ protocol,
+            // so degrade to that instead of failing the whole import.
+            return Ok(None);
         };
 
         Ok(Some(Self { api }))
@@ -112,7 +119,11 @@ impl ExchangeApi {
         let mut out = std::ptr::null_mut();
         let rc = unsafe { from_py_object(obj.as_ptr().cast(), &mut out) };
         if rc != 0 {
-            return Err(fetch_python_error());
+            return Err(unsafe {
+                checked_fetch_python_error(PyRuntimeError::new_err(
+                    "DLPackExchangeAPI producer failed without setting a Python exception",
+                ))
+            });
         }
         if out.is_null() {
             return Err(PyBufferError::new_err(
@@ -185,7 +196,11 @@ impl ExchangeApi {
         let mut out = std::ptr::null_mut();
         let rc = unsafe { to_py_object(raw, &mut out) };
         if rc != 0 {
-            return Err(fetch_python_error());
+            return Err(unsafe {
+                checked_fetch_python_error(PyRuntimeError::new_err(
+                    "DLPackExchangeAPI producer failed without setting a Python exception",
+                ))
+            });
         }
         if out.is_null() {
             return Err(PyRuntimeError::new_err(
@@ -213,7 +228,11 @@ impl ExchangeApi {
         let mut stream = std::ptr::null_mut();
         let rc = unsafe { current_work_stream(device.device_type, device.device_id, &mut stream) };
         if rc != 0 {
-            return Err(fetch_python_error());
+            return Err(unsafe {
+                checked_fetch_python_error(PyRuntimeError::new_err(
+                    "DLPackExchangeAPI producer failed without setting a Python exception",
+                ))
+            });
         }
         Ok(stream)
     }
@@ -238,7 +257,11 @@ impl ExchangeApi {
         let mut tensor = DLTensor::default();
         let rc = unsafe { from_py_object(obj.as_ptr().cast(), &mut tensor) };
         if rc != 0 {
-            return Err(fetch_python_error());
+            return Err(unsafe {
+                checked_fetch_python_error(PyRuntimeError::new_err(
+                    "DLPackExchangeAPI producer failed without setting a Python exception",
+                ))
+            });
         }
 
         Ok(f(&tensor))
@@ -273,9 +296,21 @@ impl ExchangeApi {
 /// the spec by chaining a bare 16-byte header would make those downstream
 /// reads out of bounds; the spec's "framework-owned static table" contract is
 /// what rules that out.
+///
+/// Two further spec-trust assumptions: the spec does not forbid a cyclic
+/// `prev_api` chain, so the walk is depth-bounded rather than unbounded;
+/// and a same-major table is assumed to carry every function-pointer field
+/// this build reads, which holds because the table debuted complete at
+/// DLPack 1.3 — fields appended by a later minor version are simply not
+/// read by this build.
 fn compatible_api(api: *mut DLPackExchangeAPI) -> Option<NonNull<DLPackExchangeAPI>> {
+    /// Bounds the chain walk; no real framework chains anywhere near this
+    /// deep, and a spec-violating cycle cannot hang the consumer.
+    const MAX_CHAIN_DEPTH: usize = 16;
+
     let mut header = api.cast::<DLPackExchangeAPIHeader>();
-    while let Some(current_header) = NonNull::new(header) {
+    for _ in 0..=MAX_CHAIN_DEPTH {
+        let current_header = NonNull::new(header)?;
         let current = unsafe { current_header.as_ref() };
         if current.version.major == DLPACK_MAJOR_VERSION {
             return NonNull::new(header.cast::<DLPackExchangeAPI>());
@@ -285,12 +320,7 @@ fn compatible_api(api: *mut DLPackExchangeAPI) -> Option<NonNull<DLPackExchangeA
     None
 }
 
-fn fetch_python_error() -> PyErr {
-    // Exchange API calls are made from PyO3 conversion code, so the current
-    // thread is attached to the Python interpreter.
-    unsafe { PyErr::fetch(pyo3::Python::assume_attached()) }
-}
-
+/// Walks the `prev_api` chain to find a header whose major version matches.
 #[cfg(test)]
 mod tests {
     use super::*;

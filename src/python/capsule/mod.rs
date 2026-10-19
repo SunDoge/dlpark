@@ -2,10 +2,13 @@
 
 use std::ffi::CStr;
 
+
 const DLTENSOR: &CStr = c"dltensor";
 const USED_DLTENSOR: &CStr = c"used_dltensor";
 const DLTENSOR_VERSIONED: &CStr = c"dltensor_versioned";
 const USED_DLTENSOR_VERSIONED: &CStr = c"used_dltensor_versioned";
+
+pub(crate) mod ffi_error;
 
 mod from_python;
 mod into_python;

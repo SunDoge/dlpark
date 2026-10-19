@@ -12,6 +12,7 @@ pub use reference::{TensorMut, TensorRef};
 
 /// Errors raised while validating a raw DLPack tensor descriptor.
 #[derive(Debug, Snafu)]
+#[non_exhaustive]
 pub enum Error {
     /// The shape pointer is null despite a positive `ndim`.
     #[snafu(display("shape pointer is null but ndim is {ndim}"))]
