@@ -194,8 +194,8 @@ where
         let extra = shape_extra
             .checked_add(strides_extra)
             .ok_or(allocation::Error::LayoutOverflow)?;
-        let mut allocation = dynamic::Allocation::<M>::allocate(extra)?;
-        let extra = allocation.extra_mut().as_mut_ptr();
+        let allocation = dynamic::Allocation::<M>::allocate(extra)?;
+        let extra = allocation.extra_ptr();
 
         // Storage selection is a value, not another policy trait. The concrete
         // input implementations return constants, allowing optimized builds to
@@ -264,8 +264,8 @@ where
         let extra_len = shape_extra
             .checked_add(shape_len)
             .ok_or(allocation::Error::LayoutOverflow)?;
-        let mut allocation = dynamic::Allocation::<M>::allocate(extra_len)?;
-        let extra = allocation.extra_mut().as_mut_ptr();
+        let allocation = dynamic::Allocation::<M>::allocate(extra_len)?;
+        let extra = allocation.extra_ptr();
         let shape = unsafe { write_dynamic(self.shape.values(), extra, self.shape.is_borrowed()) }
             .map_err(|axis| Error::ShapeValueOverflow { axis })?;
         let strides = unsafe { extra.add(shape_extra) };
@@ -417,6 +417,35 @@ mod tests {
     use crate::ffi::DLManagedTensor;
 
     #[test]
+    fn copied_shape_and_borrowed_strides_keep_independent_storage() {
+        fn check<M: ManagedTensorBase>() {
+            let shape = [2_i64, 3];
+            let strides = [3_i64, 1];
+            let prepared = unsafe {
+                Dynamic::with_storage(Copied(shape.as_slice()), Borrowed(strides.as_slice()))
+                    .prepare_unchecked_as::<M>()
+                    .unwrap()
+            };
+            let mut initialized = prepared.initialize(Box::new(()));
+            // Only shape is copied into the trailing metadata allocation.
+            assert_eq!(initialized.extra_mut(), &shape);
+            let mut data = [0_u8; 6];
+            initialized
+                .set_dtype(crate::ffi::DLDataType::U8)
+                .set_device(crate::ffi::DLDevice::CPU)
+                .set_data(data.as_mut_ptr().cast());
+            let tensor = unsafe { initialized.finish() };
+            let view = tensor.validate().unwrap();
+            assert_eq!(view.shape(), &shape);
+            assert_ne!(view.shape().as_ptr(), shape.as_ptr());
+            assert_eq!(view.strides().unwrap().as_ptr(), strides.as_ptr());
+            drop(tensor);
+        }
+        check::<DLManagedTensor>();
+        check::<crate::ffi::DLManagedTensorVersioned>();
+    }
+
+    #[test]
     fn arrays_and_array_references_infer_element_types() {
         let shape = [2_u32, 3];
         let strides = [3_isize, 1];
@@ -468,11 +497,17 @@ mod tests {
                 .unwrap()
         };
         let mut initialized = prepared.initialize(Box::new(()));
+        assert_eq!(initialized.extra_mut(), &[3, 1]);
+        let copied_strides = initialized.extra_mut().as_ptr();
         initialized.set_dtype(crate::ffi::DLDataType::U8);
         let tensor = unsafe { initialized.finish() };
 
-        assert_eq!(tensor.validate().unwrap().shape(), &shape);
+        assert_eq!(tensor.validate().unwrap().shape().as_ptr(), shape.as_ptr());
         assert_eq!(tensor.validate().unwrap().strides().unwrap(), &[3, 1]);
+        assert_eq!(
+            tensor.validate().unwrap().strides().unwrap().as_ptr(),
+            copied_strides
+        );
     }
 
     #[test]

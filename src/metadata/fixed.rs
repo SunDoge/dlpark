@@ -74,9 +74,11 @@ where
 pub trait FixedPart<const N: usize> {
     type Storage: fixed::Storage<N>;
 
-    fn write(
+    /// # Safety
+    /// `storage` must point to writable storage for `Self::Storage::Value`.
+    unsafe fn write(
         self,
-        storage: &mut <Self::Storage as fixed::Storage<N>>::Value,
+        storage: *mut <Self::Storage as fixed::Storage<N>>::Value,
     ) -> Result<*mut i64, usize>;
 }
 
@@ -90,9 +92,9 @@ where
 {
     type Storage = fixed::Copied;
 
-    fn write(self, storage: &mut [i64; N]) -> Result<*mut i64, usize> {
-        unsafe { try_copy(&self.0, storage.as_mut_ptr())? };
-        Ok(storage.as_mut_ptr())
+    unsafe fn write(self, storage: *mut [i64; N]) -> Result<*mut i64, usize> {
+        unsafe { try_copy(&self.0, storage.cast::<i64>())? };
+        Ok(storage.cast::<i64>())
     }
 }
 
@@ -104,9 +106,9 @@ where
 {
     type Storage = fixed::Copied;
 
-    fn write(self, storage: &mut [i64; N]) -> Result<*mut i64, usize> {
-        unsafe { try_copy(self.0, storage.as_mut_ptr())? };
-        Ok(storage.as_mut_ptr())
+    unsafe fn write(self, storage: *mut [i64; N]) -> Result<*mut i64, usize> {
+        unsafe { try_copy(self.0, storage.cast::<i64>())? };
+        Ok(storage.cast::<i64>())
     }
 }
 
@@ -115,7 +117,7 @@ impl<T, const N: usize> OwnedFixedPart<N> for Copied<&[T; N]> where T: Copy + Tr
 impl<const N: usize> FixedPart<N> for Borrowed<&[i64; N]> {
     type Storage = fixed::Borrowed;
 
-    fn write(self, _: &mut ()) -> Result<*mut i64, usize> {
+    unsafe fn write(self, _: *mut ()) -> Result<*mut i64, usize> {
         Ok(self.0.as_ptr().cast_mut())
     }
 }
@@ -131,15 +133,12 @@ where
     where
         M: ManagedTensorBase,
     {
-        let mut allocation =
-            fixed::Allocation::<M, N, Shape::Storage, Strides::Storage>::allocate()?;
-        let shape = self
-            .shape
-            .write(allocation.shape_storage_mut())
+        let allocation = fixed::Allocation::<M, N, Shape::Storage, Strides::Storage>::allocate()?;
+        // Keep allocation-derived provenance so later metadata setters do not
+        // invalidate the pointers installed in the descriptor.
+        let shape = unsafe { self.shape.write(allocation.shape_storage_ptr()) }
             .map_err(|axis| Error::ShapeValueOverflow { axis })?;
-        let strides = self
-            .strides
-            .write(allocation.strides_storage_mut())
+        let strides = unsafe { self.strides.write(allocation.strides_storage_ptr()) }
             .map_err(|axis| Error::StrideValueOverflow { axis })?;
         Ok(PreparedFixed {
             allocation,
@@ -246,6 +245,38 @@ mod tests {
     use crate::ffi::DLManagedTensor;
 
     #[test]
+    fn copied_shape_and_borrowed_strides_keep_independent_storage() {
+        fn check<M: ManagedTensorBase>() {
+            let shape = [2_i64, 3];
+            let strides = [3_i64, 1];
+            let prepared = unsafe {
+                Fixed::with_storage(Copied(&shape), Borrowed(&strides))
+                    .prepare_unchecked_as::<M>()
+                    .unwrap()
+            };
+            let mut initialized = prepared.initialize(Box::new(()));
+            assert_eq!(
+                size_of_val(initialized.shape_storage_mut()),
+                2 * size_of::<i64>()
+            );
+            assert_eq!(size_of_val(initialized.strides_storage_mut()), 0);
+            let mut data = [0_u8; 6];
+            initialized
+                .set_dtype(crate::ffi::DLDataType::U8)
+                .set_device(crate::ffi::DLDevice::CPU)
+                .set_data(data.as_mut_ptr().cast());
+            let tensor = unsafe { initialized.finish() };
+            let view = tensor.validate().unwrap();
+            assert_eq!(view.shape(), &shape);
+            assert_ne!(view.shape().as_ptr(), shape.as_ptr());
+            assert_eq!(view.strides().unwrap().as_ptr(), strides.as_ptr());
+            drop(tensor);
+        }
+        check::<DLManagedTensor>();
+        check::<crate::ffi::DLManagedTensorVersioned>();
+    }
+
+    #[test]
     fn copied_metadata_uses_inline_arrays() {
         let prepared = Fixed::new([2_u32, 3], [3_isize, 1])
             .prepare_as::<DLManagedTensor>()
@@ -279,11 +310,21 @@ mod tests {
                 .unwrap()
         };
         let mut initialized = prepared.initialize(Box::new(()));
+        assert_eq!(size_of_val(initialized.shape_storage_mut()), 0);
+        assert_eq!(
+            size_of_val(initialized.strides_storage_mut()),
+            2 * size_of::<i64>()
+        );
+        let copied_strides = initialized.strides_storage_mut().as_ptr();
         initialized.set_dtype(crate::ffi::DLDataType::U8);
         let tensor = unsafe { initialized.finish() };
 
-        assert_eq!(tensor.validate().unwrap().shape(), &shape);
+        assert_eq!(tensor.validate().unwrap().shape().as_ptr(), shape.as_ptr());
         assert_eq!(tensor.validate().unwrap().strides().unwrap(), &[3, 1]);
+        assert_eq!(
+            tensor.validate().unwrap().strides().unwrap().as_ptr(),
+            copied_strides
+        );
     }
 
     #[test]
@@ -296,10 +337,15 @@ mod tests {
                 .unwrap()
         };
         let mut initialized = prepared.initialize(Box::new(()));
+        assert_eq!(size_of_val(initialized.shape_storage_mut()), 0);
+        assert_eq!(size_of_val(initialized.strides_storage_mut()), 0);
         initialized.set_dtype(crate::ffi::DLDataType::U8);
         let tensor = unsafe { initialized.finish() };
 
-        assert_eq!(tensor.validate().unwrap().shape(), &shape);
-        assert_eq!(tensor.validate().unwrap().strides().unwrap(), &strides);
+        assert_eq!(tensor.validate().unwrap().shape().as_ptr(), shape.as_ptr());
+        assert_eq!(
+            tensor.validate().unwrap().strides().unwrap().as_ptr(),
+            strides.as_ptr()
+        );
     }
 }
