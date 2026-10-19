@@ -24,6 +24,7 @@ mod producer;
 pub use consumer::array_view_from_dlpack_mut_unchecked;
 
 #[derive(Debug, Snafu)]
+#[non_exhaustive]
 /// Errors produced while validating a DLPack tensor as an ndarray view.
 pub enum Error {
     /// An ndarray view cannot represent a negative DLPack stride.
@@ -37,7 +38,7 @@ pub enum Error {
 
     /// A DLPack stride cannot be represented by ndarray's `usize` stride.
     #[snafu(display("DLPack stride {axis} with value {value} does not fit in usize"))]
-    DlpackStrideOverflow {
+    StrideOverflow {
         /// The axis of the offending stride.
         axis: usize,
         /// The offending stride value.

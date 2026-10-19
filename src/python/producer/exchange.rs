@@ -27,10 +27,14 @@ const DLPACK_EXCHANGE_API: &CStr = c"dlpack_exchange_api";
 /// # Safety
 ///
 /// When [`Self::HAS_DLTENSOR_VIEW`] is true, `tensor_view_no_sync` must return
-/// data, shape, and stride pointers that stay valid and immutable until that
-/// callback returns. Managed tensors must obey DLPack's ownership contract,
-/// and `current_work_stream` must return a live backend stream for the requested
-/// device.
+/// data, shape, and stride pointers that stay valid and immutable until the
+/// producer next regains control — that is, until the next C Exchange API or
+/// Python protocol call on this object — not merely until the callback
+/// returns. Consumers dereference the borrowed `DLTensor` after the callback
+/// has already returned, so pointers living only for the callback's own
+/// invocation are unsound. Managed tensors must obey DLPack's ownership
+/// contract, and `current_work_stream` must return a live backend stream for
+/// the requested device.
 pub unsafe trait DlpackExchangeProducer: PyClass {
     /// Whether to publish the optional borrowed `DLTensor` callback.
     const HAS_DLTENSOR_VIEW: bool = false;

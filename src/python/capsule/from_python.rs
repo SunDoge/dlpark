@@ -1,20 +1,19 @@
 //! Converts Python DLPack capsules into owning Rust tensors.
 
-use super::{DLTENSOR, DLTENSOR_VERSIONED, USED_DLTENSOR, USED_DLTENSOR_VERSIONED};
+use super::{
+    DLTENSOR, DLTENSOR_VERSIONED, USED_DLTENSOR, USED_DLTENSOR_VERSIONED,
+    ffi_error::{checked_fetch_python_error, fetch_python_error},
+};
 use crate::{
     DlpackFlags, Managed,
     ffi::{DLManagedTensor, DLManagedTensorVersioned},
 };
 use pyo3::{
-    Borrowed, Bound, PyAny, PyErr,
+    Borrowed, Bound, PyAny,
     exceptions::{PyBufferError, PyRuntimeError, PyValueError},
     types::{PyAnyMethods, PyDict, PyString},
 };
 use std::ffi::CStr;
-
-fn fetch_python_error() -> PyErr {
-    unsafe { PyErr::fetch(pyo3::Python::assume_attached()) }
-}
 
 fn capsule_to_raw_dlpack(
     capsule: *mut pyo3::ffi::PyObject,
@@ -28,23 +27,22 @@ fn capsule_to_raw_dlpack(
             ));
         }
         if pyo3::ffi::PyCapsule_IsValid(capsule, name.as_ptr()) != 1 {
-            if pyo3::ffi::PyErr_Occurred().is_null() {
-                return Err(PyValueError::new_err(format!(
-                    "expected a PyCapsule named {:?}",
-                    name
-                )));
-            }
-            return Err(fetch_python_error());
+            // PyCapsule_IsValid never sets a Python exception; any pending
+            // error here is stale state from unrelated earlier code, so
+            // always report the capsule problem itself.
+            return Err(PyValueError::new_err(format!(
+                "expected a PyCapsule named {:?}",
+                name
+            )));
         }
 
         let ptr = pyo3::ffi::PyCapsule_GetPointer(capsule, name.as_ptr());
         if ptr.is_null() {
-            if pyo3::ffi::PyErr_Occurred().is_null() {
-                return Err(PyBufferError::new_err(
-                    "DLPack capsule contains a null pointer",
-                ));
-            }
-            return Err(fetch_python_error());
+            // A capsule may legally hold a NULL pointer, in which case
+            // GetPointer returns NULL without setting an exception.
+            return Err(checked_fetch_python_error(PyBufferError::new_err(
+                "DLPack capsule contains a null pointer",
+            )));
         }
 
         if pyo3::ffi::PyCapsule_SetName(capsule, used_name.as_ptr()) != 0 {

@@ -67,4 +67,4 @@ pub use dlpack::Managed;
 pub use managed_tensor::{DlpackFlags, ManagedTensorBase};
 pub use opaque_context::OpaqueContext;
 pub use tensor::{TensorMut, TensorRef};
-pub use version::VersionError;
+pub use version::IncompatibleVersionError;

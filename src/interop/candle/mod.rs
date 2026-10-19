@@ -43,6 +43,7 @@ pub use consumer::candle_tensor_from_dlpack;
 
 /// Errors raised during candle interop.
 #[derive(Debug, Snafu)]
+#[non_exhaustive]
 pub enum Error {
     /// Metadata preparation failed.
     #[snafu(transparent)]
@@ -231,6 +232,32 @@ mod tests {
         // This is the whole point of the num_bytes() fix: 6 * 4 bits = 3
         // bytes, not 6 (which is what per-element rounding would have given).
         assert_eq!(dlpack.validate().unwrap().num_bytes(), 3);
+    }
+
+    #[test]
+    fn candle_sub_byte_non_compact_export_is_rejected() {
+        // Narrowing along dim 1 keeps the parent's [3, 1] strides while the
+        // shape becomes [2, 2] — compact strides for [2, 2] would be [2, 1].
+        // Element strides that are not whole bytes are inexpressible for a
+        // packed sub-byte dtype, so the export must refuse the layout —
+        // mirroring the consumer-side SubByteStridesUnsupported rejection.
+        let strided = Tensor::from_raw_buffer(&[0xAB, 0xCD, 0xEF, 0x12], DType::F4, &[2, 3], &Device::Cpu)
+            .unwrap()
+            .narrow(1, 0, 2)
+            .unwrap();
+        assert_eq!(
+            strided.layout().stride().to_vec(),
+            vec![3, 1],
+            "precondition: the narrowed view must be non-compact"
+        );
+        assert_eq!(strided.layout().start_offset(), 0);
+
+        let result: Result<dynamic::Initialized<DLManagedTensor>, _> = Box::new(strided).try_into();
+        let error = match result {
+            Ok(_) => panic!("non-compact sub-byte export must be rejected"),
+            Err(error) => error,
+        };
+        assert!(matches!(error, Error::SubByteStridesUnsupported { .. }));
     }
 
     #[test]

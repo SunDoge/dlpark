@@ -27,6 +27,7 @@ pub mod fixed;
 
 /// Errors raised while allocating a managed tensor.
 #[derive(Debug, Snafu)]
+#[non_exhaustive]
 pub enum Error {
     /// The dimension count exceeds `i32::MAX`.
     #[snafu(display("dimension count ({ndim}) exceeds i32::MAX"))]
@@ -129,7 +130,7 @@ impl<Storage> Initialized<crate::ffi::DLManagedTensorVersioned, Storage> {
     pub fn set_version(
         &mut self,
         version: crate::ffi::DLPackVersion,
-    ) -> Result<&mut Self, crate::VersionError> {
+    ) -> Result<&mut Self, crate::IncompatibleVersionError> {
         version.ensure_compatible_with(crate::ffi::DLPackVersion::CURRENT)?;
         unsafe { (*self.managed.as_ptr()).version = version };
         Ok(self)

@@ -91,7 +91,7 @@ where
 {
     ensure!(
         tensor.ndim() == 3,
-        InvalidNdimSnafu {
+        UnexpectedNdimSnafu {
             ndim: tensor.ndim() as i32
         }
     );

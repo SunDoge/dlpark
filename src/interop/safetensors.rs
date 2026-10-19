@@ -27,6 +27,7 @@ use std::{
 
 /// Errors raised while converting between safetensors and DLPack.
 #[derive(Debug, Snafu)]
+#[non_exhaustive]
 pub enum Error {
     /// The safetensors file or byte buffer is invalid.
     #[snafu(transparent)]
@@ -84,6 +85,21 @@ pub enum Error {
     /// Safetensors stores tightly packed sub-byte values and cannot preserve padding.
     #[snafu(display("safetensors cannot represent per-element padding in a sub-byte tensor"))]
     PaddedSubByte,
+
+    /// The packed sub-byte tensor's total bit width is not byte-aligned.
+    ///
+    /// Safetensors requires `num_elements × bits × lanes` to be a multiple
+    /// of 8; a view that only satisfies the ceiling over the whole tensor
+    /// would serialize a file safetensors itself refuses to read back.
+    #[snafu(display(
+        "sub-byte tensor of {num_elements} elements at {bits} bits is not byte-aligned"
+    ))]
+    UnalignedSubByte {
+        /// The tensor's total element count.
+        num_elements: usize,
+        /// Bits per element, including lanes.
+        bits: usize,
+    },
 
     /// The backing byte allocation does not meet the tensor dtype's alignment.
     #[snafu(display(
@@ -263,6 +279,19 @@ impl<'a> DlpackView<'a> {
 
     unsafe fn from_tensor_ref(tensor: TensorRef<'a>) -> Result<Self, Error> {
         let dtype = safetensors_dtype(tensor.dtype())?;
+        // Safetensors metadata validation requires the whole tensor's bit
+        // count to be a multiple of 8; a sub-byte tensor whose tail bits do
+        // not fill a byte would produce an unreadable file.
+        let dl_dtype = tensor.dtype();
+        if !dl_dtype.bits.is_multiple_of(8) {
+            let total_bits = dl_dtype.bits as usize * dl_dtype.lanes as usize;
+            if !(tensor.num_elements() * total_bits).is_multiple_of(8) {
+                return Err(Error::UnalignedSubByte {
+                    num_elements: tensor.num_elements(),
+                    bits: total_bits,
+                });
+            }
+        }
         let shape = tensor
             .shape()
             .iter()
@@ -461,6 +490,50 @@ mod tests {
         assert_eq!(tensor.shape(), &[0]);
         assert!(!tensor.data_ptr().is_null());
         assert!(unsafe { tensor.cpu_slice::<f64>() }.unwrap().is_empty());
+    }
+
+    #[test]
+    fn dlpack_view_rejects_sub_byte_tensor_with_unaligned_bit_total() {
+        // 5 float4 elements = 20 bits, which does not fill whole bytes:
+        // serializing would produce a file safetensors itself refuses to read.
+        let data = Box::new(vec![0_u8, 0, 0]);
+        let ptr = data.as_ptr().cast_mut().cast();
+        let prepared = Dynamic::new([5_i64].as_slice(), [1_i64].as_slice())
+            .prepare_as::<DLManagedTensor>()
+            .unwrap();
+        let mut initialized: dynamic::Initialized<_> = prepared.initialize(data);
+        initialized
+            .set_data(ptr)
+            .set_device(DLDevice::CPU)
+            .set_dtype(DLDataType::F4E2M1FN);
+        let dlpack = unsafe { initialized.finish() };
+
+        assert!(matches!(
+            unsafe { DlpackView::from_dlpack(&dlpack) },
+            Err(Error::UnalignedSubByte {
+                num_elements: 5,
+                bits: 4
+            })
+        ));
+    }
+
+    #[test]
+    fn dlpack_view_accepts_byte_aligned_sub_byte_tensor() {
+        // 8 float4 elements = 32 bits = 4 bytes exactly.
+        let data = Box::new(vec![0_u8, 0, 0, 0]);
+        let ptr = data.as_ptr().cast_mut().cast();
+        let prepared = Dynamic::new([8_i64].as_slice(), [1_i64].as_slice())
+            .prepare_as::<DLManagedTensor>()
+            .unwrap();
+        let mut initialized: dynamic::Initialized<_> = prepared.initialize(data);
+        initialized
+            .set_data(ptr)
+            .set_device(DLDevice::CPU)
+            .set_dtype(DLDataType::F4E2M1FN);
+        let dlpack = unsafe { initialized.finish() };
+
+        let view = unsafe { DlpackView::from_dlpack(&dlpack) }.unwrap();
+        assert_eq!(view.data().len(), 4);
     }
 
     #[test]

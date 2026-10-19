@@ -132,6 +132,17 @@ fn dlpack_layout_from_candle(tensor: &Tensor) -> Result<CandleLayout, Error> {
         .map(|&s| i64::try_from(s).map_err(|_| Error::DimensionOverflow))
         .collect::<Result<Vec<_>, _>>()?;
 
+    // Sub-byte packed elements share bytes, so an element stride that is not
+    // a whole number of bytes (anything non-compact for bits < 8) cannot be
+    // expressed by DLPack's element-stride semantics. Mirror the consumer's
+    // SubByteStridesUnsupported rejection so both directions agree.
+    if dtype.bits < 8 {
+        let compact = crate::tensor::is_compact_strides(&dims, Some(&strides))?;
+        if !compact {
+            return Err(Error::SubByteStridesUnsupported { dtype });
+        }
+    }
+
     Ok(CandleLayout {
         data_ptr,
         dtype,

@@ -46,6 +46,10 @@ enum ImportSource {
     Exchange {
         api: ExchangeApi,
         cached_tensor: Option<Managed<DLManagedTensorVersioned>>,
+        /// The producer work stream observed at discovery, cached together
+        /// with `cached_tensor` so import does not re-query it after user
+        /// code has run. `None` when no tensor was cached at discovery.
+        cached_stream: Option<*mut std::ffi::c_void>,
         device: DLDevice,
     },
     Standard {
@@ -74,20 +78,30 @@ impl<'py> ImportRequest<'py> {
         }
 
         let source = if let Some(api) = ExchangeApi::from_object(object.as_borrowed())? {
-            let (device, cached_tensor) = if api.supports_dltensor_view() {
+            let (device, cached_tensor, stream) = if api.supports_dltensor_view() {
                 let device =
                     api.with_dltensor_view_no_sync(object.as_borrowed(), |tensor| tensor.device)?;
-                (validate_device(device)?, None)
+                (validate_device(device)?, None, None)
             } else if let Some(device) = optional_standard_dlpack_device(object.as_borrowed())? {
-                (device, None)
+                (device, None, None)
             } else {
                 let tensor = api.managed_tensor_from_py_object_no_sync(object.as_borrowed())?;
                 let device = validate_device(imported_device(&tensor)?)?;
-                (device, Some(tensor))
+                // Cache the work stream together with the tensor: the data
+                // is already ordered on this stream, and re-querying at
+                // import time could observe a different stream after user
+                // code has run between new() and import().
+                let stream = if device.device_id < 0 {
+                    None
+                } else {
+                    Some(api.current_work_stream(device)?)
+                };
+                (device, Some(tensor), stream)
             };
             ImportSource::Exchange {
                 api,
                 cached_tensor,
+                cached_stream: stream,
                 device,
             }
         } else if let Some(device) = optional_standard_dlpack_device(object.as_borrowed())? {
@@ -159,11 +173,18 @@ impl<'py> ImportRequest<'py> {
             ImportSource::Exchange {
                 api,
                 cached_tensor,
+                cached_stream,
                 device,
             } => {
                 if copy != Some(true)
-                    && let Some(tensor) =
-                        import_from_exchange_api(&api, object, cached_tensor, device, stream)?
+                    && let Some(tensor) = import_from_exchange_api(
+                        &api,
+                        object,
+                        cached_tensor,
+                        cached_stream,
+                        device,
+                        stream,
+                    )?
                 {
                     return Ok(ImportedDlpack::Versioned(validate_copy_result(
                         tensor, copy,
@@ -236,10 +257,13 @@ fn import_from_exchange_api(
     api: &ExchangeApi,
     object: Borrowed<'_, '_, PyAny>,
     cached_tensor: Option<Managed<DLManagedTensorVersioned>>,
+    cached_stream: Option<*mut std::ffi::c_void>,
     expected_device: DLDevice,
     stream: Option<&dyn DlpackStream>,
 ) -> pyo3::PyResult<Option<Managed<DLManagedTensorVersioned>>> {
     if api.supports_dltensor_view() {
+        // The view branch exports a fresh tensor right here, so querying the
+        // work stream now matches the moment the data was made ready.
         if !exchange_stream_is_ready(api, expected_device, stream)? {
             return Ok(None);
         }
@@ -265,7 +289,15 @@ fn import_from_exchange_api(
     if device != expected_device {
         return Err(device_changed_error(expected_device, device));
     }
-    if exchange_stream_is_ready(api, device, stream)? {
+    // Use the stream cached at discovery: the cached tensor's data was made
+    // ready on that stream, and the producer's *current* stream may have
+    // changed since. For a fresh (uncached) tensor there is no cache, so
+    // query as of now.
+    let ready = match cached_stream {
+        Some(producer) => stream_is_ready(producer, device, stream)?,
+        None => exchange_stream_is_ready(api, device, stream)?,
+    };
+    if ready {
         Ok(Some(tensor))
     } else {
         Ok(None)
@@ -354,6 +386,21 @@ fn exchange_stream_is_ready(
         )));
     }
     let producer = api.current_work_stream(device)?;
+    stream_is_ready(producer, device, stream)
+}
+
+/// Checks stream readiness against an already-known producer work stream.
+fn stream_is_ready(
+    producer: *mut std::ffi::c_void,
+    device: DLDevice,
+    stream: Option<&dyn DlpackStream>,
+) -> pyo3::PyResult<bool> {
+    if device.device_id < 0 {
+        return Err(PyValueError::new_err(format!(
+            "DLPack device ID must be non-negative, got {}",
+            device.device_id
+        )));
+    }
     match stream {
         Some(stream) => unsafe { stream.wait_for_producer(device, producer) },
         None => Ok(producer.is_null()),

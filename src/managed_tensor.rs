@@ -185,7 +185,7 @@ unsafe impl ManagedTensorBase for DLManagedTensorVersioned {
 mod tests {
     use super::*;
 
-    const VERSION_CHECK: Result<(), crate::VersionError> =
+    const VERSION_CHECK: Result<(), crate::IncompatibleVersionError> =
         DLPackVersion::CURRENT.ensure_compatible_with(DLPackVersion::CURRENT);
     const _: () = assert!(VERSION_CHECK.is_ok());
 

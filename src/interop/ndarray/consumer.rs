@@ -90,7 +90,7 @@ fn shape_and_strides(
                     value: stride
                 }
             );
-            usize::try_from(stride).map_err(|_| Error::DlpackStrideOverflow {
+            usize::try_from(stride).map_err(|_| Error::StrideOverflow {
                 axis,
                 value: stride,
             })

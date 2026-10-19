@@ -25,11 +25,12 @@ mod producer;
 pub use consumer::DlpackContainer;
 
 #[derive(Debug, Snafu)]
+#[non_exhaustive]
 /// Errors produced while validating a DLPack tensor as an image buffer.
 pub enum Error {
     /// The tensor is not a three-dimensional HWC layout.
     #[snafu(display("tensor must have exactly 3 dimensions (H, W, C), got {ndim}"))]
-    InvalidNdim {
+    UnexpectedNdim {
         /// The reported dimension count.
         ndim: i32,
     },

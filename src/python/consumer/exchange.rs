@@ -2,7 +2,8 @@
 
 use pyo3::exceptions::{PyAttributeError, PyBufferError, PyRuntimeError};
 use pyo3::types::PyAnyMethods;
-use pyo3::{Borrowed, Bound, PyAny, PyErr, Python};
+use pyo3::{Borrowed, Bound, PyAny, Python};
+use crate::python::capsule::ffi_error::checked_fetch_python_error;
 use std::ffi::CStr;
 use std::ptr::NonNull;
 
@@ -79,15 +80,21 @@ impl ExchangeApi {
             let ptr =
                 pyo3::ffi::PyCapsule_GetPointer(capsule.as_ptr(), DLPACK_EXCHANGE_API.as_ptr());
             if ptr.is_null() {
-                return Err(fetch_python_error());
+                // GetPointer on a NULL-pointer capsule returns NULL without
+                // setting an exception.
+                return Err(checked_fetch_python_error(PyBufferError::new_err(
+                    "DLPack exchange API capsule contains a null pointer",
+                )));
             }
             ptr.cast::<DLPackExchangeAPI>()
         };
 
         let Some(api) = compatible_api(api_ptr) else {
-            return Err(PyRuntimeError::new_err(
-                "no compatible DLPackExchangeAPI version found",
-            ));
+            // The C Exchange API is an optional accelerator: a producer whose
+            // chain only offers incompatible (e.g. future-major) versions
+            // may still fully implement the standard __dlpack__ protocol,
+            // so degrade to that instead of failing the whole import.
+            return Ok(None);
         };
 
         Ok(Some(Self { api }))
@@ -112,7 +119,11 @@ impl ExchangeApi {
         let mut out = std::ptr::null_mut();
         let rc = unsafe { from_py_object(obj.as_ptr().cast(), &mut out) };
         if rc != 0 {
-            return Err(fetch_python_error());
+            return Err(unsafe {
+                checked_fetch_python_error(PyRuntimeError::new_err(
+                    "DLPackExchangeAPI producer failed without setting a Python exception",
+                ))
+            });
         }
         if out.is_null() {
             return Err(PyBufferError::new_err(
@@ -185,7 +196,11 @@ impl ExchangeApi {
         let mut out = std::ptr::null_mut();
         let rc = unsafe { to_py_object(raw, &mut out) };
         if rc != 0 {
-            return Err(fetch_python_error());
+            return Err(unsafe {
+                checked_fetch_python_error(PyRuntimeError::new_err(
+                    "DLPackExchangeAPI producer failed without setting a Python exception",
+                ))
+            });
         }
         if out.is_null() {
             return Err(PyRuntimeError::new_err(
@@ -213,7 +228,11 @@ impl ExchangeApi {
         let mut stream = std::ptr::null_mut();
         let rc = unsafe { current_work_stream(device.device_type, device.device_id, &mut stream) };
         if rc != 0 {
-            return Err(fetch_python_error());
+            return Err(unsafe {
+                checked_fetch_python_error(PyRuntimeError::new_err(
+                    "DLPackExchangeAPI producer failed without setting a Python exception",
+                ))
+            });
         }
         Ok(stream)
     }
@@ -238,7 +257,11 @@ impl ExchangeApi {
         let mut tensor = DLTensor::default();
         let rc = unsafe { from_py_object(obj.as_ptr().cast(), &mut tensor) };
         if rc != 0 {
-            return Err(fetch_python_error());
+            return Err(unsafe {
+                checked_fetch_python_error(PyRuntimeError::new_err(
+                    "DLPackExchangeAPI producer failed without setting a Python exception",
+                ))
+            });
         }
 
         Ok(f(&tensor))
@@ -285,12 +308,7 @@ fn compatible_api(api: *mut DLPackExchangeAPI) -> Option<NonNull<DLPackExchangeA
     None
 }
 
-fn fetch_python_error() -> PyErr {
-    // Exchange API calls are made from PyO3 conversion code, so the current
-    // thread is attached to the Python interpreter.
-    unsafe { PyErr::fetch(pyo3::Python::assume_attached()) }
-}
-
+/// Walks the `prev_api` chain to find a header whose major version matches.
 #[cfg(test)]
 mod tests {
     use super::*;
