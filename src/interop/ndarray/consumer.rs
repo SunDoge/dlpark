@@ -67,6 +67,12 @@ where
 fn shape_and_strides(
     tensor: &crate::tensor::TensorRef<'_>,
 ) -> Result<(Vec<usize>, Vec<usize>), Error> {
+    if tensor.device().device_type != crate::ffi::DLDeviceType::CPU {
+        return Err(crate::tensor::Error::NotCpu {
+            device_type: tensor.device().device_type,
+        }
+        .into());
+    }
     let shape = tensor
         .shape()
         .iter()

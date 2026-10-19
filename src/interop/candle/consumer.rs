@@ -35,69 +35,47 @@ fn candle_dtype_from_dl(dtype: DLDataType) -> Option<DType> {
     }
 }
 
-/// Validates a strided index grid and returns its total element count.
-///
-/// `shape` must be non-negative and `strides` may be negative (DLPack permits
-/// both). The total element count is computed with overflow checking. The
-/// byte span covered by the index grid — `[min_elem, max_elem] × elem_size`,
-/// taking per-axis min/max contributions so negative strides are handled —
-/// must lie entirely within `[0, num_bytes)` of the base pointer, otherwise
-/// [`Error::StridedSpanOverflow`] is returned. This is what makes the raw
-/// pointer arithmetic in [`gather_strided_bytes`] sound.
-fn validate_strided_span(
-    shape: &[i64],
-    strides: &[i64],
-    elem_size: usize,
-    num_bytes: usize,
-) -> Result<usize, Error> {
-    let mut total: usize = 1;
-    let mut min_elem: i128 = 0;
-    let mut max_elem: i128 = 0;
-    for (&d, &s) in shape.iter().zip(strides) {
-        if d < 0 {
-            return Err(Error::Tensor {
-                source: crate::tensor::Error::NegativeDimension { axis: 0, value: d },
-            });
-        }
-        total = total
-            .checked_mul(usize::try_from(d).map_err(|_| Error::Tensor {
-                source: crate::tensor::Error::NumElementsOverflow,
-            })?)
-            .ok_or(Error::Tensor {
-                source: crate::tensor::Error::NumElementsOverflow,
-            })?;
-        if d == 0 {
-            continue;
-        }
-        let last = (d - 1) as i128;
-        let s = s as i128;
-        let (lo, hi) = if s >= 0 { (0, last * s) } else { (last * s, 0) };
-        min_elem += lo;
-        max_elem += hi;
+/// Checks that every byte displacement and the complete strided span fit
+/// Rust pointer-offset limits. Allocation bounds remain the caller's obligation:
+/// DLPack reports a logical element count, not the backing allocation length.
+fn validate_strided_span(shape: &[i64], strides: &[i64], elem_size: usize) -> Result<(), Error> {
+    if shape.contains(&0) {
+        return Ok(());
+    }
+    let mut min_elem = 0_i128;
+    let mut max_elem = 0_i128;
+    for (&dim, &stride) in shape.iter().zip(strides) {
+        let last = i128::from(dim - 1) * i128::from(stride);
+        min_elem = min_elem
+            .checked_add(last.min(0))
+            .ok_or(Error::StridedSpanOverflow)?;
+        max_elem = max_elem
+            .checked_add(last.max(0))
+            .ok_or(Error::StridedSpanOverflow)?;
     }
     let min_byte = min_elem
         .checked_mul(elem_size as i128)
         .ok_or(Error::StridedSpanOverflow)?;
     let max_byte = max_elem
-        .checked_add(1)
-        .and_then(|m| m.checked_mul(elem_size as i128))
+        .checked_mul(elem_size as i128)
         .ok_or(Error::StridedSpanOverflow)?;
-    if min_byte < 0 || max_byte > num_bytes as i128 {
+    let span = max_byte
+        .checked_sub(min_byte)
+        .and_then(|span| span.checked_add(elem_size as i128))
+        .ok_or(Error::StridedSpanOverflow)?;
+    if min_byte < isize::MIN as i128 || max_byte > isize::MAX as i128 || span > isize::MAX as i128 {
         return Err(Error::StridedSpanOverflow);
     }
-    Ok(total)
+    Ok(())
 }
 
 /// Gathers a strided tensor into a fresh contiguous (row-major) byte buffer.
 ///
-/// Works purely in bytes — `elem_size` (from the DLPack dtype itself) stands
-/// in for a generic element type, so this needs no `T` at all. `ptr` must
-/// already be adjusted for `byte_offset`; `strides` are in elements, matching
-/// DLPack's convention. `total` is the pre-validated element count from
-/// [`validate_strided_span`], which also proved every accessed byte lies
-/// within the source buffer, so the raw `ptr.offset` below stays in bounds
-/// even for negative strides.
-fn gather_strided_bytes(
+/// # Safety
+///
+/// The index grid must pass `validate_strided_span`, and every addressed element
+/// must be readable within the same allocation as `ptr`.
+unsafe fn gather_strided_bytes(
     ptr: *const u8,
     elem_size: usize,
     shape: &[i64],
@@ -109,8 +87,13 @@ fn gather_strided_bytes(
     let mut idx = vec![0i64; ndim];
 
     for _ in 0..total {
-        let elem_offset: i64 = idx.iter().zip(strides).map(|(&i, &s)| i * s).sum();
-        let byte_offset = elem_offset as isize * elem_size as isize;
+        let elem_offset: i128 = idx
+            .iter()
+            .zip(strides)
+            .map(|(&i, &s)| i128::from(i) * i128::from(s))
+            .sum();
+        // The validated displacement range fits isize, including negative strides.
+        let byte_offset = (elem_offset * elem_size as i128) as isize;
         unsafe {
             let src = ptr.offset(byte_offset);
             out.extend_from_slice(std::slice::from_raw_parts(src, elem_size));
@@ -146,11 +129,19 @@ fn gather_strided_bytes(
 /// # Safety
 ///
 /// The descriptor and all data and metadata pointers it references
-/// must be valid and readable for the duration of this conversion.
+/// must be valid and readable for the duration of this conversion. Every
+/// element addressed by shape and strides, including negative displacements
+/// from the byte-offset-adjusted pointer, must lie within its backing allocation.
 pub unsafe fn candle_tensor_from_dlpack<M: ManagedTensorBase>(
     dlpack: &Managed<M>,
 ) -> Result<Tensor, Error> {
     let tensor = dlpack.validate()?;
+    if tensor.device().device_type != crate::ffi::DLDeviceType::CPU {
+        return Err(crate::tensor::Error::NotCpu {
+            device_type: tensor.device().device_type,
+        }
+        .into());
+    }
     let dl_dtype = tensor.dtype();
     let dtype =
         candle_dtype_from_dl(dl_dtype).ok_or(Error::UnsupportedDlDataType { dtype: dl_dtype })?;
@@ -171,9 +162,16 @@ pub unsafe fn candle_tensor_from_dlpack<M: ManagedTensorBase>(
         return Err(Error::SubByteStridesUnsupported { dtype: dl_dtype });
     } else {
         let s = strides.unwrap();
-        let num_bytes = tensor.num_bytes();
-        let total = validate_strided_span(shape, s, dl_dtype.element_size(), num_bytes)?;
-        gather_strided_bytes(ptr, dl_dtype.element_size(), shape, s, total)
+        validate_strided_span(shape, s, dl_dtype.element_size())?;
+        unsafe {
+            gather_strided_bytes(
+                ptr,
+                dl_dtype.element_size(),
+                shape,
+                s,
+                tensor.num_elements(),
+            )
+        }
     };
 
     let dims = shape

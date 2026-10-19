@@ -192,6 +192,26 @@ mod tests {
     }
 
     #[test]
+    fn cuda_descriptors_are_rejected_by_both_view_imports() {
+        let mut dlpack = legacy_2x3_dlpack();
+        unsafe {
+            (*dlpack.as_ptr()).dl_tensor.device = DLDevice::cuda(0);
+        }
+        assert!(matches!(
+            unsafe { ArrayViewD::<i32>::try_from_dlpack(&dlpack, ()) },
+            Err(Error::Tensor {
+                source: crate::tensor::Error::NotCpu { .. }
+            })
+        ));
+        assert!(matches!(
+            unsafe { ArrayViewMutD::<i32>::try_from_dlpack(&mut dlpack, ()) },
+            Err(Error::Tensor {
+                source: crate::tensor::Error::NotCpu { .. }
+            })
+        ));
+    }
+
+    #[test]
     fn borrowed_dlpack_to_ndarray_view_is_zero_copy() {
         let dlpack = legacy_2x3_dlpack();
         let view = unsafe { ArrayViewD::<i32>::try_from_dlpack(&dlpack, ()) }.unwrap();

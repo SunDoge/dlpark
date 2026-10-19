@@ -93,8 +93,8 @@ pub enum Error {
         dtype: DLDataType,
     },
 
-    /// The strided index grid reaches outside the data buffer.
-    #[snafu(display("strided access spans outside the tensor data buffer"))]
+    /// The strided byte displacements or span exceed Rust pointer-offset limits.
+    #[snafu(display("strided byte displacements or span exceed isize limits"))]
     StridedSpanOverflow,
 
     /// The underlying DLPack tensor failed validation.
@@ -241,10 +241,11 @@ mod tests {
         // Element strides that are not whole bytes are inexpressible for a
         // packed sub-byte dtype, so the export must refuse the layout —
         // mirroring the consumer-side SubByteStridesUnsupported rejection.
-        let strided = Tensor::from_raw_buffer(&[0xAB, 0xCD, 0xEF, 0x12], DType::F4, &[2, 3], &Device::Cpu)
-            .unwrap()
-            .narrow(1, 0, 2)
-            .unwrap();
+        let strided =
+            Tensor::from_raw_buffer(&[0xAB, 0xCD, 0xEF, 0x12], DType::F4, &[2, 3], &Device::Cpu)
+                .unwrap()
+                .narrow(1, 0, 2)
+                .unwrap();
         assert_eq!(
             strided.layout().stride().to_vec(),
             vec![3, 1],
@@ -337,34 +338,42 @@ mod tests {
     }
 
     #[test]
-    fn non_compact_dlpack_with_out_of_bounds_stride_is_rejected() {
-        // Stride 10 on a 6-element buffer: index [1, 0] reaches element 10,
-        // past the end. Must be rejected rather than read out of bounds.
-        let dlpack = raw_tensor(
-            vec![1i32, 2, 3, 4, 5, 6],
-            <i32 as DlpackElement>::DTYPE,
-            [2, 2],
-            [10, 1],
-        );
+    fn stepped_slice_imports_logical_elements() {
+        let dlpack = raw_tensor(vec![1_i32, 2, 3, 4], DLDataType::I32, [2], [2]);
+        let tensor = unsafe { Tensor::try_from_dlpack(&dlpack, ()) }.unwrap();
+        assert_eq!(tensor.to_vec1::<i32>().unwrap(), vec![1, 3]);
+    }
 
+    #[test]
+    fn negative_stride_with_byte_offset_imports_in_reverse() {
+        let dlpack = raw_tensor(vec![1_i32, 2, 3, 4], DLDataType::I32, [4], [-1]);
+        // Keep the allocation base and start traversal at its final element.
+        unsafe {
+            (*dlpack.as_ptr()).dl_tensor.byte_offset = 3 * size_of::<i32>() as u64;
+        }
+        let tensor = unsafe { Tensor::try_from_dlpack(&dlpack, ()) }.unwrap();
+        assert_eq!(tensor.to_vec1::<i32>().unwrap(), vec![4, 3, 2, 1]);
+    }
+
+    #[test]
+    fn unrepresentable_strided_span_is_rejected_before_reading_data() {
+        let dlpack = raw_tensor(vec![1_i32], DLDataType::I32, [2], [i64::MAX]);
         let err = unsafe { Tensor::try_from_dlpack(&dlpack, ()) }.unwrap_err();
         assert!(matches!(err, Error::StridedSpanOverflow));
     }
 
     #[test]
-    fn non_compact_dlpack_with_negative_stride_is_rejected_as_out_of_bounds() {
-        // With byte_offset 0 the data pointer is the allocation base, so any
-        // negative stride indexes before the buffer. Rejected rather than read
-        // out of bounds.
-        let dlpack = raw_tensor(
-            vec![1i32, 2, 3, 4, 5, 6],
-            <i32 as DlpackElement>::DTYPE,
-            [3, 2],
-            [-1, -3],
-        );
-
-        let err = unsafe { Tensor::try_from_dlpack(&dlpack, ()) }.unwrap_err();
-        assert!(matches!(err, Error::StridedSpanOverflow));
+    fn cuda_descriptor_is_rejected_before_reading_data() {
+        let dlpack = raw_tensor(vec![1_i32, 2], DLDataType::I32, [2], [1]);
+        unsafe {
+            (*dlpack.as_ptr()).dl_tensor.device = DLDevice::cuda(0);
+        }
+        assert!(matches!(
+            unsafe { Tensor::try_from_dlpack(&dlpack, ()) },
+            Err(Error::Tensor {
+                source: crate::tensor::Error::NotCpu { .. }
+            })
+        ));
     }
 
     #[test]
