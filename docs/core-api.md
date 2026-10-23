@@ -93,3 +93,36 @@ Backend conversions implement `TryFromDlpack<D, C>`. `D` is the owned or
 borrowed DLPack representation; `C` is a consumer-defined import context. It
 may be `()`, a stream, a backend client, a device mapping, or a policy object.
 This keeps backend-specific runtime requirements outside the core crate.
+
+## Migrating from 0.9 to 0.10
+
+The ownership and initializer model is unchanged. Update downstream error
+handling for these public names:
+
+| 0.9 | 0.10 |
+| --- | --- |
+| `dlpark::VersionError` | `dlpark::IncompatibleVersionError` |
+| `interop::image::Error::InvalidNdim` | `interop::image::Error::UnexpectedNdim` |
+| `interop::ndarray::Error::DlpackStrideOverflow` | `interop::ndarray::Error::StrideOverflow` |
+
+Public error enums are now non-exhaustive. Keep the arms your application
+handles explicitly and add a fallback arm for other errors. The
+`IncompatibleVersionError` struct remains directly constructible and
+destructurable.
+
+Interop validation now rejects non-CPU inputs to ndarray and Candle,
+out-of-bounds CUDA export layouts, overlapping mutable ndarray views,
+non-compact packed sub-byte Candle exports, and safetensors serialization
+views whose packed bit count is not byte-aligned. Candle CPU imports support
+valid stepped and reversed layouts; callers must still guarantee that every
+addressed element lies within the source allocation.
+
+Dynamic metadata accepts arrays and array references alongside slices,
+vectors, and boxed slices. Copy remains the default, including for `i64`
+references. Borrowed metadata still requires explicit unsafe preparation.
+
+Python C Exchange imports retain the discovered producer stream through
+staged import, fall back to the standard protocol for incompatible exchange
+API versions, and guard foreign callback failures that omit a Python
+exception. Exchange producers exposing borrowed tensor views must keep their
+metadata and data pointers valid until the producer regains control.
