@@ -4,6 +4,47 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## 0.10.0 - 2026-10-23
+
+### 🏗️ Breaking changes
+
+- Document the 0.10 API migration ([#98](https://github.com/SunDoge/dlpark/pull/98))
+  - **BREAKING**: rename public version, image rank, and ndarray stride errors; make error enums non-exhaustive and tighten interop validation. See docs/core-api.md for migration details.
+
+- Harden interop validation and public error contracts for 0.10 ([#95](https://github.com/SunDoge/dlpark/pull/95))
+  - **BREAKING**: harden interop validation and public error contracts for 0.10
+
+
+### 🐛 Fixes
+
+- Allow constructing and destructuring version mismatch errors ([#95](https://github.com/SunDoge/dlpark/pull/95))
+
+
+- Preserve metadata pointer provenance across storage access ([#95](https://github.com/SunDoge/dlpark/pull/95))
+
+
+- Validate CPU imports and support valid strided candle tensors ([#95](https://github.com/SunDoge/dlpark/pull/95))
+
+
+- Resolve remaining review findings across interop and python ([#95](https://github.com/SunDoge/dlpark/pull/95))
+
+
+
+### 📝 Documentation
+
+- Update renamed error type reference ([#95](https://github.com/SunDoge/dlpark/pull/95))
+
+
+
+### 🌀 Miscellaneous
+
+- Simplify dynamic metadata storage policies ([#95](https://github.com/SunDoge/dlpark/pull/95))
+
+
+
+**Full Changelog**: <https://github.com/SunDoge/dlpark/compare/v0.9.1...v0.10.0>
+
+---
 ## 0.9.1 - 2026-10-19
 
 ### 🐛 Fixes
