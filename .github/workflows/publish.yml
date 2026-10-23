@@ -34,6 +34,7 @@ jobs:
         uses: release-plz/action@8e61445f0b34e7c6d985255f2f1f05a36eb350dc # v0.5.137
         with:
           command: release
+          version: "0.4.0"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -60,5 +61,6 @@ jobs:
         uses: release-plz/action@8e61445f0b34e7c6d985255f2f1f05a36eb350dc # v0.5.137
         with:
           command: release-pr
+          version: "0.4.0"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
