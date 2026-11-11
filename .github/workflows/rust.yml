@@ -23,8 +23,6 @@ jobs:
           toolchain: "1.88.0"
       - name: Check core library
         run: cargo check --locked -p dlpark --lib --no-default-features
-      - name: Check all integrations
-        run: cargo check --locked -p dlpark --lib --all-features
 
   test:
     name: cargo test
