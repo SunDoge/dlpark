@@ -84,7 +84,7 @@ struct HwcLayout {
     num_elements: usize,
 }
 
-fn validated_hwc<P>(tensor: &crate::tensor::TensorRef<'_>) -> Result<HwcLayout, Error>
+fn validated_hwc<P>(tensor: &crate::tensor::RawTensorRef<'_>) -> Result<HwcLayout, Error>
 where
     P: Pixel,
     P::Subpixel: DlpackElement,

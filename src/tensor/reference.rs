@@ -5,30 +5,80 @@ use crate::{
 };
 use std::borrow::Cow;
 use std::marker::PhantomData;
+use std::rc::Rc;
 
-/// A structurally validated borrowed DLPack tensor descriptor.
+/// A structurally validated view of a raw DLPack tensor descriptor.
 ///
 /// Shape and stride metadata is safe to inspect for this value's lifetime.
 /// DLPack does not report the bounds of the underlying data allocation, so
-/// dereferencing the data pointer remains unsafe.
-pub struct TensorRef<'a> {
+/// dereferencing the data pointer remains unsafe. This type carries no owner
+/// provenance and is therefore deliberately not `Send` or `Sync`.
+///
+/// ```compile_fail
+/// use dlpark::RawTensorRef;
+/// fn assert_send<T: Send>() {}
+/// assert_send::<RawTensorRef<'static>>();
+/// ```
+pub struct RawTensorRef<'a> {
     tensor: &'a DLTensor,
     shape: &'a [i64],
     strides: Option<&'a [i64]>,
     num_elements: usize,
     num_bytes: usize,
+    _not_thread_safe: PhantomData<Rc<()>>,
 }
 
-/// An exclusively borrowed, structurally validated DLPack descriptor.
+/// An exclusively borrowed, structurally validated raw DLPack descriptor.
 ///
 /// Exclusivity applies to the descriptor, not necessarily to its data
-/// allocation. Mutable data access therefore remains unsafe.
-pub struct TensorMut<'a> {
-    inner: TensorRef<'a>,
+/// allocation. Mutable data access therefore remains unsafe. This type carries
+/// no owner provenance and is deliberately not `Send` or `Sync`.
+///
+/// ```compile_fail
+/// use dlpark::RawTensorMut;
+/// fn assert_send<T: Send>() {}
+/// assert_send::<RawTensorMut<'static>>();
+/// ```
+pub struct RawTensorMut<'a> {
+    inner: RawTensorRef<'a>,
     _exclusive: PhantomData<&'a mut DLTensor>,
 }
 
-impl<'a> TensorRef<'a> {
+/// A validated tensor view borrowed from an owning [`crate::Managed`] handle.
+///
+/// This is the normal validated view returned by [`crate::Managed::validate`].
+/// It is safe to share and move between threads because its managed owner
+/// guarantees immutable metadata and cross-thread destruction.
+pub struct TensorRef<'a> {
+    inner: RawTensorRef<'a>,
+}
+
+/// An exclusively borrowed validated tensor view from [`crate::Managed`].
+///
+/// This is returned by [`crate::Managed::validate_mut`]. The view may be moved
+/// to another thread, but it is not shareable because it represents exclusive
+/// access to the managed tensor descriptor.
+pub struct TensorMut<'a> {
+    inner: RawTensorMut<'a>,
+}
+
+// SAFETY: these wrappers can only be constructed by Managed, whose contract
+// guarantees immutable descriptor metadata and permits its allocation deleter
+// to run on any thread. Data-pointer dereferences remain unsafe.
+unsafe impl Send for TensorRef<'_> {}
+unsafe impl Sync for TensorRef<'_> {}
+unsafe impl Send for TensorMut<'_> {}
+
+/// A shared interface for validated managed and raw tensor views.
+///
+/// Generic consumers can accept this trait when they only inspect descriptor
+/// metadata or perform explicitly unsafe data-pointer access.
+pub trait TensorView {
+    /// Returns the underlying structurally validated descriptor view.
+    fn as_raw_tensor(&self) -> &RawTensorRef<'_>;
+}
+
+impl<'a> RawTensorRef<'a> {
     /// Validates the descriptor's readable metadata and arithmetic invariants.
     /// Unknown dtype codes and device types remain valid for forward
     /// compatibility, but dtype bit width and lane count must be nonzero.
@@ -54,6 +104,7 @@ impl<'a> TensorRef<'a> {
             strides,
             num_elements,
             num_bytes,
+            _not_thread_safe: PhantomData,
         })
     }
 
@@ -159,15 +210,47 @@ impl<'a> TensorRef<'a> {
     }
 }
 
-impl<'a> TensorMut<'a> {
-    pub(crate) unsafe fn from_raw(
-        tensor: &'a mut DLTensor,
-        flags: DlpackFlags,
-    ) -> Result<Self, Error> {
+impl<'a> TensorRef<'a> {
+    pub(crate) fn new(inner: RawTensorRef<'a>) -> Self {
+        Self { inner }
+    }
+}
+
+impl<'a> std::ops::Deref for TensorRef<'a> {
+    type Target = RawTensorRef<'a>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl TensorView for TensorRef<'_> {
+    fn as_raw_tensor(&self) -> &RawTensorRef<'_> {
+        &self.inner
+    }
+}
+
+impl TensorView for RawTensorRef<'_> {
+    fn as_raw_tensor(&self) -> &RawTensorRef<'_> {
+        self
+    }
+}
+
+impl<'a> RawTensorMut<'a> {
+    /// Validates a raw descriptor for exclusive descriptor access.
+    ///
+    /// `READ_ONLY` tensors are rejected. Exclusivity of the descriptor does
+    /// not prove exclusivity of the underlying allocation.
+    ///
+    /// # Safety
+    ///
+    /// `tensor` and all metadata pointers it references must remain valid for
+    /// `'a`, and no other reference may mutate the descriptor during `'a`.
+    pub unsafe fn from_raw(tensor: &'a mut DLTensor, flags: DlpackFlags) -> Result<Self, Error> {
         if flags.contains(DlpackFlags::READ_ONLY) {
             return Err(Error::ReadOnly);
         }
-        let inner = unsafe { TensorRef::from_raw(tensor) }?;
+        let inner = unsafe { RawTensorRef::from_raw(tensor) }?;
         Ok(Self {
             inner,
             _exclusive: PhantomData,
@@ -205,8 +288,40 @@ impl<'a> TensorMut<'a> {
     }
 }
 
+impl<'a> TensorMut<'a> {
+    pub(crate) fn new(inner: RawTensorMut<'a>) -> Self {
+        Self { inner }
+    }
+}
+
 impl<'a> std::ops::Deref for TensorMut<'a> {
-    type Target = TensorRef<'a>;
+    type Target = RawTensorMut<'a>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl std::ops::DerefMut for TensorMut<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
+    }
+}
+
+impl TensorView for TensorMut<'_> {
+    fn as_raw_tensor(&self) -> &RawTensorRef<'_> {
+        &self.inner.inner
+    }
+}
+
+impl TensorView for RawTensorMut<'_> {
+    fn as_raw_tensor(&self) -> &RawTensorRef<'_> {
+        &self.inner
+    }
+}
+
+impl<'a> std::ops::Deref for RawTensorMut<'a> {
+    type Target = RawTensorRef<'a>;
 
     fn deref(&self) -> &Self::Target {
         &self.inner
@@ -217,6 +332,29 @@ impl<'a> std::ops::Deref for TensorMut<'a> {
 mod tests {
     use super::*;
 
+    fn assert_send_sync<T: Send + Sync>() {}
+    fn assert_send<T: Send>() {}
+
+    #[test]
+    fn managed_views_have_cross_thread_traits() {
+        assert_send_sync::<TensorRef<'static>>();
+        assert_send::<TensorMut<'static>>();
+    }
+
+    #[test]
+    fn tensor_view_unifies_raw_and_managed_views() {
+        fn rank(view: &impl TensorView) -> usize {
+            view.as_raw_tensor().ndim()
+        }
+
+        let tensor = DLTensor {
+            dtype: DLDataType::U8,
+            ..DLTensor::default()
+        };
+        let raw = unsafe { RawTensorRef::from_raw(&tensor) }.unwrap();
+        assert_eq!(rank(&raw), 0);
+    }
+
     #[test]
     fn rejects_negative_rank() {
         let tensor = DLTensor {
@@ -224,7 +362,7 @@ mod tests {
             dtype: DLDataType::U8,
             ..DLTensor::default()
         };
-        let error = match unsafe { TensorRef::from_raw(&tensor) } {
+        let error = match unsafe { RawTensorRef::from_raw(&tensor) } {
             Ok(_) => panic!("negative rank must be rejected"),
             Err(error) => error,
         };
@@ -238,7 +376,7 @@ mod tests {
             dtype: DLDataType::U8,
             ..DLTensor::default()
         };
-        let error = match unsafe { TensorRef::from_raw(&tensor) } {
+        let error = match unsafe { RawTensorRef::from_raw(&tensor) } {
             Ok(_) => panic!("null shape must be rejected"),
             Err(error) => error,
         };
@@ -257,7 +395,7 @@ mod tests {
             ..DLTensor::default()
         };
 
-        let tensor = unsafe { TensorRef::from_raw(&tensor) }.unwrap();
+        let tensor = unsafe { RawTensorRef::from_raw(&tensor) }.unwrap();
         assert_eq!(tensor.shape(), &shape);
         assert_eq!(tensor.strides(), Some(strides.as_slice()));
         assert_eq!(tensor.num_elements(), 6);
@@ -275,7 +413,7 @@ mod tests {
         };
 
         assert!(matches!(
-            unsafe { TensorRef::from_raw(&tensor) },
+            unsafe { RawTensorRef::from_raw(&tensor) },
             Err(Error::ZeroDtypeBits)
         ));
     }
@@ -292,7 +430,7 @@ mod tests {
         };
 
         assert!(matches!(
-            unsafe { TensorRef::from_raw(&tensor) },
+            unsafe { RawTensorRef::from_raw(&tensor) },
             Err(Error::ZeroDtypeLanes)
         ));
     }

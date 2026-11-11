@@ -145,7 +145,7 @@ where
         let object = unsafe { Bound::from_borrowed_ptr(py, object.cast()) };
         let producer: PyRef<'_, T> = object.extract()?;
         let tensor = producer.tensor_view_no_sync(py)?;
-        let view = unsafe { crate::tensor::TensorRef::from_raw(&tensor) }
+        let view = unsafe { crate::tensor::RawTensorRef::from_raw(&tensor) }
             .map_err(|error| PyBufferError::new_err(error.to_string()))?;
         if view.ndim() != 0 && view.strides().is_none() {
             return Err(PyBufferError::new_err(

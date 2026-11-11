@@ -118,7 +118,8 @@ where
     ///
     pub fn validate(&self) -> Result<tensor::TensorRef<'_>, tensor::Error> {
         self.validate_declared_stride_semantics()?;
-        unsafe { tensor::TensorRef::from_raw(self.tensor()) }
+        let tensor = unsafe { tensor::RawTensorRef::from_raw(self.tensor()) }?;
+        Ok(tensor::TensorRef::new(tensor))
     }
 
     /// Validates a locally produced descriptor before exporting it.
@@ -144,7 +145,8 @@ where
         self.validate_declared_stride_semantics()?;
         let flags = unsafe { self.0.as_ref() }.flags();
         let tensor = unsafe { self.0.as_mut() }.tensor_mut();
-        unsafe { tensor::TensorMut::from_raw(tensor, flags) }
+        let tensor = unsafe { tensor::RawTensorMut::from_raw(tensor, flags) }?;
+        Ok(tensor::TensorMut::new(tensor))
     }
 
     /// Returns the DLPack bitmask flags (e.g. `READ_ONLY`, `IS_COPIED`).
@@ -349,6 +351,28 @@ mod tests {
         assert_eq!(tensor.byte_offset(), 0);
         assert!(tensor.is_compact().unwrap());
         assert_eq!(&*tensor.strides_or_compact().unwrap(), &[1]);
+    }
+
+    #[test]
+    fn managed_views_can_cross_scoped_threads() {
+        let mut dlpack = dlpack_with_flags::<DLManagedTensor>(DlpackFlags::empty());
+
+        std::thread::scope(|scope| {
+            let tensor = dlpack.validate().unwrap();
+            scope.spawn(move || assert_eq!(tensor.shape(), &[3]));
+        });
+
+        std::thread::scope(|scope| {
+            let mut tensor = dlpack.validate_mut().unwrap();
+            scope.spawn(move || {
+                unsafe { tensor.cpu_slice_mut::<i32>() }.unwrap()[1] = 9;
+            });
+        });
+
+        assert_eq!(
+            unsafe { dlpack.tensor().cpu_slice::<i32>() }.unwrap(),
+            &[1, 9, 3]
+        );
     }
 
     #[test]
