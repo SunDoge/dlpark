@@ -6,6 +6,23 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.11.0 - 2026-11-12
+
+### 📝 Documentation
+
+- Complete tensor safety contracts ([#104](https://github.com/SunDoge/dlpark/pull/104))
+
+
+
+### 🌀 Miscellaneous
+
+- Distinguish raw and managed tensor views ([#102](https://github.com/SunDoge/dlpark/pull/102))
+
+
+
+**Full Changelog**: <https://github.com/SunDoge/dlpark/compare/v0.10.0...v0.11.0>
+
+---
 ### Breaking changes
 
 - Distinguish owner-backed `TensorRef`/`TensorMut` views from non-thread-safe
