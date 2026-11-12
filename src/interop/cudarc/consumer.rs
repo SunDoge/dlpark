@@ -157,7 +157,7 @@ where
 // ---------------------------------------------------------------------------
 
 pub(super) fn validated_cuda_parts<T: DlpackElement>(
-    tensor: &crate::tensor::TensorRef<'_>,
+    tensor: &crate::tensor::RawTensorRef<'_>,
 ) -> Result<(u64, usize, usize), Error> {
     ensure!(
         tensor.device().device_type == DLDeviceType::CUDA,

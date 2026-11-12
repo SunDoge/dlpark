@@ -8,7 +8,7 @@ mod layout;
 mod reference;
 
 pub use layout::{compact_strides, compact_strides_array, is_compact_strides};
-pub use reference::{TensorMut, TensorRef};
+pub use reference::{RawTensorMut, RawTensorRef, TensorMut, TensorRef, TensorView};
 
 /// Errors raised while validating a raw DLPack tensor descriptor.
 #[derive(Debug, Snafu)]

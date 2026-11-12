@@ -65,7 +65,7 @@ where
 }
 
 fn shape_and_strides(
-    tensor: &crate::tensor::TensorRef<'_>,
+    tensor: &crate::tensor::RawTensorRef<'_>,
 ) -> Result<(Vec<usize>, Vec<usize>), Error> {
     if tensor.device().device_type != crate::ffi::DLDeviceType::CPU {
         return Err(crate::tensor::Error::NotCpu {

@@ -188,7 +188,7 @@ mod tests {
             strides: strides.as_ptr().cast_mut(),
             byte_offset: std::mem::size_of::<i32>() as u64,
         };
-        let tensor = unsafe { crate::tensor::TensorRef::from_raw(&tensor) }.unwrap();
+        let tensor = unsafe { crate::tensor::RawTensorRef::from_raw(&tensor) }.unwrap();
 
         let (ptr, len, device_id) = validated_cuda_parts::<i32>(&tensor).unwrap();
         assert_eq!(ptr, unsafe { data.as_ptr().add(1) } as usize as u64);
@@ -210,7 +210,7 @@ mod tests {
             strides: strides.as_ptr().cast_mut(),
             byte_offset: 0,
         };
-        let tensor = unsafe { crate::tensor::TensorRef::from_raw(&tensor) }.unwrap();
+        let tensor = unsafe { crate::tensor::RawTensorRef::from_raw(&tensor) }.unwrap();
 
         assert!(matches!(
             validated_cuda_parts::<i32>(&tensor),
@@ -234,7 +234,7 @@ mod tests {
             strides: strides.as_ptr().cast_mut(),
             byte_offset: 0,
         };
-        let tensor = unsafe { crate::tensor::TensorRef::from_raw(&tensor) }.unwrap();
+        let tensor = unsafe { crate::tensor::RawTensorRef::from_raw(&tensor) }.unwrap();
 
         assert!(matches!(
             validated_cuda_parts::<i32>(&tensor),
