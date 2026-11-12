@@ -3,8 +3,8 @@
 This directory vendors the single upstream header needed to regenerate dlpark's FFI bindings.
 
 - Upstream: https://github.com/dmlc/dlpack
-- Version: `v1.3`
-- Commit: `84d107bf416c6bab9ae68ad285876600d230490d`
+- Version: `v1.4`
+- Commit: `6eca9e643fcf7e870b7a1c99ee7fb166c5c2c459`
 - Verification: GitHub reports a valid commit signature
 
 To refresh these files from the pinned release, run `mise run vendor:dlpack`.

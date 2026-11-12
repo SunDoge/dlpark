@@ -84,7 +84,7 @@ allocation will remain unmodified while a returned Rust shared slice exists.
 
 ## Versions and flags
 
-The bundled headers currently define DLPack 1.3. `DLPackVersion` provides:
+The bundled headers currently define DLPack 1.4. `DLPackVersion` provides:
 
 - `is_compatible_with` for major-version ABI compatibility.
 - `ensure_compatible_with` for the checked form returning `IncompatibleVersionError`.

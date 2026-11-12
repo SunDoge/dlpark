@@ -122,9 +122,9 @@ impl DLDataTypeCode {
     /// headers.
     pub const fn is_known(self) -> bool {
         const INT: u8 = DLDataTypeCode::INT.0;
-        const FLOAT4_E2M1FN: u8 = DLDataTypeCode::FLOAT4_E2M1FN.0;
+        const BCOMPLEX: u8 = DLDataTypeCode::BCOMPLEX.0;
 
-        matches!(self.0, INT..=FLOAT4_E2M1FN)
+        matches!(self.0, INT..=BCOMPLEX)
     }
 }
 
@@ -150,10 +150,10 @@ mod knownness_tests {
 
     #[test]
     fn data_type_code_knownness_tracks_bundled_header() {
-        for value in 0..=17 {
+        for value in 0..=18 {
             assert!(DLDataTypeCode(value).is_known());
         }
-        for value in [18, 99, u8::MAX] {
+        for value in [19, 99, u8::MAX] {
             assert!(!DLDataTypeCode(value).is_known());
         }
     }

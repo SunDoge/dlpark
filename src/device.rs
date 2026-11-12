@@ -31,9 +31,9 @@ impl DLDeviceType {
         const CPU: u32 = DLDeviceType::CPU.0;
         const OPENCL: u32 = DLDeviceType::OPENCL.0;
         const VULKAN: u32 = DLDeviceType::VULKAN.0;
-        const TRN: u32 = DLDeviceType::TRN.0;
+        const ASCEND: u32 = DLDeviceType::ASCEND.0;
 
-        matches!(self.0, CPU..=OPENCL | VULKAN..=TRN)
+        matches!(self.0, CPU..=OPENCL | VULKAN..=ASCEND)
     }
 }
 
@@ -72,10 +72,13 @@ mod tests {
 
     #[test]
     fn device_type_knownness_tracks_bundled_header() {
-        for value in [1, 2, 3, 4, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18] {
+        for value in 1..=4 {
             assert!(DLDeviceType(value).is_known());
         }
-        for value in [0, 5, 6, 19, u32::MAX] {
+        for value in 7..=21 {
+            assert!(DLDeviceType(value).is_known());
+        }
+        for value in [0, 5, 6, 22, u32::MAX] {
             assert!(!DLDeviceType(value).is_known());
         }
     }

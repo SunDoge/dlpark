@@ -19,7 +19,7 @@
 #define DLPACK_MAJOR_VERSION 1
 
 /*! \brief The current minor version of dlpack */
-#define DLPACK_MINOR_VERSION 3
+#define DLPACK_MINOR_VERSION 4
 
 /*! \brief DLPACK_DLL prefix for windows */
 #ifdef _WIN32
@@ -120,6 +120,12 @@ typedef enum {
   kDLMAIA = 17,
   /*! \brief AWS Trainium */
   kDLTrn = 18,
+  /*! \brief Google TPU device */
+  kDLTPU = 19,
+  /*! \brief Google TPU Host device (pinned memory) */
+  kDLTPUHost = 20,
+  /*! \brief Huawei Ascend NPU device */
+  kDLAscend = 21,
 } DLDeviceType;
 
 /*!
@@ -179,6 +185,10 @@ typedef enum {
    * while the consumer must stop importing if the value is unexpected.
    */
   kDLFloat4_e2m1fn = 17U,
+  /*! \brief complex number (2x bfloat16)
+   * (C/C++/Python layout: same as kDLComplex, compact struct per complex number)
+   */
+  kDLBcomplex = 18U,
 } DLDataTypeCode;
 
 /*!
@@ -191,6 +201,8 @@ typedef enum {
  *   - float4(vectorized 4 float): type_code = 2, bits = 32, lanes = 4
  *   - int8: type_code = 0, bits = 8, lanes = 1
  *   - std::complex<float>: type_code = 5, bits = 64, lanes = 1
+ *   - std::complex<std::float16_t>: type_code = 5, bits = 32, lanes = 1
+ *   - std::complex<std::bfloat16_t>: type_code = 18, bits = 32, lanes = 1
  *   - bool: type_code = 6, bits = 8, lanes = 1 (as per common array library convention, the underlying storage size of bool is 8 bits)
  *   - float8_e4m3: type_code = 8, bits = 8, lanes = 1 (packed in memory)
  *   - float6_e3m2fn: type_code = 16, bits = 6, lanes = 1 (packed in memory)
@@ -220,8 +232,8 @@ typedef struct {
 typedef struct {
   /*!
    * \brief The data pointer points to the allocated data. This will be CUDA
-   * device pointer or cl_mem handle in OpenCL. It may be opaque on some device
-   * types. This pointer is always aligned to 256 bytes as in CUDA. The
+   * device pointer, cl_mem handle in OpenCL, or id<MTLBuffer> for Metal. It
+   * may be opaque on some device types. This pointer is always aligned to 256 bytes as in CUDA. The
    * `byte_offset` field should be used to point to the beginning of the data.
    *
    * Note that as of Nov 2021, multiple libraries (CuPy, PyTorch, TensorFlow,

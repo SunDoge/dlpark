@@ -3,8 +3,8 @@ use std::{path::Path, process::Command};
 
 use crate::fs::atomic_write;
 
-const VERSION: &str = "v1.3";
-const REVISION: &str = "84d107bf416c6bab9ae68ad285876600d230490d";
+const VERSION: &str = "v1.4";
+const REVISION: &str = "6eca9e643fcf7e870b7a1c99ee7fb166c5c2c459";
 
 pub(crate) fn run() -> Result<(), Whatever> {
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
