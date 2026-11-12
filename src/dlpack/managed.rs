@@ -62,11 +62,18 @@ where
     ///
     /// # Safety
     ///
-    /// `ptr` must point to an initialized `M` owned by the caller. Its shape and
-    /// optional strides storage must remain readable and immutable while this
-    /// handle exists. Its deleter, if present, must be valid to call exactly
-    /// once and must not unwind. An incompatible versioned tensor is released
-    /// before returning an error.
+    /// `ptr` must point to an initialized `M` whose ownership is transferred to
+    /// the returned handle. The descriptor and all metadata reachable through
+    /// it, including shape and optional strides storage, must remain readable
+    /// and must not be mutated except through exclusive access to the handle.
+    ///
+    /// Its deleter, if present, must be valid to call exactly once from any
+    /// thread and must not unwind. These cross-thread requirements are needed
+    /// because `Managed` is `Send + Sync` and may consequently be dropped on a
+    /// thread other than the one that called `from_raw`.
+    ///
+    /// An incompatible versioned tensor is released before returning an error,
+    /// so the same deleter requirements apply on the error path.
     pub unsafe fn from_raw(ptr: *mut M) -> Result<Self, FromRawError> {
         let ptr = NonNull::new(ptr).ok_or(FromRawError::Null)?;
         let managed = Self(ptr);

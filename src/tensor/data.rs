@@ -20,7 +20,9 @@ impl DLTensor {
     ///
     /// In addition to valid shape and strides metadata, the byte-offset-adjusted
     /// data pointer must reference `num_elements` initialized values of `T`
-    /// that remain readable for the returned slice's lifetime.
+    /// that remain readable for the returned slice's lifetime. While the slice
+    /// exists, those values must not be mutated through another pointer or
+    /// accessed through a mutable reference.
     pub unsafe fn cpu_slice<T: DlpackElement>(&self) -> Result<&[T], Error> {
         self.ensure_cpu()?;
         ensure!(
@@ -59,7 +61,8 @@ impl DLTensor {
     /// In addition to valid shape and strides metadata, the
     /// byte-offset-adjusted data pointer must reference [`Self::num_bytes`]
     /// initialized bytes that remain readable for the returned slice's
-    /// lifetime.
+    /// lifetime. While the slice exists, those bytes must not be mutated
+    /// through another pointer or accessed through a mutable reference.
     #[inline]
     pub unsafe fn cpu_bytes(&self) -> Result<&[u8], Error> {
         self.ensure_cpu()?;
