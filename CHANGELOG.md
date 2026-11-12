@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## Unreleased
+
+### Breaking changes
+
+- Distinguish owner-backed `TensorRef`/`TensorMut` views from non-thread-safe
+  `RawTensorRef`/`RawTensorMut` descriptor views. `Managed::validate` and
+  `Managed::validate_mut` now return the owner-backed forms, and `TensorView`
+  provides shared metadata access across both provenance classes.
+
+### Documentation
+
+- Complete the unsafe contracts for importing a cross-thread `Managed` handle
+  and for constructing Rust shared slices over foreign tensor storage.
+
+---
+
 ## 0.10.0 - 2026-10-23
 
 ### 🏗️ Breaking changes

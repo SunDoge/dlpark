@@ -194,7 +194,9 @@ impl<'a> RawTensorRef<'a> {
     /// # Safety
     ///
     /// The adjusted data pointer must reference `num_elements()` initialized
-    /// values of `T` for the returned lifetime.
+    /// values of `T` for the returned lifetime. While the returned shared slice
+    /// exists, the referenced bytes must not be mutated through another pointer
+    /// or accessed through a mutable reference.
     pub unsafe fn cpu_slice<T: DlpackElement>(&self) -> Result<&'a [T], Error> {
         unsafe { self.tensor.cpu_slice::<T>() }
     }
@@ -204,7 +206,9 @@ impl<'a> RawTensorRef<'a> {
     /// # Safety
     ///
     /// The adjusted data pointer must reference `num_bytes()` initialized bytes
-    /// for the returned lifetime.
+    /// for the returned lifetime. While the returned shared slice exists, those
+    /// bytes must not be mutated through another pointer or accessed through a
+    /// mutable reference.
     pub unsafe fn cpu_bytes(&self) -> Result<&'a [u8], Error> {
         unsafe { self.tensor.cpu_bytes() }
     }

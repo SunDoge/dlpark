@@ -9,6 +9,12 @@ ownership, so dropping the handle does nothing. The ABI type is explicit:
 - `legacy::Dlpack` is `Managed<DLManagedTensor>`.
 - `versioned::Dlpack` is `Managed<DLManagedTensorVersioned>`.
 
+`Managed::from_raw` transfers ownership into a `Send + Sync` handle. Its
+unsafe contract therefore requires descriptor metadata to remain immutable
+without exclusive access and requires the producer's deleter to be callable
+from any thread. Locally constructed tensors enforce the latter requirement
+through the `OpaqueContext` bounds.
+
 `ManagedTensorBase` provides the common operations needed by generic allocation
 and ownership code while preserving the concrete C layout.
 
@@ -73,7 +79,8 @@ safe metadata builders provide them.
 
 `TensorRef::cpu_slice` checks device, dtype, alignment, and compact layout.
 `cpu_bytes` is dtype-agnostic and supports packed sub-byte types. Both remain
-unsafe because the descriptor cannot prove the allocation's bounds.
+unsafe because the descriptor cannot prove the allocation's bounds or that the
+allocation will remain unmodified while a returned Rust shared slice exists.
 
 ## Versions and flags
 
