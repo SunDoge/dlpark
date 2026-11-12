@@ -6,6 +6,17 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.11.1 - 2026-11-12
+
+### 🚀 Features
+
+- Upgrade bundled DLPack header to v1.4
+
+
+
+**Full Changelog**: <https://github.com/SunDoge/dlpark/compare/v0.11.0...v0.11.1>
+
+---
 ## 0.11.0 - 2026-11-12
 
 ### 📝 Documentation
