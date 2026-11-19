@@ -15,6 +15,45 @@ use pyo3::{
 };
 use std::ffi::CStr;
 
+fn set_capsule_name(capsule: *mut pyo3::ffi::PyObject, name: &CStr) -> pyo3::PyResult<()> {
+    if unsafe { pyo3::ffi::PyCapsule_SetName(capsule, name.as_ptr()) } != 0 {
+        Err(unsafe { fetch_python_error() })
+    } else {
+        Ok(())
+    }
+}
+
+/// Marks an externally consumed DLPack capsule as used.
+///
+/// This is a recovery helper for a non-conforming consumer that invokes the
+/// managed-tensor deleter, then raises without renaming the capsule. It accepts
+/// both legacy and versioned DLPack capsules and is idempotent when the capsule
+/// already has its corresponding `used_*` name.
+///
+/// This function does not invoke the managed-tensor deleter. The caller must
+/// only use it after establishing that the consumer took ownership or already
+/// invoked the deleter. Marking an unconsumed capsule as used prevents its
+/// destructor from releasing the tensor and therefore leaks its allocation.
+pub fn mark_dlpack_capsule_consumed(capsule: Borrowed<'_, '_, PyAny>) -> pyo3::PyResult<()> {
+    let capsule = capsule.as_ptr();
+    unsafe {
+        for (name, used_name) in [
+            (DLTENSOR, USED_DLTENSOR),
+            (DLTENSOR_VERSIONED, USED_DLTENSOR_VERSIONED),
+        ] {
+            if pyo3::ffi::PyCapsule_IsValid(capsule, used_name.as_ptr()) == 1 {
+                return Ok(());
+            }
+            if pyo3::ffi::PyCapsule_IsValid(capsule, name.as_ptr()) == 1 {
+                return set_capsule_name(capsule, used_name);
+            }
+        }
+    }
+    Err(PyValueError::new_err(
+        "expected a legacy or versioned DLPack capsule",
+    ))
+}
+
 fn capsule_to_raw_dlpack(
     capsule: *mut pyo3::ffi::PyObject,
     name: &CStr,
@@ -45,9 +84,7 @@ fn capsule_to_raw_dlpack(
             )));
         }
 
-        if pyo3::ffi::PyCapsule_SetName(capsule, used_name.as_ptr()) != 0 {
-            return Err(fetch_python_error());
-        }
+        set_capsule_name(capsule, used_name)?;
         Ok(ptr)
     }
 }

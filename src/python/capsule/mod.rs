@@ -2,7 +2,6 @@
 
 use std::ffi::CStr;
 
-
 const DLTENSOR: &CStr = c"dltensor";
 const USED_DLTENSOR: &CStr = c"used_dltensor";
 const DLTENSOR_VERSIONED: &CStr = c"dltensor_versioned";
@@ -13,6 +12,7 @@ pub(crate) mod ffi_error;
 mod from_python;
 mod into_python;
 
+pub use from_python::mark_dlpack_capsule_consumed;
 pub(crate) use from_python::{
     call_dlpack, consume_legacy_capsule, consume_versioned_capsule, is_legacy_capsule,
     is_versioned_capsule, validate_copy_result,
@@ -38,6 +38,30 @@ mod tests {
         types::{PyAnyMethods, PyModule},
     };
     use std::ffi::c_void;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+
+    struct CountDrop(Arc<AtomicUsize>);
+
+    impl Drop for CountDrop {
+        fn drop(&mut self) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    fn counted_tensor<M: crate::ManagedTensorBase>(drops: Arc<AtomicUsize>) -> Managed<M> {
+        make_test_tensor(
+            Box::new(CountDrop(drops)),
+            std::ptr::dangling_mut::<i32>().cast(),
+            DLDataType::of::<i32>(),
+            DLDevice::CPU,
+            [1],
+            [1],
+            DlpackFlags::empty(),
+        )
+    }
 
     struct TestStream;
 
@@ -187,6 +211,64 @@ mod tests {
             Ok(())
         })
         .unwrap();
+    }
+
+    #[test]
+    fn mark_consumed_prevents_legacy_capsule_from_calling_deleter_twice() {
+        pyo3::Python::initialize();
+        pyo3::Python::attach(|py| -> pyo3::PyResult<()> {
+            let drops = Arc::new(AtomicUsize::new(0));
+            let capsule =
+                counted_tensor::<DLManagedTensor>(Arc::clone(&drops)).into_pyobject(py)?;
+            let raw = unsafe {
+                pyo3::ffi::PyCapsule_GetPointer(capsule.as_ptr(), DLTENSOR.as_ptr())
+                    .cast::<DLManagedTensor>()
+            };
+
+            unsafe { ((*raw).deleter.unwrap())(raw) };
+            assert_eq!(drops.load(Ordering::SeqCst), 1);
+
+            mark_dlpack_capsule_consumed(capsule.as_borrowed())?;
+            mark_dlpack_capsule_consumed(capsule.as_borrowed())?;
+            drop(capsule);
+            assert_eq!(drops.load(Ordering::SeqCst), 1);
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn mark_consumed_prevents_versioned_capsule_from_calling_deleter_twice() {
+        pyo3::Python::initialize();
+        pyo3::Python::attach(|py| -> pyo3::PyResult<()> {
+            let drops = Arc::new(AtomicUsize::new(0));
+            let capsule =
+                counted_tensor::<DLManagedTensorVersioned>(Arc::clone(&drops)).into_pyobject(py)?;
+            let raw = unsafe {
+                pyo3::ffi::PyCapsule_GetPointer(capsule.as_ptr(), DLTENSOR_VERSIONED.as_ptr())
+                    .cast::<DLManagedTensorVersioned>()
+            };
+
+            unsafe { ((*raw).deleter.unwrap())(raw) };
+            assert_eq!(drops.load(Ordering::SeqCst), 1);
+
+            mark_dlpack_capsule_consumed(capsule.as_borrowed())?;
+            mark_dlpack_capsule_consumed(capsule.as_borrowed())?;
+            drop(capsule);
+            assert_eq!(drops.load(Ordering::SeqCst), 1);
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn mark_consumed_rejects_non_capsules() {
+        pyo3::Python::initialize();
+        pyo3::Python::attach(|py| {
+            let value = 42_i32.into_pyobject(py).unwrap();
+            let error = mark_dlpack_capsule_consumed(value.as_any().as_borrowed()).unwrap_err();
+            assert!(error.is_instance_of::<PyValueError>(py));
+        });
     }
 
     #[test]
