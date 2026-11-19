@@ -6,6 +6,17 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.11.2 - 2026-11-19
+
+### 🐛 Fixes
+
+- Add consumed capsule recovery helper ([#107](https://github.com/SunDoge/dlpark/pull/107))
+
+
+
+**Full Changelog**: <https://github.com/SunDoge/dlpark/compare/v0.11.1...v0.11.2>
+
+---
 ## 0.11.1 - 2026-11-12
 
 ### 🚀 Features
