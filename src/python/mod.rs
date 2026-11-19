@@ -12,6 +12,7 @@ mod capsule;
 pub mod consumer;
 /// Helpers for implementing Python DLPack producers.
 pub mod producer;
+pub use capsule::mark_dlpack_capsule_consumed;
 pub use consumer::{
     DlpackStream, ImportRequest, ImportedDlpack, StreamArg, dlpack_device, from_dlpack,
 };

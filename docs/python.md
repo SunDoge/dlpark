@@ -19,7 +19,14 @@ consumer stream after the producer stream. Otherwise it falls back to Python's
 `__dlpack__` negotiation.
 
 Capsules are single-use. Successful extraction renames the capsule to
-`dltensor_used` or `dltensor_versioned_used`; consuming it again is an error.
+`used_dltensor` or `used_dltensor_versioned`; consuming it again is an error.
+
+Some non-conforming consumers may invoke the managed-tensor deleter and then
+raise without marking the capsule as used. A producer that can independently
+confirm the deleter ran may call `python::mark_dlpack_capsule_consumed` before
+the capsule is destroyed to prevent a second deleter call. Do not call this on
+an unconsumed capsule: marking it used makes the capsule destructor skip the
+deleter and leaks the allocation.
 
 After import, a container that adopts the pointer and metadata may call
 `ImportedDlpack::into_deleter`. The resulting `AllocationDeleter` releases the
