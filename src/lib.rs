@@ -1,5 +1,16 @@
 //! Safe ownership and interoperability helpers for [DLPack].
 //!
+//! ## Choose an entry point
+//!
+//! - Export a Rust container through an [`interop`] adapter, or use
+//!   [`metadata`] to describe a buffer you own.
+//! - Inspect a managed tensor with [`Managed::validate`], or use an adapter
+//!   implementing [`TryFromDlpack`] to import it into a Rust container.
+//!
+//! ## Export an ndarray
+//!
+//! This example requires the `ndarray` feature.
+//!
 //! Producers convert into an allocation-specific [`allocation::Initialized`],
 //! configure scalar fields, and finish it as a locally produced tensor.
 //!
@@ -12,6 +23,8 @@
 //! let mut initialized: dynamic::Initialized<DLManagedTensorVersioned> =
 //!     Box::new(arr1(&[1_i32, 2, 3])).try_into().unwrap();
 //! initialized.set_flags(DlpackFlags::READ_ONLY).unwrap();
+//! // SAFETY: the ndarray adapter supplies the descriptor and owns the array.
+//! // The only change is to declare the export read-only.
 //! let tensor: versioned::Dlpack = unsafe { initialized.finish() };
 //! assert_eq!(tensor.validate().unwrap().shape(), &[3]);
 //! # }

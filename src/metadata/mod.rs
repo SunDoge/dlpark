@@ -17,6 +17,30 @@
 //! `TypeId` fast path through `ptr::copy_nonoverlapping`.
 //! [`Dynamic::compact`](crate::metadata::Dynamic::compact) computes and stores
 //! explicit row-major strides, as required of non-scalar DLPack v1.2+ tensors.
+//!
+//! ## Export an owned CPU buffer
+//!
+//! Preparation stores the shape and strides in the managed allocation.
+//! Initialization installs the buffer owner as the context, which the managed
+//! tensor's deleter releases.
+//!
+//! ```
+//! use dlpark::{ffi::{DLDataType, DLDevice}, metadata::Fixed, versioned};
+//!
+//! let prepared = Fixed::new([2, 2], [2, 1]).prepare()?;
+//! let mut values = Box::new([1_f32, 2.0, 3.0, 4.0]);
+//! let data = values.as_mut_ptr().cast();
+//! let mut initialized = prepared.initialize(values);
+//! initialized
+//!     .set_data(data)
+//!     .set_dtype(DLDataType::F32)
+//!     .set_device(DLDevice::CPU);
+//! // SAFETY: the context owns the array and keeps its address valid.
+//! // The shape and strides cover all four elements in row-major order.
+//! let tensor: versioned::Dlpack = unsafe { initialized.finish() };
+//! assert_eq!(tensor.validate()?.shape(), &[2, 2]);
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! ```
 
 use snafu::Snafu;
 mod dynamic;
