@@ -14,6 +14,9 @@ container adapters, the Python Array API protocol, and DLPack 1.3 C Exchange.
 
 No features are enabled by default. Enable only the integrations you use:
 
+The core library supports Rust 1.88 and later. Optional integrations may
+require a newer compiler.
+
 ```bash
 cargo add dlpark --features "ndarray half"
 cargo add dlpark --features "pyo3 image"
@@ -26,18 +29,29 @@ cargo add dlpark --features "safetensors"
 A producer owns its container through the managed tensor's deleter. The
 versioned ABI is recommended for new code:
 
+```bash
+cargo add dlpark --features ndarray
+cargo add ndarray@0.17
+```
+
 ```rust
 use dlpark::{allocation::dynamic, ffi::DLManagedTensorVersioned, versioned};
 use ndarray::arr2;
 
-let initialized: dynamic::Initialized<DLManagedTensorVersioned> =
-    Box::new(arr2(&[[1_i32, 2, 3], [4, 5, 6]])).try_into()?;
-let dlpack: versioned::Dlpack = unsafe { initialized.finish() };
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let initialized: dynamic::Initialized<DLManagedTensorVersioned> =
+        Box::new(arr2(&[[1_i32, 2, 3], [4, 5, 6]])).try_into()?;
+    // SAFETY: the ndarray adapter supplies the descriptor and its owner.
+    // No fields have been overridden.
+    let dlpack: versioned::Dlpack = unsafe { initialized.finish() };
 
-let tensor = dlpack.validate()?;
-assert_eq!(tensor.shape(), &[2, 3]);
-assert_eq!(unsafe { tensor.cpu_slice::<i32>()? }, &[1, 2, 3, 4, 5, 6]);
-# Ok::<(), Box<dyn std::error::Error>>(())
+    let tensor = dlpack.validate()?;
+    assert_eq!(tensor.shape(), &[2, 3]);
+    // SAFETY: the owned CPU array remains alive and is not mutated.
+    let values = unsafe { tensor.cpu_slice::<i32>()? };
+    assert_eq!(values, &[1, 2, 3, 4, 5, 6]);
+    Ok(())
+}
 ```
 
 `finish` is unsafe because the caller must ensure that the completed

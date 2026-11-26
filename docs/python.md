@@ -5,6 +5,29 @@ Enable the `pyo3` feature for the Python Array API DLPack protocol and DLPack
 
 ## Importing from Python
 
+In a PyO3 extension, this function accepts a Python DLPack producer and
+returns its shape without reading the tensor data:
+
+```rust
+use dlpark::{Managed, ManagedTensorBase, python::{ImportedDlpack, from_dlpack}};
+use pyo3::{exceptions::PyValueError, prelude::*};
+
+#[pyfunction]
+fn tensor_shape(object: &Bound<'_, PyAny>) -> PyResult<Vec<i64>> {
+    match from_dlpack(object.as_borrowed(), None, None)? {
+        ImportedDlpack::Legacy(tensor) => shape(tensor),
+        ImportedDlpack::Versioned(tensor) => shape(tensor),
+    }
+}
+
+fn shape<M: ManagedTensorBase>(tensor: Managed<M>) -> PyResult<Vec<i64>> {
+    let tensor = tensor
+        .validate()
+        .map_err(|err| PyValueError::new_err(err.to_string()))?;
+    Ok(tensor.shape().to_vec())
+}
+```
+
 Use `python::from_dlpack` for the ordinary one-step path. For device-aware
 stream negotiation, construct `ImportRequest`, query its device, choose the
 consumer stream, and call `import`. Discovery proceeds in this order:
@@ -32,6 +55,32 @@ After import, a container that adopts the pointer and metadata may call
 `ImportedDlpack::into_deleter`. The resulting `AllocationDeleter` releases the
 original managed tensor exactly once without requiring the container to retain
 the legacy/versioned wrapper type.
+
+## Exporting a CPU tensor
+
+For a one-shot capsule, return a managed tensor from a PyO3 function.
+This example also needs dlpark's `ndarray` feature and `ndarray = "0.17"`:
+
+```rust
+use dlpark::{allocation::dynamic, ffi::DLManagedTensor, legacy};
+use ndarray::arr1;
+use pyo3::{exceptions::PyValueError, prelude::*};
+
+#[pyfunction]
+fn sample_tensor() -> PyResult<legacy::Dlpack> {
+    let initialized: dynamic::Initialized<DLManagedTensor> =
+        Box::new(arr1(&[1_i32, 2, 3]))
+            .try_into()
+            .map_err(|err: dlpark::metadata::Error| PyValueError::new_err(err.to_string()))?;
+    // SAFETY: the ndarray adapter supplies the descriptor and owns the array.
+    Ok(unsafe { initialized.finish() })
+}
+```
+
+Register these functions in your PyO3 module with `wrap_pyfunction!`.
+For example, a PyTorch caller can consume the capsule with
+`torch.from_dlpack(sample_tensor())`. Call `sample_tensor()` again to create
+a fresh capsule for another consumer.
 
 ## Exporting reusable Python objects
 

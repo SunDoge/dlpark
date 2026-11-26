@@ -20,7 +20,7 @@ include = [
 
 [package.metadata.docs.rs]
 no-default-features = true
-features = ["candle", "half", "image", "ndarray", "safetensors"]
+features = ["candle", "half", "image", "ndarray", "pyo3", "safetensors"]
 
 [workspace]
 resolver = "3"

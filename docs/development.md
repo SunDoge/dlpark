@@ -17,6 +17,11 @@ API.
 
 ## Regenerating FFI bindings
 
+The library's Rust 1.88 compatibility check covers the core library with
+default features disabled. Optional integrations can require newer Rust
+versions. The `xtask` workspace tool requires Rust 1.91 or later through
+`usage-rs`.
+
 Bindings in `src/ffi.rs` are generated from the pinned DLPack header under
 `vendor/dlpack/`:
 
