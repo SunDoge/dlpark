@@ -6,6 +6,23 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.11.3 - 2026-11-26
+
+### 📝 Documentation
+
+- Improve Rustdoc navigation and ownership examples
+
+
+- Improve getting started and Python examples
+
+
+- List safetensors as a downstream user
+
+
+
+**Full Changelog**: <https://github.com/SunDoge/dlpark/compare/v0.11.2...v0.11.3>
+
+---
 ## 0.11.2 - 2026-11-19
 
 ### 🐛 Fixes
