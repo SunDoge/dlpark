@@ -61,6 +61,10 @@ Raw CUDA and Metal runtime policy remains application-specific. The
 `demos/cuda-python` and `demos/metal-python` projects show complete native
 buffer implementations.
 
+## Used by
+
+- [safetensors](https://github.com/safetensors/safetensors)
+
 ## Guides
 
 - [Ownership, validation, metadata, and versioning](docs/core-api.md)
